@@ -1,0 +1,123 @@
+#!/bin/bash
+# ken-ty-netshape — この Mac 自身の WAN 向け通信に上限をかける (pf + dummynet)
+#
+#   ken-ty-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (LaunchDaemon が起動時に呼ぶ)
+#                                           引数を付けると今回だけその値。conf の既定は変えない
+#   ken-ty-netshape off                     上限を外す (pf のルールは /etc/pf.conf に戻す)
+#   ken-ty-netshape status                  いまの状態。1 行目は実物 (dnctl / pfctl) から導く
+#
+# 既定値は /usr/local/etc/ken-ty-netshape.conf で上書きできる:
+#   UP_MBIT=1 DOWN_MBIT=1
+#
+# 元は asakusa-t の admin/netshape/ken-ty-netshape (Mac mini 用)。
+# netcap (ken-ty/netcap) から 3 台まとめて叩くために、引数での上書きと
+# 機械が読める status 行を足した。
+set -eu
+
+UP_MBIT=1   # 上り。4G に落ちた夜は WAN 全体で 10Mbps も出ない (2026-09-20 実測)
+DOWN_MBIT=1 # 下り。5〜10Mbit/s の DL だけで WAN 遅延が 500〜1600ms になった
+CONF=/usr/local/etc/ken-ty-netshape.conf
+# shellcheck source=/dev/null
+[ -f "$CONF" ] && . "$CONF"
+
+ANCHOR=/etc/pf.anchors/com.ken-ty.netshape
+TOKEN=/var/run/com.ken-ty.netshape.token
+GEN=/var/run/com.ken-ty.netshape.pf.conf
+APPLIED=/var/run/com.ken-ty.netshape.applied # on で適用した値 "UP DOWN" (下りの表示にだけ使う)
+
+[ "$(id -u)" = 0 ] || {
+  echo "root で実行してください (sudo)" >&2
+  exit 1
+}
+
+is_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
+
+on() {
+  if [ $# -ge 1 ]; then
+    [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
+      echo "usage: $0 on [UP_MBIT DOWN_MBIT]" >&2
+      exit 2
+    }
+    UP_MBIT=$1
+    DOWN_MBIT=$2
+  fi
+  dnctl -q pipe 1 config bw "${UP_MBIT}Mbit/s" queue 20
+  dnctl -q pipe 2 config bw "${DOWN_MBIT}Mbit/s" queue 50
+  # /etc/pf.conf (Apple のアンカー) は触らず、末尾に自分のルールを足した
+  # 一時ファイルを main ruleset として読み込む。off で /etc/pf.conf に戻せる
+  cat /etc/pf.conf "$ANCHOR" >"$GEN"
+  pfctl -q -f "$GEN"
+  if [ ! -s "$TOKEN" ]; then
+    pfctl -E 2>&1 | sed -n 's/.*Token *: *\([0-9]*\).*/\1/p' >"$TOKEN"
+  fi
+  echo "${UP_MBIT} ${DOWN_MBIT}" >"$APPLIED"
+  echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s"
+}
+
+off() {
+  pfctl -q -f /etc/pf.conf
+  dnctl -q flush
+  if [ -s "$TOKEN" ]; then
+    pfctl -q -X "$(cat "$TOKEN")" || true
+    rm -f "$TOKEN"
+  fi
+  rm -f "$APPLIED"
+  echo "netshape OFF"
+}
+
+# pipe 1 の帯域を Mbit/s で返す。無ければ空。
+#   00001:   1.000 Mbit/s    0 ms   20 sl. ...   /   00001: unlimited ...
+# macOS の dnctl は 2 本目以降の pipe の見出し行を出さない (`pipe 2 show` は空、
+# `-s list` は segfault。2026-09-21 MBP で実測)。だから読めるのは pipe 1 だけ。
+pipe1_mbit() {
+  dnctl list 2>/dev/null | awk '
+    $1 == "00001:" {
+      if ($2 == "unlimited") { print "unlimited"; exit }
+      v = $2 + 0; u = $3
+      if (u == "Kbit/s") v = v / 1000
+      else if (u == "bit/s") v = v / 1000000
+      else if (u == "Gbit/s") v = v * 1000
+      printf "%g\n", v; exit
+    }'
+}
+
+# pipe の本数。見出し行は出ないが pipe ごとの "mask:" 行は出るので、それを数える
+pipe_count() {
+  dnctl list 2>/dev/null | grep -c "^ *mask:" || true
+}
+
+status() {
+  local rules up down pipes state down_src
+  rules=$(pfctl -s dummynet 2>/dev/null | grep -c "pipe" || true)
+  pipes=$(pipe_count)
+  up=$(pipe1_mbit)
+  # 下りは pipe 2 の実在だけ dnctl で確かめ、値は on で書いた記録から読む (表示バグの回避)
+  down=""; down_src=none
+  if [ "$pipes" -ge 2 ] && [ -s "$APPLIED" ]; then
+    down=$(awk '{print $2}' "$APPLIED")
+    down_src=applied
+  fi
+  if [ "$rules" -ge 2 ] && [ -n "$up" ] && [ "$pipes" -ge 2 ]; then
+    state=on
+  elif [ "$rules" -eq 0 ] && [ -z "$up" ] && [ "$pipes" -eq 0 ]; then
+    state=off
+  else
+    state=partial # ルールと pipe が食い違っている。on か off を打ち直す
+  fi
+  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules} default_up=${UP_MBIT} default_down=${DOWN_MBIT}"
+  pfctl -s info 2>/dev/null | head -1
+  echo "--- pipes (dnctl は pipe 1 の見出しだけ出す。mask: の行数が pipe の本数)"
+  dnctl list 2>/dev/null || echo "(none)"
+  echo "--- rules"
+  pfctl -s dummynet 2>/dev/null | grep -v "^$" || echo "(no dummynet rules)"
+}
+
+case "${1:-}" in
+  on) shift; on "$@" ;;
+  off) off ;;
+  status) status ;;
+  *)
+    echo "usage: $0 {on [UP_MBIT DOWN_MBIT]|off|status}" >&2
+    exit 2
+    ;;
+esac

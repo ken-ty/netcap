@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+"""netcap — Ken の常用機 3 台の WAN 帯域上限を 1 本で on / off / status する。
+
+  netcap status [host|all] [--json]     実物 (pf の pipe / QoS policy) を読んで 1 表に
+  netcap on  <host|all>                 端末ごとの既定値で上限をかける
+  netcap off <host|all>                 上限を外す (再起動すれば端末ごとの起動時既定に戻る)
+  netcap set <host> <up_mbit> <down_mbit>   今回だけこの値で上限をかける (既定は変えない)
+
+端末側の実体:
+  mac (mbp / mini) : /usr/local/sbin/ken-ty-netshape   (pf + dummynet。mac/ を参照)
+  win (nucbox)     : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy。win/ を参照)
+どちらも `state=... up_mbit=... down_mbit=...` の 1 行を先頭に出すので、それを読む。
+"""
+import argparse
+import json
+import shlex
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+
+HOSTS = {
+    "mbp": {"os": "mac", "ssh": None, "label": "MacBook Pro"},
+    "mini": {"os": "mac", "ssh": "macmini-admin", "label": "Mac mini"},
+    "nucbox": {"os": "win", "ssh": "nucbox", "label": "nucbox (Windows)"},
+}
+ORDER = list(HOSTS)
+MAC_BIN = "/usr/local/sbin/ken-ty-netshape"
+WIN_SCRIPT = r"C:\ProgramData\netcap\netcap-qos.ps1"
+SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
+
+
+def build_cmd(host, action, args):
+    h = HOSTS[host]
+    if h["os"] == "mac":
+        remote = ["sudo", "-n", MAC_BIN, action, *args]
+    else:
+        remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                  "-File", WIN_SCRIPT, action, *args]
+    if h["ssh"] is None:
+        return remote
+    # ssh は 1 本の文字列として渡すので引用しておく。Windows 側も
+    # OpenSSH が引数を分けてくれるのでこの形で通る
+    return ["ssh", *SSH_OPTS, h["ssh"], " ".join(shlex.quote(a) for a in remote)]
+
+
+def run(host, action, args=()):
+    """端末で 1 コマンド実行して、解釈済みの dict を返す。"""
+    cmd = build_cmd(host, action, list(args))
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return {"host": host, "reach": "timeout", "raw": ""}
+    out = (p.stdout or "") + (p.stderr or "")
+    res = {"host": host, "raw": out.strip(), "rc": p.returncode}
+    if p.returncode == 255 and HOSTS[host]["ssh"]:
+        res["reach"] = "unreachable"
+        return res
+    res["reach"] = "ok"
+    if "a password is required" in out or "sudo: a terminal is required" in out:
+        res["reach"] = "no-sudo"  # sudoers が入っていない
+    for line in out.splitlines():
+        if "state=" in line:
+            for tok in line.split():
+                if "=" in tok:
+                    k, v = tok.split("=", 1)
+                    res[k] = v
+            break
+    if action in ("on", "off") and p.returncode == 0 and "state" not in res:
+        res["state"] = action  # on/off の応答には state 行が無いので補う
+    if p.returncode != 0 and res["reach"] == "ok":
+        res["reach"] = "error"
+    return res
+
+
+def resolve(target):
+    if target in (None, "all"):
+        return ORDER
+    if target not in HOSTS:
+        sys.exit(f"unknown host: {target} (choose from {', '.join(ORDER)} or all)")
+    return [target]
+
+
+def fmt_mbit(v):
+    if v in (None, "", "-"):
+        return "-"
+    return v
+
+
+def print_table(rows):
+    cols = [("host", 7), ("reach", 12), ("cap", 8), ("up", 10), ("down", 10), ("default", 9), ("note", 0)]
+    line = "  ".join(f"{c:<{w}}" if w else c for c, w in cols)
+    print(line)
+    print("-" * max(len(line), 60))
+    footnote = False
+    for r in rows:
+        ok = r.get("reach") == "ok"
+        default = "-"
+        if r.get("default_up") or r.get("default_down"):
+            default = f"{fmt_mbit(r.get('default_up'))}/{fmt_mbit(r.get('default_down'))}"
+        up = fmt_mbit(r.get("up_mbit"))
+        down = fmt_mbit(r.get("down_mbit"))
+        down_mark = ""
+        if down != "-" and r.get("down_src") == "applied":
+            down_mark = "*"
+            footnote = True
+        note = r.get("note", "") if ok else (r.get("raw", "").splitlines() or [""])[-1]
+        vals = [r["host"], r.get("reach", "?"), r.get("state", "?") if ok else "?",
+                up if up == "-" else f"{up} Mbit/s", down if down == "-" else f"{down} Mbit/s{down_mark}", default, note]
+        print("  ".join(f"{v:<{w}}" if w else v for v, (c, w) in zip(vals, cols)))
+    if footnote:
+        print("* 下りは on 時に記録した値。macOS の dnctl が pipe 2 の帯域を表示できないため (pipe の実在は確認済み)")
+
+
+def main():
+    ap = argparse.ArgumentParser(prog="netcap", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("action", choices=["status", "on", "off", "set"])
+    ap.add_argument("host", nargs="?", help="mbp | mini | nucbox | all")
+    ap.add_argument("values", nargs="*", help="set のときだけ: <up_mbit> <down_mbit>")
+    ap.add_argument("--json", action="store_true", help="機械が読む形で出す")
+    ap.add_argument("--raw", action="store_true", help="端末側の生の出力も出す")
+    a = ap.parse_args()
+
+    if a.action == "set":
+        if not a.host or a.host == "all" or len(a.values) != 2:
+            ap.error("usage: netcap set <host> <up_mbit> <down_mbit>")
+        hosts = resolve(a.host)
+        args = a.values
+        action = "on"
+    else:
+        if a.action in ("on", "off") and not a.host:
+            ap.error(f"usage: netcap {a.action} <host|all>")
+        hosts = resolve(a.host)
+        args = []
+        action = a.action
+
+    with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
+        results = list(ex.map(lambda h: run(h, action, args), hosts))
+
+    # on/off/set のあとは実物を読み直して返す。設定した値ではなく読んだ値を見せる
+    if action != "status":
+        with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
+            after = list(ex.map(lambda h: run(h, "status"), hosts))
+        for r, s in zip(results, after):
+            if r.get("reach") == "ok" and s.get("reach") == "ok":
+                s["raw"] = r["raw"] + "\n" + s["raw"]
+                results = [s if x["host"] == s["host"] else x for x in results]
+
+    if a.json:
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+    else:
+        print_table(results)
+        if a.raw:
+            for r in results:
+                print(f"\n=== {r['host']}\n{r.get('raw', '')}")
+    sys.exit(0 if all(r.get("reach") == "ok" for r in results) else 1)
+
+
+if __name__ == "__main__":
+    main()

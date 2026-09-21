@@ -1,0 +1,3 @@
+# netcap が無人で叩けるように、ken-ty-netshape だけパスワード無しにする。
+# 置き場所: /etc/sudoers.d/ken-ty-netshape (0440 root:wheel)。mac/install.sh が置く
+__USER__ ALL=(root) NOPASSWD: /usr/local/sbin/ken-ty-netshape
