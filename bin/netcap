@@ -47,7 +47,9 @@ def run(host, action, args=()):
     """端末で 1 コマンド実行して、解釈済みの dict を返す。"""
     cmd = build_cmd(host, action, list(args))
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=60)  # Windows は cp932 で返すことがある
+        # nucbox の PowerShell は cp932 で返す (ssh 越しの OEM コードページ)
+        enc = "cp932" if HOSTS[host]["os"] == "win" else "utf-8"
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding=enc, errors="replace", timeout=60)
     except subprocess.TimeoutExpired:
         return {"host": host, "reach": "timeout", "raw": ""}
     out = (p.stdout or "") + (p.stderr or "")
