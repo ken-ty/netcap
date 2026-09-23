@@ -2,11 +2,14 @@
 # ken-ty-netshape — この Mac 自身の WAN 向け通信に上限をかける (pf + dummynet)
 #
 #   ken-ty-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (LaunchDaemon が起動時に呼ぶ)
-#                                           引数を付けると今回だけその値。conf の既定は変えない
+#                                           引数を付けると今回だけその値。既定は変えない
 #   ken-ty-netshape off                     上限を外す (pf のルールは /etc/pf.conf に戻す)
 #   ken-ty-netshape status                  いまの状態。1 行目は実物 (dnctl / pfctl) から導く
+#   ken-ty-netshape set UP_MBIT DOWN_MBIT   既定を書き換える (再起動後も効く)。
+#                                           いま上限がかかっていれば、その値で張り直す
+#   ken-ty-netshape get                     既定と起動時の挙動を 1 行で
 #
-# 既定値は /usr/local/etc/ken-ty-netshape.conf で上書きできる:
+# 既定値は /usr/local/etc/ken-ty-netshape.conf に置く (set が書く):
 #   UP_MBIT=1 DOWN_MBIT=1
 #
 # 元は asakusa-t の admin/netshape/ken-ty-netshape (Mac mini 用)。
@@ -24,6 +27,7 @@ ANCHOR=/etc/pf.anchors/com.ken-ty.netshape
 TOKEN=/var/run/com.ken-ty.netshape.token
 GEN=/var/run/com.ken-ty.netshape.pf.conf
 APPLIED=/var/run/com.ken-ty.netshape.applied # on で適用した値 "UP DOWN" (下りの表示にだけ使う)
+PLIST=/Library/LaunchDaemons/com.ken-ty.netshape.plist # あれば起動時に on
 
 [ "$(id -u)" = 0 ] || {
   echo "root で実行してください (sudo)" >&2
@@ -86,6 +90,41 @@ pipe_count() {
   dnctl list 2>/dev/null | grep -c "^ *mask:" || true
 }
 
+# 既定を書き換える。書きかけを読ませないよう mktemp 経由で置き換える。
+# いま上限がかかっていれば、その値で張り直す (tailscale set と同じで、
+# 「設定を変える」が「いまの状態を壊す」ことにならないようにする)
+set_default() {
+  [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
+    echo "usage: $0 set UP_MBIT DOWN_MBIT" >&2
+    exit 2
+  }
+  local tmp applied_now
+  tmp=$(mktemp)
+  cat >"$tmp" <<EOF
+# ken-ty-netshape の既定値。ken-ty-netshape set が書く
+UP_MBIT=$1
+DOWN_MBIT=$2
+EOF
+  install -o root -g wheel -m 0644 "$tmp" "$CONF"
+  rm -f "$tmp"
+  UP_MBIT=$1
+  DOWN_MBIT=$2
+  applied_now=$(pipe_count)
+  if [ "$applied_now" -ge 2 ]; then
+    on "$1" "$2" >/dev/null
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (適用中だったので張り直した)"
+  else
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (次の on / 再起動から効く)"
+  fi
+}
+
+# 設定を返す。実物ではなく「再起動したらどうなるか」の側
+get() {
+  local boot=off
+  [ -f "$PLIST" ] && boot=on
+  echo "netshape default_up=${UP_MBIT} default_down=${DOWN_MBIT} boot=${boot} conf=$([ -f "$CONF" ] && echo "$CONF" || echo none)"
+}
+
 status() {
   local rules up down pipes state down_src
   rules=$(pfctl -s dummynet 2>/dev/null | grep -c "pipe" || true)
@@ -104,7 +143,7 @@ status() {
   else
     state=partial # ルールと pipe が食い違っている。on か off を打ち直す
   fi
-  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules} default_up=${UP_MBIT} default_down=${DOWN_MBIT}"
+  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules}"
   pfctl -s info 2>/dev/null | head -1
   echo "--- pipes (dnctl は pipe 1 の見出しだけ出す。mask: の行数が pipe の本数)"
   dnctl list 2>/dev/null || echo "(none)"
@@ -116,8 +155,10 @@ case "${1:-}" in
   on) shift; on "$@" ;;
   off) off ;;
   status) status ;;
+  set) shift; set_default "$@" ;;
+  get) get ;;
   *)
-    echo "usage: $0 {on [UP_MBIT DOWN_MBIT]|off|status}" >&2
+    echo "usage: $0 {on [UP_MBIT DOWN_MBIT]|off|status|set UP_MBIT DOWN_MBIT|get}" >&2
     exit 2
     ;;
 esac

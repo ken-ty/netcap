@@ -1,0 +1,44 @@
+#!/bin/bash
+# netcap-check — この端末から WAN の下り・上りを実測し、その最中の 1.1.1.1 への ping を取る。
+# 上限が効いていれば curl が上限に張り付き、ICMP は shaper を素通りするので ping は跳ねない。
+#
+#   netcap-check [--bytes N] [--ping-host H]
+#
+# root は要らない (curl と ping だけ)。netcap が読めるよう 1 行目を key=value で出す。
+# 上限 1 Mbit/s だと 1MB で 8 秒かかるので、絞っているときは --bytes を小さくする。
+set -eu
+
+BYTES=1000000
+PING_HOST=1.1.1.1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --bytes) BYTES=$2; shift 2 ;;
+    --ping-host) PING_HOST=$2; shift 2 ;;
+    *) echo "usage: $0 [--bytes N] [--ping-host H]" >&2; exit 2 ;;
+  esac
+done
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+head -c "$BYTES" /dev/urandom >"$tmp/up.bin"
+
+# 転送中の遅延が知りたいので、ping は転送と同時に走らせる
+ping -i 0.5 -c 300 "$PING_HOST" >"$tmp/ping.txt" 2>&1 &
+PING_PID=$!
+sleep 1
+down=$(curl -s -o /dev/null -w '%{speed_download}' "https://speed.cloudflare.com/__down?bytes=${BYTES}" || echo 0)
+up=$(curl -s -o /dev/null -w '%{speed_upload}' -X POST --data-binary "@$tmp/up.bin" https://speed.cloudflare.com/__up || echo 0)
+kill -INT "$PING_PID" 2>/dev/null || true
+wait "$PING_PID" 2>/dev/null || true
+
+# ping の中央値 / p95 / max。1 つも返らなければ n=0
+read -r n med p95 max <<<"$(grep -o 'time=[0-9.]*' "$tmp/ping.txt" | cut -d= -f2 | sort -n | awk '
+  { a[NR] = $1 }
+  END {
+    if (NR == 0) { print "0 - - -"; exit }
+    printf "%d %.1f %.1f %.1f", NR, a[int((NR + 1) / 2)], a[int(NR * 0.95) ? int(NR * 0.95) : 1], a[NR]
+  }')"
+
+awk -v d="$down" -v u="$up" -v n="$n" -v med="$med" -v p95="$p95" -v max="$max" -v b="$BYTES" \
+  'BEGIN { printf "netcheck down_mbit=%.2f up_mbit=%.2f ping_med=%s ping_p95=%s ping_max=%s ping_n=%s bytes=%s\n",
+           d * 8 / 1000000, u * 8 / 1000000, med, p95, max, n, b }'

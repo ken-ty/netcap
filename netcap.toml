@@ -1,0 +1,24 @@
+# netcap のプロファイル。「LoL やるから他を絞る」のように、複数台をまとめて 1 コマンドで動かす。
+#
+#   netcap use lol        この表のとおりに全台を揃える
+#   netcap profiles       一覧
+#
+# 値は "上り/下り" (Mbit/s)、または "off" (上限を外す)。書かなかった台は触らない。
+
+[profiles.lol]
+# nucbox で LoL をやる夜。nucbox は素通しにして、他 2 台を絞る
+mbp = "2/2"
+mini = "1/1"
+nucbox = "off"
+
+[profiles.none]
+# 全部外す。検証のあとや、絞ったままにしないための保険
+mbp = "off"
+mini = "off"
+nucbox = "off"
+
+[profiles.quiet]
+# 誰も重い通信をしない夜。mini は恒久値の 1/1、MBP も同じまで絞る
+mbp = "1/1"
+mini = "1/1"
+nucbox = "off"
