@@ -77,6 +77,52 @@ netcap が無人で叩くにはこれが要る。pf / dnctl は status を読む
 実測の `/usr/local/bin/netcap-check` は curl と ping だけなので root は要らず、sudoers にも
 入れていない。
 
+### 許可は操作される側が決める (`netcap-agent` と forced command)
+
+netcap は mac の端末に何を頼むときも `/Library/PrivilegedHelperTools/netcap-agent <動詞> …` を
+叩く。agent が動詞と引数を検査し、root が要るものだけ `sudo -n ken-ty-netshape` に渡す。
+
+**どの動詞を許すかは、操作される端末の `authorized_keys` が決める。** netcap 専用の鍵を作り、
+端末側でその鍵を forced command に固定する。
+
+```
+# 操作する側 (1 回だけ)
+ssh-keygen -t ed25519 -f ~/.ssh/netcap -C netcap@<この機械> -N ""
+
+# 操作される側の ~/.ssh/authorized_keys に 1 行 (公開鍵は ~/.ssh/netcap.pub)
+restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<この機械>
+```
+
+操作する側の `~/.ssh/config` にその鍵を使う Host を切り、`~/.config/netcap/hosts` の経路に書く。
+
+```
+Host server-netcap
+  HostName server.example.ts.net
+  User admin
+  IdentityFile ~/.ssh/netcap
+  IdentitiesOnly yes
+```
+
+- `--allow` に並べた動詞しか通らない。上限を外させたくない端末は `'status get check'` にする。
+  netcap からは読めるが、`on` / `off` / `set` は `denied` になる
+- `restrict` で pty・転送・エージェント転送を切る。その鍵で ssh してもシェルは取れない
+- 頼まれた中身 (`$SSH_ORIGINAL_COMMAND`) は空白で区切るだけで、グロブも `$(…)` も解釈しない。
+  引数は数値だけ、`check` は `--bytes <数値>` だけ受ける
+- agent を抜けても、sudoers が動詞単位で止める (二段目)
+
+これで許可のリストが両側にできる。操作する側は `hosts` にある端末しか叩かない。操作される側は
+`authorized_keys` にある鍵の、許した動詞しか受けない。
+
+netcap の表に出る `reach` の意味:
+
+| reach | 意味 |
+| --- | --- |
+| `ok` | 動いた |
+| `denied` | 端末側がその動詞を許していない (forced command の `--allow`) |
+| `no-sudo` | 端末側の sudoers に無い |
+| `no-agent` | 端末側に `netcap-agent` が入っていない |
+| `unreachable` / `timeout` | ssh が届かない |
+
 ### root で動くものの置き場所
 
 NOPASSWD で root になれる本体は、**置き場所の親ディレクトリまで root だけが書ける**ことが前提。
