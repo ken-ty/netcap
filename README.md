@@ -45,12 +45,12 @@ probe が shaper の待ち行列を測らないようにするため。
 
 | host | OS | 経路 | 実体 | 起動時 |
 | --- | --- | --- | --- | --- |
-| `mbp` | macOS | ローカル | `mac/` — pf + dummynet (`/usr/local/sbin/ken-ty-netshape`) | 素のまま (`--boot off`) |
-| `mini` | macOS | `ssh macmini-admin` | 同上。元は asakusa-t の `admin/netshape` | **上下 1 Mbit/s** (`--boot on`。Ken 決定) |
+| `mbp` | macOS | ローカル | `mac/` — pf + dummynet (`/Library/PrivilegedHelperTools/ken-ty-netshape`) | 素のまま (`--boot off`) |
+| `mini` | macOS | `ssh macmini-admin` | asakusa-t の `admin/netshape` が入れた旧形 (`/usr/local/sbin`)。netcap からはまだ叩けない | **上下 1 Mbit/s** (`--boot on`。asakusa-t ADR 0021) |
 | `nucbox` | Windows | `ssh nucbox` | `win/` — NetQosPolicy。**下りは Windows 標準では絞れない** | (段 1 で決める) |
 
 `off` は一時的な操作。再起動すればその端末の起動時既定に戻る。既定そのものを変えるのは
-`netcap set` (端末の `/usr/local/etc/ken-ty-netshape.conf` を書き換える)。
+`netcap set` (端末の `/etc/ken-ty-netshape.conf` を書き換える)。
 
 ### macOS を入れる
 
@@ -58,10 +58,34 @@ probe が shaper の待ち行列を測らないようにするため。
 sudo bash mac/install.sh --boot on|off
 ```
 
-`/etc/sudoers.d/ken-ty-netshape` に「呼び出したユーザーは `ken-ty-netshape` だけ NOPASSWD」を
-切る。netcap が無人で叩く (段 2 の画面) にはこれが要る。pf / dnctl は status を読むだけでも
-root が要るため。実測の `/usr/local/bin/netcap-check` は curl と ping だけなので root は
-要らず、sudoers にも入れていない。外すのは `sudo bash mac/uninstall.sh`。
+`/etc/sudoers.d/ken-ty-netshape` に「呼び出したユーザーは `ken-ty-netshape` の決まった動詞だけ
+NOPASSWD」を切る (`status` / `get` / `off` / `on` / `on <数値> <数値>` / `set <数値> <数値>`)。
+netcap が無人で叩くにはこれが要る。pf / dnctl は status を読むだけでも root が要るため。
+実測の `/usr/local/bin/netcap-check` は curl と ping だけなので root は要らず、sudoers にも
+入れていない。
+
+### root で動くものの置き場所
+
+NOPASSWD で root になれる本体は、**置き場所の親ディレクトリまで root だけが書ける**ことが前提。
+利用者が書けるディレクトリにあると、ファイル自体が root 所有でも差し替えられ、`sudo -n` で
+パスワード無しに root が取れる。Homebrew を使ってきた Mac では `/usr/local/sbin` や
+`/usr/local/etc` が利用者の持ち物になっていることがある (この MBP がそうだった)。
+
+だから本体は `/Library/PrivilegedHelperTools`、設定は `/etc` に置き、`install.sh` が親ディレクトリを
+/ まで辿って所有者と書き込み権限を検査する。設定は source せず、数値の key=value として読む。
+
+### pf と dnctl は自分の分だけ触る
+
+- pf のルールはアンカー `com.apple/ken-ty.netshape` に読み込む。main ruleset (`/etc/pf.conf`) は
+  差し替えない。macOS は起動時に `/etc/pf.conf` を読み、そこに `dummynet-anchor "com.apple/*"`
+  があるので、アンカーのルールが評価される。main にアンカーの受け口が無ければ、差し替えずに止まる
+- `off` はアンカーを空にし、pipe 1 / 2 だけ消す。`dnctl flush` はしない
+- pf の有効化は参照カウント (`pfctl -E` の token) で、`off` は自分の token だけ返す
+
+残る制約: dnctl の pipe 番号は機械全体で 1 つの空間なので、Network Link Conditioner など
+pipe 1 / 2 を使う道具とは同時に使えない。
+
+外すのは `sudo bash mac/uninstall.sh`。
 
 ### macOS の dnctl は pipe 2 の帯域を表示できない
 

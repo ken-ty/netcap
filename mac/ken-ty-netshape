@@ -3,29 +3,36 @@
 #
 #   ken-ty-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (LaunchDaemon が起動時に呼ぶ)
 #                                           引数を付けると今回だけその値。既定は変えない
-#   ken-ty-netshape off                     上限を外す (pf のルールは /etc/pf.conf に戻す)
+#   ken-ty-netshape off                     上限を外す
 #   ken-ty-netshape status                  いまの状態。1 行目は実物 (dnctl / pfctl) から導く
 #   ken-ty-netshape set UP_MBIT DOWN_MBIT   既定を書き換える (再起動後も効く)。
 #                                           いま上限がかかっていれば、その値で張り直す
 #   ken-ty-netshape get                     既定と起動時の挙動を 1 行で
 #
-# 既定値は /usr/local/etc/ken-ty-netshape.conf に置く (set が書く):
-#   UP_MBIT=1 DOWN_MBIT=1
+# 既定値は /etc/ken-ty-netshape.conf に置く (set が書く):
+#   UP_MBIT=1
+#   DOWN_MBIT=1
+#
+# 触るのは自分の持ち物だけ:
+#   pf      アンカー com.apple/ken-ty.netshape の中だけ。main ruleset (/etc/pf.conf) は読み込まない。
+#           macOS は起動時に /etc/pf.conf を読み、そこに dummynet-anchor "com.apple/*" がある
+#   dnctl   pipe 1 (上り) と pipe 2 (下り) だけ。flush はしない
+#
+# root で動くので、本体・設定・アンカーはすべて root だけが書ける場所に置く (mac/install.sh が検査する)。
+# 設定は source せず、key=value を数値として読むだけにする。
 #
 # 元は asakusa-t の admin/netshape/ken-ty-netshape (Mac mini 用)。
-# netcap (ken-ty/netcap) から 3 台まとめて叩くために、引数での上書きと
-# 機械が読める status 行を足した。
 set -eu
 
 UP_MBIT=1   # 上り。4G に落ちた夜は WAN 全体で 10Mbps も出ない (2026-09-20 実測)
 DOWN_MBIT=1 # 下り。5〜10Mbit/s の DL だけで WAN 遅延が 500〜1600ms になった
-CONF=/usr/local/etc/ken-ty-netshape.conf
-# shellcheck source=/dev/null
-[ -f "$CONF" ] && . "$CONF"
 
-ANCHOR=/etc/pf.anchors/com.ken-ty.netshape
+CONF=/etc/ken-ty-netshape.conf
+ANCHOR=com.apple/ken-ty.netshape
+ANCHOR_FILE=/etc/pf.anchors/com.ken-ty.netshape
+PIPE_UP=1
+PIPE_DOWN=2
 TOKEN=/var/run/com.ken-ty.netshape.token
-GEN=/var/run/com.ken-ty.netshape.pf.conf
 APPLIED=/var/run/com.ken-ty.netshape.applied # on で適用した値 "UP DOWN" (下りの表示にだけ使う)
 PLIST=/Library/LaunchDaemons/com.ken-ty.netshape.plist # あれば起動時に on
 
@@ -36,6 +43,27 @@ PLIST=/Library/LaunchDaemons/com.ken-ty.netshape.plist # あれば起動時に o
 
 is_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
 
+# 設定を読む。知らない行と数値でない値は無視する (source すると root でシェルが走る)
+if [ -f "$CONF" ]; then
+  while IFS='=' read -r key value; do
+    is_number "${value:-}" || continue
+    case "$key" in
+      UP_MBIT) UP_MBIT=$value ;;
+      DOWN_MBIT) DOWN_MBIT=$value ;;
+    esac
+  done <"$CONF"
+fi
+
+# main ruleset に com.apple/* の dummynet アンカーが無ければ、自分のルールは評価されない。
+# そのときは main を差し替えずに止まる (差し替えると他人のルールを消す)
+require_anchor_point() {
+  pfctl -s dummynet 2>/dev/null | grep -q 'dummynet-anchor "com.apple/\*"' || {
+    echo "main ruleset に dummynet-anchor \"com.apple/*\" が無い。" \
+      "/etc/pf.conf 以外のルールが読み込まれている。確認してから sudo pfctl -f /etc/pf.conf" >&2
+    exit 3
+  }
+}
+
 on() {
   if [ $# -ge 1 ]; then
     [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
@@ -45,12 +73,11 @@ on() {
     UP_MBIT=$1
     DOWN_MBIT=$2
   fi
-  dnctl -q pipe 1 config bw "${UP_MBIT}Mbit/s" queue 20
-  dnctl -q pipe 2 config bw "${DOWN_MBIT}Mbit/s" queue 50
-  # /etc/pf.conf (Apple のアンカー) は触らず、末尾に自分のルールを足した
-  # 一時ファイルを main ruleset として読み込む。off で /etc/pf.conf に戻せる
-  cat /etc/pf.conf "$ANCHOR" >"$GEN"
-  pfctl -q -f "$GEN"
+  require_anchor_point
+  dnctl -q pipe "$PIPE_UP" config bw "${UP_MBIT}Mbit/s" queue 20
+  dnctl -q pipe "$PIPE_DOWN" config bw "${DOWN_MBIT}Mbit/s" queue 50
+  pfctl -q -a "$ANCHOR" -f "$ANCHOR_FILE"
+  # pf の有効化は参照カウント。自分の token を持ち、off で自分の分だけ返す
   if [ ! -s "$TOKEN" ]; then
     pfctl -E 2>&1 | sed -n 's/.*Token *: *\([0-9]*\).*/\1/p' >"$TOKEN"
   fi
@@ -59,8 +86,8 @@ on() {
 }
 
 off() {
-  pfctl -q -f /etc/pf.conf
-  dnctl -q flush
+  pfctl -q -a "$ANCHOR" -F all 2>/dev/null || true
+  dnctl -q pipe delete "$PIPE_UP" "$PIPE_DOWN" 2>/dev/null || true
   if [ -s "$TOKEN" ]; then
     pfctl -q -X "$(cat "$TOKEN")" || true
     rm -f "$TOKEN"
@@ -85,9 +112,14 @@ pipe1_mbit() {
     }'
 }
 
-# pipe の本数。見出し行は出ないが pipe ごとの "mask:" 行は出るので、それを数える
+# pipe の本数。見出し行は出ないが pipe ごとの "mask:" 行は出るので、それを数える。
+# dnctl は全体しか見せないので、他の道具 (Network Link Conditioner など) の pipe も数えてしまう
 pipe_count() {
   dnctl list 2>/dev/null | grep -c "^ *mask:" || true
+}
+
+anchor_rules() {
+  pfctl -a "$ANCHOR" -s dummynet 2>/dev/null | grep -c "pipe" || true
 }
 
 # 既定を書き換える。書きかけを読ませないよう mktemp 経由で置き換える。
@@ -98,7 +130,7 @@ set_default() {
     echo "usage: $0 set UP_MBIT DOWN_MBIT" >&2
     exit 2
   }
-  local tmp applied_now
+  local tmp
   tmp=$(mktemp)
   cat >"$tmp" <<EOF
 # ken-ty-netshape の既定値。ken-ty-netshape set が書く
@@ -109,8 +141,7 @@ EOF
   rm -f "$tmp"
   UP_MBIT=$1
   DOWN_MBIT=$2
-  applied_now=$(pipe_count)
-  if [ "$applied_now" -ge 2 ]; then
+  if [ "$(anchor_rules)" -ge 2 ]; then
     on "$1" "$2" >/dev/null
     echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (適用中だったので張り直した)"
   else
@@ -127,7 +158,7 @@ get() {
 
 status() {
   local rules up down pipes state down_src
-  rules=$(pfctl -s dummynet 2>/dev/null | grep -c "pipe" || true)
+  rules=$(anchor_rules)
   pipes=$(pipe_count)
   up=$(pipe1_mbit)
   # 下りは pipe 2 の実在だけ dnctl で確かめ、値は on で書いた記録から読む (表示バグの回避)
@@ -138,7 +169,7 @@ status() {
   fi
   if [ "$rules" -ge 2 ] && [ -n "$up" ] && [ "$pipes" -ge 2 ]; then
     state=on
-  elif [ "$rules" -eq 0 ] && [ -z "$up" ] && [ "$pipes" -eq 0 ]; then
+  elif [ "$rules" -eq 0 ] && [ -z "$up" ]; then
     state=off
   else
     state=partial # ルールと pipe が食い違っている。on か off を打ち直す
@@ -147,8 +178,8 @@ status() {
   pfctl -s info 2>/dev/null | head -1
   echo "--- pipes (dnctl は pipe 1 の見出しだけ出す。mask: の行数が pipe の本数)"
   dnctl list 2>/dev/null || echo "(none)"
-  echo "--- rules"
-  pfctl -s dummynet 2>/dev/null | grep -v "^$" || echo "(no dummynet rules)"
+  echo "--- rules (anchor ${ANCHOR})"
+  pfctl -a "$ANCHOR" -s dummynet 2>/dev/null | grep -v "^$" || echo "(no dummynet rules)"
 }
 
 case "${1:-}" in

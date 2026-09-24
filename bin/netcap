@@ -16,7 +16,7 @@ set は永続する設定だけを変え、on の flag は「今回の完全な�
 tailscale の up/down ではなく on/off のままにした。
 
 端末側の実体:
-  mac (mbp / mini) : /usr/local/sbin/ken-ty-netshape  (pf + dummynet)
+  mac (mbp / mini) : /Library/PrivilegedHelperTools/ken-ty-netshape  (pf + dummynet)
                      /usr/local/bin/netcap-check      (実測。root 不要)
   win (nucbox)     : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy)
 どれも 1 行目を key=value で返すので、それを読む。
@@ -36,7 +36,7 @@ HOSTS = {
     "nucbox": {"os": "win", "ssh": "nucbox", "label": "nucbox (Windows)"},
 }
 ORDER = list(HOSTS)
-MAC_BIN = "/usr/local/sbin/ken-ty-netshape"
+MAC_BIN = "/Library/PrivilegedHelperTools/ken-ty-netshape"
 MAC_CHECK = "/usr/local/bin/netcap-check"
 WIN_SCRIPT = r"C:\ProgramData\netcap\netcap-qos.ps1"
 WIN_CHECK = r"C:\ProgramData\netcap\netcap-check.ps1"
