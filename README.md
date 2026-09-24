@@ -1,17 +1,36 @@
 # netcap
 
 Ken の常用機 3 台 (MBP / mini / nucbox) の **WAN 向け通信の帯域上限** を、MBP から 1 本の CLI で
-on / off / status する。
+on / off する。状態は実物 (pf の pipe / QoS policy) から読む。
 
 ```
-bin/netcap status [host|all] [--json] [--raw]
-bin/netcap on  <host|all>
-bin/netcap off <host|all>
-bin/netcap set <host> <up_mbit> <down_mbit>
+netcap status [host|all] [--json]           実物 (pf の pipe / QoS policy) を読む
+netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
+netcap on     <host|all> [--up N --down N]  上限をかける。flag は今回だけ
+netcap off    <host|all>                    上限を外す
+netcap set    <host|all> --up N --down N    既定を書き換える (再起動後も効く)
+netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
+netcap use    <profile>                     プロファイルを全台へ
+netcap profiles                             プロファイル一覧
 ```
 
-status は設定ファイルではなく **実物** (pf の pipe / QoS policy) を読む。`on` / `off` / `set` の
-あとも実物を読み直して表にする。
+**`status` は設定ファイルではなく実物を読む。** `on` / `off` / `set` / `use` のあとも実物を
+読み直して表にする。設定のほうは `get` が返す。
+
+## コマンドの骨格は tailscale から借りた
+
+- **`get` (設定) と `status` (実物) を別コマンドに割る。** 「再起動したらどうなるか」と
+  「いまどうなっているか」は別の問いなので、1 表に混ぜない
+- **`set` は永続する設定だけを変える。** いま絞っている最中なら、その値で張り直す
+  (設定を変えることが、いまの状態を壊すことにならないように)
+- **`on` の flag は「今回の完全な希望状態」。** `--up` と `--down` は両方セットで指定する。
+  片方だけはエラーにした。「上りだけ絞ったつもりで下りが既定のまま」を構造で防ぐ
+
+**動詞だけは借りていない。** tailscale は `up` / `down` だが、netcap のドメインは「上り/下り」で
+既に up/down を使っている。`netcap up mini --up 2` は読めないので `on` / `off` のままにした。
+
+**プロファイルは tailscale に無い概念。** netcap は 1 台ではなく 3 台をまとめて扱うので、
+「LoL やるから他を絞る」を 1 コマンドにする `netcap use lol` を足した (`netcap.toml`)。
 
 ## なぜ
 
@@ -30,8 +49,8 @@ probe が shaper の待ち行列を測らないようにするため。
 | `mini` | macOS | `ssh macmini-admin` | 同上。元は asakusa-t の `admin/netshape` | **上下 1 Mbit/s** (`--boot on`。Ken 決定) |
 | `nucbox` | Windows | `ssh nucbox` | `win/` — NetQosPolicy。**下りは Windows 標準では絞れない** | (段 1 で決める) |
 
-`off` は一時的な操作。再起動すればその端末の起動時既定に戻る。`set` も今回だけで、既定
-(`/usr/local/etc/ken-ty-netshape.conf`) は変えない。
+`off` は一時的な操作。再起動すればその端末の起動時既定に戻る。既定そのものを変えるのは
+`netcap set` (端末の `/usr/local/etc/ken-ty-netshape.conf` を書き換える)。
 
 ### macOS を入れる
 
@@ -41,7 +60,8 @@ sudo bash mac/install.sh --boot on|off
 
 `/etc/sudoers.d/ken-ty-netshape` に「呼び出したユーザーは `ken-ty-netshape` だけ NOPASSWD」を
 切る。netcap が無人で叩く (段 2 の画面) にはこれが要る。pf / dnctl は status を読むだけでも
-root が要るため。外すのは `sudo bash mac/uninstall.sh`。
+root が要るため。実測の `/usr/local/bin/netcap-check` は curl と ping だけなので root は
+要らず、sudoers にも入れていない。外すのは `sudo bash mac/uninstall.sh`。
 
 ### macOS の dnctl は pipe 2 の帯域を表示できない
 
@@ -71,6 +91,19 @@ dnctl で確かめたうえで、値だけ `on` 時の記録 (`/var/run/com.ken-
   ばらつきが大きい。「跳ねない」の断定には mini から見た WAN 遅延 (home-netmon) と
   突き合わせるほうが確か
 - 今夜の WAN は下り 20〜33 / 上り 5〜8 Mbit/s (4G 相当)。バンドは記録していない
+
+## プロファイル
+
+`netcap.toml` に「どの台をいくらにするか」を名前付きで持つ。書かなかった台は触らない。
+
+```
+$ netcap profiles
+lol    mbp=2/2  mini=1/1  nucbox=off
+none   mbp=off  mini=off  nucbox=off
+quiet  mbp=1/1  mini=1/1  nucbox=off
+
+$ netcap use lol
+```
 
 ## 段 2 (予定)
 

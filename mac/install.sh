@@ -5,7 +5,8 @@
 #   sudo bash install.sh --boot off    起動時は素のまま。netcap on で必要なときだけ (MBP)
 #
 # 何をするか:
-#   /usr/local/sbin/ken-ty-netshape            本体
+#   /usr/local/sbin/ken-ty-netshape            本体 (root が要る)
+#   /usr/local/bin/netcap-check                実測 (root は要らない)
 #   /etc/pf.anchors/com.ken-ty.netshape        pf のルール
 #   /etc/sudoers.d/ken-ty-netshape             呼び出したユーザーに NOPASSWD (本体だけ)
 #   /Library/LaunchDaemons/com.ken-ty.netshape.plist   --boot on のときだけ
@@ -24,8 +25,9 @@ done
 USER_NAME=${NETCAP_USER:-${SUDO_USER:-}}
 [ -n "$USER_NAME" ] || { echo "NETCAP_USER=<user> を指定してください" >&2; exit 1; }
 
-mkdir -p /usr/local/sbin /usr/local/etc /etc/sudoers.d
+mkdir -p /usr/local/sbin /usr/local/bin /usr/local/etc /etc/sudoers.d
 install -o root -g wheel -m 0755 ken-ty-netshape /usr/local/sbin/ken-ty-netshape
+install -o root -g wheel -m 0755 netcap-check /usr/local/bin/netcap-check
 install -o root -g wheel -m 0644 com.ken-ty.netshape /etc/pf.anchors/com.ken-ty.netshape
 
 tmp=$(mktemp)
@@ -45,4 +47,5 @@ else
 fi
 
 echo "installed (boot=${BOOT}, sudoers for ${USER_NAME})"
-/usr/local/sbin/ken-ty-netshape status
+/usr/local/sbin/ken-ty-netshape get
+/usr/local/sbin/ken-ty-netshape status | head -1

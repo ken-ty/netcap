@@ -1,22 +1,34 @@
 #!/usr/bin/env python3
-"""netcap — Ken の常用機 3 台の WAN 帯域上限を 1 本で on / off / status する。
+"""netcap — Ken の常用機 3 台の WAN 帯域上限を 1 本で扱う。
 
-  netcap status [host|all] [--json]     実物 (pf の pipe / QoS policy) を読んで 1 表に
-  netcap on  <host|all>                 端末ごとの既定値で上限をかける
-  netcap off <host|all>                 上限を外す (再起動すれば端末ごとの起動時既定に戻る)
-  netcap set <host> <up_mbit> <down_mbit>   今回だけこの値で上限をかける (既定は変えない)
+  netcap status [host|all] [--json]           実物 (pf の pipe / QoS policy) を読む
+  netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
+  netcap on     <host|all> [--up N --down N]  上限をかける。flag は今回だけ
+  netcap off    <host|all>                    上限を外す
+  netcap set    <host|all> --up N --down N    既定を書き換える (再起動後も効く)
+  netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
+  netcap use    <profile>                     プロファイルを全台へ
+  netcap profiles                             プロファイル一覧
+
+コマンドの骨格は tailscale から借りた。status (実物) と get (設定) を別コマンドに割り、
+set は永続する設定だけを変え、on の flag は「今回の完全な希望状態」。
+動詞だけは借りていない — netcap のドメインは「上り/下り」で既に up/down を使っているので、
+tailscale の up/down ではなく on/off のままにした。
 
 端末側の実体:
-  mac (mbp / mini) : /usr/local/sbin/ken-ty-netshape   (pf + dummynet。mac/ を参照)
-  win (nucbox)     : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy。win/ を参照)
-どちらも `state=... up_mbit=... down_mbit=...` の 1 行を先頭に出すので、それを読む。
+  mac (mbp / mini) : /usr/local/sbin/ken-ty-netshape  (pf + dummynet)
+                     /usr/local/bin/netcap-check      (実測。root 不要)
+  win (nucbox)     : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy)
+どれも 1 行目を key=value で返すので、それを読む。
 """
 import argparse
 import json
 import shlex
 import subprocess
 import sys
+import tomllib
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 HOSTS = {
     "mbp": {"os": "mac", "ssh": None, "label": "MacBook Pro"},
@@ -25,21 +37,32 @@ HOSTS = {
 }
 ORDER = list(HOSTS)
 MAC_BIN = "/usr/local/sbin/ken-ty-netshape"
+MAC_CHECK = "/usr/local/bin/netcap-check"
 WIN_SCRIPT = r"C:\ProgramData\netcap\netcap-qos.ps1"
+WIN_CHECK = r"C:\ProgramData\netcap\netcap-check.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
+PROFILES = Path(__file__).resolve().parent.parent / "netcap.toml"
+# check は転送が終わるまで返らない。1 Mbit/s まで絞られていると 1MB で 10 秒近くかかる
+TIMEOUT = {"check": 180}
 
 
 def build_cmd(host, action, args):
+    """端末で叩くコマンドを組む。ssh が要る台は 1 本の文字列にまとめる。"""
     h = HOSTS[host]
     if h["os"] == "mac":
-        remote = ["sudo", "-n", MAC_BIN, action, *args]
+        if action == "check":
+            remote = [MAC_CHECK, *args]  # 実測は root が要らない
+        else:
+            remote = ["sudo", "-n", MAC_BIN, action, *args]
     else:
-        remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                  "-File", WIN_SCRIPT, action, *args]
+        script = WIN_CHECK if action == "check" else WIN_SCRIPT
+        remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script]
+        if action != "check":
+            remote.append(action)
+        remote += args
     if h["ssh"] is None:
         return remote
-    # ssh は 1 本の文字列として渡すので引用しておく。Windows 側も
-    # OpenSSH が引数を分けてくれるのでこの形で通る
+    # Windows 側も OpenSSH が引数を分けてくれるのでこの形で通る
     return ["ssh", *SSH_OPTS, h["ssh"], " ".join(shlex.quote(a) for a in remote)]
 
 
@@ -49,7 +72,8 @@ def run(host, action, args=()):
     try:
         # nucbox の PowerShell は cp932 で返す (ssh 越しの OEM コードページ)
         enc = "cp932" if HOSTS[host]["os"] == "win" else "utf-8"
-        p = subprocess.run(cmd, capture_output=True, text=True, encoding=enc, errors="replace", timeout=60)
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding=enc,
+                           errors="replace", timeout=TIMEOUT.get(action, 60))
     except subprocess.TimeoutExpired:
         return {"host": host, "reach": "timeout", "raw": ""}
     out = (p.stdout or "") + (p.stderr or "")
@@ -60,102 +84,237 @@ def run(host, action, args=()):
     res["reach"] = "ok"
     if "a password is required" in out or "sudo: a terminal is required" in out:
         res["reach"] = "no-sudo"  # sudoers が入っていない
+    # 端末側は 1 行目を key=value で返す。それを拾う
     for line in out.splitlines():
-        if "state=" in line:
+        if "=" in line and line.split()[0] in ("netshape", "netcheck"):
             for tok in line.split():
                 if "=" in tok:
                     k, v = tok.split("=", 1)
                     res[k] = v
             break
-    if action in ("on", "off") and p.returncode == 0 and "state" not in res:
-        res["state"] = action  # on/off の応答には state 行が無いので補う
     if p.returncode != 0 and res["reach"] == "ok":
         res["reach"] = "error"
     return res
 
 
-def resolve(target):
+def resolve(target, default_all=False):
     if target in (None, "all"):
+        if target is None and not default_all:
+            sys.exit("host を指定してください (mbp | mini | nucbox | all)")
         return ORDER
     if target not in HOSTS:
-        sys.exit(f"unknown host: {target} (choose from {', '.join(ORDER)} or all)")
+        sys.exit(f"unknown host: {target} (mbp | mini | nucbox | all のどれか)")
     return [target]
 
 
-def fmt_mbit(v):
-    if v in (None, "", "-"):
-        return "-"
-    return v
+def fan_out(hosts, action, args=()):
+    with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
+        return list(ex.map(lambda h: run(h, action, list(args)), hosts))
 
 
-def print_table(rows):
-    cols = [("host", 7), ("reach", 12), ("cap", 8), ("up", 10), ("down", 10), ("default", 9), ("note", 0)]
-    line = "  ".join(f"{c:<{w}}" if w else c for c, w in cols)
-    print(line)
-    print("-" * max(len(line), 60))
-    footnote = False
+def fmt(v):
+    return "-" if v in (None, "", "-") else v
+
+
+def print_table(rows, cols, footnote=None):
+    """cols は (見出し, 幅, 値を作る関数)。幅 0 は最後の可変長列。"""
+    head = "  ".join(f"{c:<{w}}" if w else c for c, w, _ in cols)
+    print(head)
+    print("-" * max(len(head), 60))
     for r in rows:
-        ok = r.get("reach") == "ok"
-        default = "-"
-        if r.get("default_up") or r.get("default_down"):
-            default = f"{fmt_mbit(r.get('default_up'))}/{fmt_mbit(r.get('default_down'))}"
-        up = fmt_mbit(r.get("up_mbit"))
-        down = fmt_mbit(r.get("down_mbit"))
-        down_mark = ""
-        if down != "-" and r.get("down_src") == "applied":
-            down_mark = "*"
-            footnote = True
-        note = r.get("note", "") if ok else (r.get("raw", "").splitlines() or [""])[-1]
-        vals = [r["host"], r.get("reach", "?"), r.get("state", "?") if ok else "?",
-                up if up == "-" else f"{up} Mbit/s", down if down == "-" else f"{down} Mbit/s{down_mark}", default, note]
-        print("  ".join(f"{v:<{w}}" if w else v for v, (c, w) in zip(vals, cols)))
-    if footnote:
-        print("* 下りは on 時に記録した値。macOS の dnctl が pipe 2 の帯域を表示できないため (pipe の実在は確認済み)")
+        vals = [f(r) for _, _, f in cols]
+        print("  ".join(f"{v:<{w}}" if w else v for v, (_, w, _) in zip(vals, cols)))
+    if footnote and any(r.get("down_src") == "applied" for r in rows):
+        print(footnote)
+
+
+def note(r):
+    """届かなかった台は、その理由を最後の行から見せる。"""
+    if r.get("reach") == "ok":
+        return ""
+    return (r.get("raw", "").splitlines() or [""])[-1]
+
+
+DOWN_NOTE = "* 下りは on 時に記録した値。macOS の dnctl が pipe 2 の帯域を表示できないため (pipe の実在は確認済み)"
+
+STATUS_COLS = [
+    ("host", 7, lambda r: r["host"]),
+    ("reach", 12, lambda r: r.get("reach", "?")),
+    ("cap", 8, lambda r: r.get("state", "?") if r.get("reach") == "ok" else "?"),
+    ("up", 11, lambda r: "-" if fmt(r.get("up_mbit")) == "-" else f"{r['up_mbit']} Mbit/s"),
+    ("down", 11, lambda r: "-" if fmt(r.get("down_mbit")) == "-"
+     else f"{r['down_mbit']} Mbit/s" + ("*" if r.get("down_src") == "applied" else "")),
+    ("note", 0, note),
+]
+
+GET_COLS = [
+    ("host", 7, lambda r: r["host"]),
+    ("reach", 12, lambda r: r.get("reach", "?")),
+    ("default", 12, lambda r: "-" if fmt(r.get("default_up")) == "-"
+     else f"{r['default_up']}/{r['default_down']} Mbit/s"),
+    ("boot", 6, lambda r: fmt(r.get("boot"))),
+    ("note", 0, note),
+]
+
+CHECK_COLS = [
+    ("host", 7, lambda r: r["host"]),
+    ("reach", 12, lambda r: r.get("reach", "?")),
+    ("down", 11, lambda r: "-" if fmt(r.get("down_mbit")) == "-" else f"{r['down_mbit']} Mbit/s"),
+    ("up", 11, lambda r: "-" if fmt(r.get("up_mbit")) == "-" else f"{r['up_mbit']} Mbit/s"),
+    ("ping med/p95/max (ms)", 22, lambda r: "-" if fmt(r.get("ping_med")) == "-"
+     else f"{r['ping_med']}/{r['ping_p95']}/{r['ping_max']} (n={r.get('ping_n', '?')})"),
+    ("note", 0, note),
+]
+
+
+def emit(rows, cols, as_json, raw=False, footnote=DOWN_NOTE):
+    if as_json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    else:
+        print_table(rows, cols, footnote)
+        if raw:
+            for r in rows:
+                print(f"\n=== {r['host']}\n{r.get('raw', '')}")
+    return 0 if all(r.get("reach") == "ok" for r in rows) else 1
+
+
+def apply_and_read(hosts, action, args, as_json, raw):
+    """状態を変えたら、設定した値ではなく実物を読み直して返す。"""
+    changed = fan_out(hosts, action, args)
+    after = fan_out(hosts, "status")
+    rows = []
+    for c, s in zip(changed, after):
+        if c.get("reach") == "ok" and s.get("reach") == "ok":
+            s["raw"] = c["raw"] + "\n" + s["raw"]
+            rows.append(s)
+        else:
+            rows.append(c)
+    return emit(rows, STATUS_COLS, as_json, raw)
+
+
+def load_profiles():
+    if not PROFILES.exists():
+        sys.exit(f"プロファイルが無い: {PROFILES}")
+    with open(PROFILES, "rb") as f:
+        return tomllib.load(f).get("profiles", {})
+
+
+def parse_profile_value(host, value):
+    """"2/3" → ("on", ["2", "3"]) / "off" → ("off", [])"""
+    if value == "off":
+        return "off", []
+    if value == "on":
+        return "on", []
+    if "/" in value:
+        up, down = value.split("/", 1)
+        return "on", [up.strip(), down.strip()]
+    sys.exit(f"プロファイルの値が読めない: {host} = {value!r} (\"上り/下り\" か \"off\")")
+
+
+def cmd_use(a):
+    profiles = load_profiles()
+    if a.profile not in profiles:
+        sys.exit(f"unknown profile: {a.profile} (あるのは {', '.join(profiles)})")
+    plan = profiles[a.profile]
+    unknown = [h for h in plan if h not in HOSTS]
+    if unknown:
+        sys.exit(f"プロファイルに知らない host がある: {', '.join(unknown)}")
+    hosts = [h for h in ORDER if h in plan]  # 書かれていない台は触らない
+
+    def one(host):
+        action, args = parse_profile_value(host, plan[host])
+        return run(host, action, args)
+
+    with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
+        list(ex.map(one, hosts))
+    rows = fan_out(hosts, "status")
+    if not a.json:
+        print(f"profile: {a.profile}")
+    return emit(rows, STATUS_COLS, a.json, a.raw)
+
+
+def cmd_profiles(a):
+    profiles = load_profiles()
+    if a.json:
+        print(json.dumps(profiles, ensure_ascii=False, indent=2))
+        return 0
+    width = max(len(n) for n in profiles) if profiles else 8
+    for name, plan in profiles.items():
+        body = "  ".join(f"{h}={plan[h]}" for h in ORDER if h in plan)
+        print(f"{name:<{width}}  {body}")
+    return 0
+
+
+def add_target(p, optional=False):
+    p.add_argument("host", nargs="?" if optional else None, help="mbp | mini | nucbox | all")
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="netcap", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("action", choices=["status", "on", "off", "set"])
-    ap.add_argument("host", nargs="?", help="mbp | mini | nucbox | all")
-    ap.add_argument("values", nargs="*", help="set のときだけ: <up_mbit> <down_mbit>")
+    ap = argparse.ArgumentParser(prog="netcap", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--json", action="store_true", help="機械が読む形で出す")
     ap.add_argument("--raw", action="store_true", help="端末側の生の出力も出す")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("status", help="実物 (pf の pipe / QoS policy) を読む")
+    add_target(p, optional=True)
+    p = sub.add_parser("get", help="設定 (既定値・起動時の挙動) を読む")
+    add_target(p, optional=True)
+    p = sub.add_parser("on", help="上限をかける。--up/--down は今回だけ")
+    add_target(p)
+    p.add_argument("--up", metavar="MBIT")
+    p.add_argument("--down", metavar="MBIT")
+    p.add_argument("values", nargs="*", help=argparse.SUPPRESS)  # 旧形式を捕まえるため
+    p = sub.add_parser("off", help="上限を外す")
+    add_target(p)
+    p = sub.add_parser("set", help="既定を書き換える (再起動後も効く)")
+    add_target(p)
+    p.add_argument("--up", metavar="MBIT")
+    p.add_argument("--down", metavar="MBIT")
+    p.add_argument("values", nargs="*", help=argparse.SUPPRESS)
+    p = sub.add_parser("check", help="実測 (curl の上下 + ping)")
+    add_target(p, optional=True)
+    p.add_argument("--bytes", metavar="N", help="転送量。絞っているときは小さくする")
+    p = sub.add_parser("use", help="プロファイルを全台へ")
+    p.add_argument("profile")
+    sub.add_parser("profiles", help="プロファイル一覧")
+
     a = ap.parse_args()
 
-    if a.action == "set":
-        if not a.host or a.host == "all" or len(a.values) != 2:
-            ap.error("usage: netcap set <host> <up_mbit> <down_mbit>")
-        hosts = resolve(a.host)
-        args = a.values
-        action = "on"
-    else:
-        if a.action in ("on", "off") and not a.host:
-            ap.error(f"usage: netcap {a.action} <host|all>")
-        hosts = resolve(a.host)
-        args = []
-        action = a.action
+    if a.cmd in ("on", "set"):
+        # 旧形式 netcap set <host> 2 2 は意味が変わった。黙って別の動作をさせない
+        if a.values:
+            sys.exit(f"位置引数での値の指定はやめた ({a.cmd} {a.host} {' '.join(a.values)})。\n"
+                     f"  今回だけ絞る : netcap on {a.host} --up N --down N\n"
+                     f"  既定を変える : netcap set {a.host} --up N --down N")
+        # tailscale up と同じで、flag を付けるなら完全な希望状態を書かせる
+        if (a.up is None) != (a.down is None):
+            sys.exit("--up と --down は両方セットで指定する (片方だけだと、もう片方が"
+                     "既定のまま残って気づけない)")
+        if a.cmd == "set" and a.up is None:
+            sys.exit("usage: netcap set <host|all> --up N --down N")
+        args = [a.up, a.down] if a.up is not None else []
+        return apply_and_read(resolve(a.host), a.cmd, args, a.json, a.raw)
 
-    with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
-        results = list(ex.map(lambda h: run(h, action, args), hosts))
+    if a.cmd == "off":
+        return apply_and_read(resolve(a.host), "off", [], a.json, a.raw)
 
-    # on/off/set のあとは実物を読み直して返す。設定した値ではなく読んだ値を見せる
-    if action != "status":
-        with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
-            after = list(ex.map(lambda h: run(h, "status"), hosts))
-        for r, s in zip(results, after):
-            if r.get("reach") == "ok" and s.get("reach") == "ok":
-                s["raw"] = r["raw"] + "\n" + s["raw"]
-                results = [s if x["host"] == s["host"] else x for x in results]
+    if a.cmd == "status":
+        return emit(fan_out(resolve(a.host, default_all=True), "status"), STATUS_COLS, a.json, a.raw)
 
-    if a.json:
-        print(json.dumps(results, ensure_ascii=False, indent=2))
-    else:
-        print_table(results)
-        if a.raw:
-            for r in results:
-                print(f"\n=== {r['host']}\n{r.get('raw', '')}")
-    sys.exit(0 if all(r.get("reach") == "ok" for r in results) else 1)
+    if a.cmd == "get":
+        return emit(fan_out(resolve(a.host, default_all=True), "get"), GET_COLS, a.json, a.raw)
+
+    if a.cmd == "check":
+        args = ["--bytes", a.bytes] if a.bytes else []
+        return emit(fan_out(resolve(a.host, default_all=True), "check", args),
+                    CHECK_COLS, a.json, a.raw, footnote=None)
+
+    if a.cmd == "use":
+        return cmd_use(a)
+    if a.cmd == "profiles":
+        return cmd_profiles(a)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
