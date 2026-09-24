@@ -52,6 +52,19 @@ probe が shaper の待ち行列を測らないようにするため。
 `off` は一時的な操作。再起動すればその端末の起動時既定に戻る。既定そのものを変えるのは
 `netcap set` (端末の `/etc/ken-ty-netshape.conf` を書き換える)。
 
+### CLI を入れる
+
+このリポジトリ自体を tap にしている (`Formula/netcap.rb`)。private なので、git が GitHub に
+認証できること (`gh auth setup-git` など) が前提。
+
+```
+brew tap ken-ty/netcap https://github.com/ken-ty/netcap
+brew install netcap
+```
+
+版を上げるときは、main に `vX.Y.Z` の注釈付きタグを打って push し、Formula の `tag` と
+`revision` をそれに合わせる。brew が入れるのは CLI だけで、端末側の shaper は下の手順で別に入れる。
+
 ### macOS を入れる
 
 ```
