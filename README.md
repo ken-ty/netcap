@@ -63,7 +63,10 @@ brew install netcap
 ```
 
 版を上げるときは、main に `vX.Y.Z` の注釈付きタグを打って push し、Formula の `tag` と
-`revision` をそれに合わせる。brew が入れるのは CLI だけで、端末側の shaper は下の手順で別に入れる。
+`revision` をそれに合わせる。
+
+`netcap --version` (`-v`) は版を出す。版の正本はタグで、formula がインストール時に
+`bin/netcap` の `@VERSION@` を置き換える。リポジトリから直接動かしたときは `git describe` の結果を出す。brew が入れるのは CLI だけで、端末側の shaper は下の手順で別に入れる。
 
 ### macOS を入れる
 

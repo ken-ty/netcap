@@ -9,6 +9,7 @@
   netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
   netcap use    <profile>                     プロファイルを全台へ
   netcap profiles                             プロファイル一覧
+  netcap --version                            版 (-v でも)
 
 コマンドの骨格は tailscale から借りた。status (実物) と get (設定) を別コマンドに割り、
 set は永続する設定だけを変え、on の flag は「今回の完全な希望状態」。
@@ -36,6 +37,9 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+# brew の formula がインストール時に版 (タグの v を除いたもの) で置き換える。
+# 置き換わっていなければリポジトリから直接動いているので、git describe から出す
+VERSION = "@VERSION@"
 CONFIG_DIR = Path(os.environ.get("NETCAP_CONFIG_DIR")
                   or Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "netcap")
 EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
@@ -108,6 +112,30 @@ def run(host, action, args=()):
     if p.returncode != 0 and res["reach"] == "ok":
         res["reach"] = "error"
     return res
+
+
+def version():
+    if not VERSION.startswith("@"):
+        return VERSION
+    try:
+        p = subprocess.run(["git", "-C", str(Path(__file__).resolve().parent), "describe",
+                            "--tags", "--always", "--dirty"], capture_output=True, text=True, timeout=5)
+        if p.returncode == 0 and p.stdout.strip():
+            return p.stdout.strip().removeprefix("v")
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return "unknown"
+
+
+class VersionAction(argparse.Action):
+    """--version を付けたときだけ版を調べる (毎回 git を叩かない)。"""
+
+    def __init__(self, option_strings, dest, **kwargs):
+        super().__init__(option_strings, dest, nargs=0, help="版を出して終わる")
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        print(f"netcap {version()}")
+        parser.exit()
 
 
 def config_lines(name):
@@ -300,6 +328,7 @@ def add_target(p, optional=False):
 def main():
     ap = argparse.ArgumentParser(prog="netcap", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("-v", "--version", action=VersionAction)
     ap.add_argument("--json", action="store_true", help="機械が読む形で出す")
     ap.add_argument("--raw", action="store_true", help="端末側の生の出力も出す")
     sub = ap.add_subparsers(dest="cmd", required=True)
