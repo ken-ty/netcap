@@ -3,8 +3,8 @@ class Netcap < Formula
   desc "Ken の常用機 3 台の WAN 帯域上限を 1 本の CLI で on / off する"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
-      tag:      "v0.3.0",
-      revision: "d19c4bc3df0b1d6ad9f94073c2bb6e725fd33c86"
+      tag:      "v0.4.0",
+      revision: "c2bcd979ea3614f4a27d0c3b95a8d55385a74629"
   head "https://github.com/ken-ty/netcap.git", branch: "main"
 
   license "MIT"
