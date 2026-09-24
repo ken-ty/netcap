@@ -18,7 +18,8 @@ tailscale の up/down ではなく on/off のままにした。
 端末側の実体:
   mac              : /Library/PrivilegedHelperTools/netcap-agent    (入口。forced command にも使う)
                        → ken-ty-netshape (pf + dummynet。sudo -n) / netcap-check (実測。root 不要)
-  win              : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy)
+  win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (入口。forced command にも使う)
+                       → netshape.ps1 (NetQosPolicy。上りだけ) / netcap-check.ps1 (実測)
 どれも 1 行目を key=value で返すので、それを読む。
 
 どの端末を管理するか (hosts) と、まとめて動かす組 (profiles) は利用者のもの。
@@ -28,6 +29,7 @@ tailscale の up/down ではなく on/off のままにした。
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -43,8 +45,7 @@ ORDER = []
 # mac は何を頼むときもこの入口を通す。端末側の authorized_keys が forced command で
 # この agent に固定していれば、その端末が許した動詞しか通らない
 MAC_AGENT = "/Library/PrivilegedHelperTools/netcap-agent"
-WIN_SCRIPT = r"C:\ProgramData\netcap\netcap-qos.ps1"
-WIN_CHECK = r"C:\ProgramData\netcap\netcap-check.ps1"
+WIN_AGENT = r"C:\ProgramData\netcap\netcap-agent.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
 # check は転送が終わるまで返らない。1 Mbit/s まで絞られていると 1MB で 10 秒近くかかる
 TIMEOUT = {"check": 180}
@@ -56,30 +57,33 @@ def build_cmd(host, action, args):
     if h["os"] == "mac":
         remote = [MAC_AGENT, action, *args]
     else:
-        script = WIN_CHECK if action == "check" else WIN_SCRIPT
-        remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script]
-        if action != "check":
-            remote.append(action)
-        remote += args
+        remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", WIN_AGENT, action, *args]
     if h["ssh"] is None:
         return remote
     # Windows 側も OpenSSH が引数を分けてくれるのでこの形で通る
     return ["ssh", *SSH_OPTS, h["ssh"], " ".join(shlex.quote(a) for a in remote)]
 
 
+def decode(b):
+    """端末の出力を読む。まず UTF-8、読めなければ cp932。
+    日本語版 Windows は、ssh 越しの PowerShell が UTF-8 を返す一方で、
+    icacls などの標準コマンドは OEM コードページ (cp932) で返す (2026-09-25 nucbox で実測)"""
+    try:
+        return b.decode("utf-8")
+    except UnicodeDecodeError:
+        return b.decode("cp932", errors="replace")
+
+
 def run(host, action, args=()):
     """端末で 1 コマンド実行して、解釈済みの dict を返す。"""
     cmd = build_cmd(host, action, list(args))
     try:
-        # 日本語版 Windows の PowerShell は cp932 で返す (ssh 越しの OEM コードページ)
-        enc = "cp932" if HOSTS[host]["os"] == "win" else "utf-8"
-        p = subprocess.run(cmd, capture_output=True, text=True, encoding=enc,
-                           errors="replace", timeout=TIMEOUT.get(action, 60))
+        p = subprocess.run(cmd, capture_output=True, timeout=TIMEOUT.get(action, 60))
     except subprocess.TimeoutExpired:
         return {"host": host, "reach": "timeout", "raw": ""}
     except FileNotFoundError as e:  # この機械自身に netcap-agent が入っていない
         return {"host": host, "reach": "no-agent", "raw": str(e)}
-    out = (p.stdout or "") + (p.stderr or "")
+    out = decode(p.stdout) + decode(p.stderr)
     res = {"host": host, "raw": out.strip(), "rc": p.returncode}
     if p.returncode == 255 and HOSTS[host]["ssh"]:
         res["reach"] = "unreachable"
@@ -87,10 +91,12 @@ def run(host, action, args=()):
     res["reach"] = "ok"
     if "a password is required" in out or "sudo: a terminal is required" in out:
         res["reach"] = "no-sudo"  # sudoers が入っていない
-    elif p.returncode == 77 and "netcap-agent:" in out:
-        res["reach"] = "denied"  # 端末側がこの動詞を許していない (forced command)
-    elif p.returncode == 127:
-        res["reach"] = "no-agent"  # 端末側に netcap-agent が入っていない (ssh 先の command not found)
+    elif p.returncode != 0 and "netcap-agent:" in out:
+        # 端末側がこの動詞を許していない (forced command)。agent は 77 で終わるが、
+        # Windows は ssh の既定シェル (PowerShell) が 0 以外を 1 に丸めるので、値では見ない
+        res["reach"] = "denied"
+    elif p.returncode == 127 or (WIN_AGENT in out and ("does not exist" in out or "存在しません" in out)):
+        res["reach"] = "no-agent"  # 端末側に netcap-agent が入っていない
     # 端末側は 1 行目を key=value で返す。それを拾う
     for line in out.splitlines():
         if "=" in line and line.split()[0] in ("netshape", "netcheck"):
@@ -179,7 +185,8 @@ STATUS_COLS = [
     ("reach", 12, lambda r: r.get("reach", "?")),
     ("cap", 8, lambda r: r.get("state", "?") if r.get("reach") == "ok" else "?"),
     ("up", 11, lambda r: "-" if fmt(r.get("up_mbit")) == "-" else f"{r['up_mbit']} Mbit/s"),
-    ("down", 11, lambda r: "-" if fmt(r.get("down_mbit")) == "-"
+    ("down", 11, lambda r: "非対応" if r.get("down_src") == "unsupported"
+     else "-" if fmt(r.get("down_mbit")) == "-"
      else f"{r['down_mbit']} Mbit/s" + ("*" if r.get("down_src") == "applied" else "")),
     ("note", 0, note),
 ]
@@ -336,6 +343,9 @@ def main():
         if a.cmd == "set" and a.up is None:
             sys.exit("usage: netcap set <host|all> --up N --down N")
         args = [a.up, a.down] if a.up is not None else []
+        bad = [v for v in args if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", v)]
+        if bad:
+            sys.exit(f"--up / --down は Mbit/s の数値で書く: {' '.join(bad)}")
         return apply_and_read(resolve(a.host), a.cmd, args, a.json, a.raw)
 
     if a.cmd == "off":
