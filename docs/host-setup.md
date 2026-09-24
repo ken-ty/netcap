@@ -125,12 +125,35 @@ Host server-netcap
 操作する側は `hosts` にある端末しか叩かず、操作される側は `authorized_keys` にある鍵の、許した
 動詞しか受けない。
 
-## `reach` 列の読み方
+## 表の読み方
+
+`status` / `get` / `check` の表は、どれも `reach` と `note` の列を持つ。`status` はさらに `cap` を持つ。
+
+### reach — その端末に届いて、頼めたか
 
 | reach | 意味 |
 | --- | --- |
 | `ok` | 動いた |
-| `denied` | 端末側がその動詞を許していない (forced command の `--allow`) |
-| `no-sudo` | 端末側の sudoers に無い |
+| `unreachable` | ssh が届かない (終了コード 255) |
+| `timeout` | 時間内に応答が返らない |
 | `no-agent` | 端末側に agent が入っていない |
-| `unreachable` / `timeout` | ssh が届かない |
+| `no-sudo` | 端末側の sudoers に無い (mac) |
+| `denied` | 端末側がその動詞を許していない (forced command の `--allow`) |
+| `error` | 届いたが、端末側が 0 以外で終わった |
+
+### cap — いま上限がかかっているか
+
+設定ではなく、pf の pipe や QoS ポリシーの実物から決める。
+
+| cap | 意味 |
+| --- | --- |
+| `on` | 上限がかかっている |
+| `off` | かかっていない |
+| `partial` | pf のルールと dnctl の pipe が食い違っている (mac)。`on` か `off` を打ち直せば揃う |
+| `?` | reach が `ok` でないので読めていない |
+
+### note — うまくいかなかった理由
+
+reach が `ok` なら空。それ以外は、端末から返った出力 (stdout と stderr) の最後の 1 行を出す。
+ssh のエラー、`netcap-agent:` で始まる agent の拒否、`sudo:` のメッセージのどれかになることが多い。
+全文は `--json` の `raw` にある。
