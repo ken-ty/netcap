@@ -1,3 +1,15 @@
-# netcap が無人で叩けるように、ken-ty-netshape だけパスワード無しにする。
+# netcap が無人で叩けるように、ken-ty-netshape の決まった動詞だけパスワード無しにする。
 # 置き場所: /etc/sudoers.d/ken-ty-netshape (0440 root:wheel)。mac/install.sh が置く
-__USER__ ALL=(root) NOPASSWD: /usr/local/sbin/ken-ty-netshape
+#
+# 引数まで書く。status / get / off / 引数無しの on は完全一致。
+# 数値を取る on / set だけ * を使う (sudoers の * は空白も含めて何にでも合うので、
+# 引数の数と形は本体が検査する — 2 個の数値でなければ exit 2)。
+# 本体は root だけが書ける /Library/PrivilegedHelperTools に置く。
+# 利用者が書けるディレクトリに置くと、差し替えるだけで root が取れる。
+Cmnd_Alias NETSHAPE = /Library/PrivilegedHelperTools/ken-ty-netshape status, \
+                      /Library/PrivilegedHelperTools/ken-ty-netshape get, \
+                      /Library/PrivilegedHelperTools/ken-ty-netshape off, \
+                      /Library/PrivilegedHelperTools/ken-ty-netshape on, \
+                      /Library/PrivilegedHelperTools/ken-ty-netshape on *, \
+                      /Library/PrivilegedHelperTools/ken-ty-netshape set *
+__USER__ ALL=(root) NOPASSWD: NETSHAPE

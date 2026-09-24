@@ -4,7 +4,7 @@
 <dict>
   <key>Label</key><string>com.ken-ty.netshape</string>
   <key>ProgramArguments</key>
-  <array><string>/usr/local/sbin/ken-ty-netshape</string><string>on</string></array>
+  <array><string>/Library/PrivilegedHelperTools/ken-ty-netshape</string><string>on</string></array>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>/var/log/com.ken-ty.netshape.log</string>
   <key>StandardErrorPath</key><string>/var/log/com.ken-ty.netshape.log</string>
