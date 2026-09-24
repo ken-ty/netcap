@@ -1,6 +1,6 @@
-# このリポジトリ自体を tap にしている。入れ方は README の「CLI を入れる」。
+# このリポジトリ自体を tap にしている。入れ方は README の Quick Start。
 class Netcap < Formula
-  desc "Ken の常用機 3 台の WAN 帯域上限を 1 本の CLI で on / off する"
+  desc "Cap the internet bandwidth of devices on your network from one Mac"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
       tag:      "v0.5.0",

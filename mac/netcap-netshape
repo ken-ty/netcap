@@ -1,40 +1,38 @@
 #!/bin/bash
-# ken-ty-netshape — この Mac 自身の WAN 向け通信に上限をかける (pf + dummynet)
+# netcap-netshape — この Mac 自身の WAN 向け通信に上限をかける (pf + dummynet)
 #
-#   ken-ty-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (LaunchDaemon が起動時に呼ぶ)
+#   netcap-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (LaunchDaemon が起動時に呼ぶ)
 #                                           引数を付けると今回だけその値。既定は変えない
-#   ken-ty-netshape off                     上限を外す
-#   ken-ty-netshape status                  いまの状態。1 行目は実物 (dnctl / pfctl) から導く
-#   ken-ty-netshape set UP_MBIT DOWN_MBIT   既定を書き換える (再起動後も効く)。
+#   netcap-netshape off                     上限を外す
+#   netcap-netshape status                  いまの状態。1 行目は実物 (dnctl / pfctl) から導く
+#   netcap-netshape set UP_MBIT DOWN_MBIT   既定を書き換える (再起動後も効く)。
 #                                           いま上限がかかっていれば、その値で張り直す
-#   ken-ty-netshape get                     既定と起動時の挙動を 1 行で
+#   netcap-netshape get                     既定と起動時の挙動を 1 行で
 #
-# 既定値は /etc/ken-ty-netshape.conf に置く (set が書く):
+# 既定値は /etc/netcap-netshape.conf に置く (set が書く):
 #   UP_MBIT=1
 #   DOWN_MBIT=1
 #
 # 触るのは自分の持ち物だけ:
-#   pf      アンカー com.apple/ken-ty.netshape の中だけ。main ruleset (/etc/pf.conf) は読み込まない。
+#   pf      アンカー com.apple/netcap-netshape の中だけ。main ruleset (/etc/pf.conf) は読み込まない。
 #           macOS は起動時に /etc/pf.conf を読み、そこに dummynet-anchor "com.apple/*" がある
 #   dnctl   pipe 1 (上り) と pipe 2 (下り) だけ。flush はしない
 #
 # root で動くので、本体・設定・アンカーはすべて root だけが書ける場所に置く (mac/install.sh が検査する)。
 # 設定は source せず、key=value を数値として読むだけにする。
-#
-# 元は asakusa-t の admin/netshape/ken-ty-netshape (Mac mini 用)。
 set -eu
 
 UP_MBIT=1   # 上り。4G に落ちた夜は WAN 全体で 10Mbps も出ない (2026-09-20 実測)
 DOWN_MBIT=1 # 下り。5〜10Mbit/s の DL だけで WAN 遅延が 500〜1600ms になった
 
-CONF=/etc/ken-ty-netshape.conf
-ANCHOR=com.apple/ken-ty.netshape
-ANCHOR_FILE=/etc/pf.anchors/com.ken-ty.netshape
+CONF=/etc/netcap-netshape.conf
+ANCHOR=com.apple/netcap-netshape
+ANCHOR_FILE=/etc/pf.anchors/netcap-netshape
 PIPE_UP=1
 PIPE_DOWN=2
-TOKEN=/var/run/com.ken-ty.netshape.token
-APPLIED=/var/run/com.ken-ty.netshape.applied # on で適用した値 "UP DOWN" (下りの表示にだけ使う)
-PLIST=/Library/LaunchDaemons/com.ken-ty.netshape.plist # あれば起動時に on
+TOKEN=/var/run/netcap-netshape.token
+APPLIED=/var/run/netcap-netshape.applied # on で適用した値 "UP DOWN" (下りの表示にだけ使う)
+PLIST=/Library/LaunchDaemons/netcap-netshape.plist # あれば起動時に on
 
 [ "$(id -u)" = 0 ] || {
   echo "root で実行してください (sudo)" >&2
@@ -133,7 +131,7 @@ set_default() {
   local tmp
   tmp=$(mktemp)
   cat >"$tmp" <<EOF
-# ken-ty-netshape の既定値。ken-ty-netshape set が書く
+# netcap-netshape の既定値。netcap-netshape set が書く
 UP_MBIT=$1
 DOWN_MBIT=$2
 EOF

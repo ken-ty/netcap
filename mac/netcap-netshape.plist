@@ -2,11 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.ken-ty.netshape</string>
+  <key>Label</key><string>netcap-netshape</string>
   <key>ProgramArguments</key>
-  <array><string>/Library/PrivilegedHelperTools/ken-ty-netshape</string><string>on</string></array>
+  <array><string>/Library/PrivilegedHelperTools/netcap-netshape</string><string>on</string></array>
   <key>RunAtLoad</key><true/>
-  <key>StandardOutPath</key><string>/var/log/com.ken-ty.netshape.log</string>
-  <key>StandardErrorPath</key><string>/var/log/com.ken-ty.netshape.log</string>
+  <key>StandardOutPath</key><string>/var/log/netcap-netshape.log</string>
+  <key>StandardErrorPath</key><string>/var/log/netcap-netshape.log</string>
 </dict>
 </plist>

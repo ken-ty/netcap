@@ -18,7 +18,7 @@ tailscale の up/down ではなく on/off のままにした。
 
 端末側の実体:
   mac              : /Library/PrivilegedHelperTools/netcap-agent    (入口。forced command にも使う)
-                       → ken-ty-netshape (pf + dummynet。sudo -n) / netcap-check (実測。root 不要)
+                       → netcap-netshape (pf + dummynet。sudo -n) / netcap-check (実測。root 不要)
   win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (入口。forced command にも使う)
                        → netshape.ps1 (NetQosPolicy。上りだけ) / netcap-check.ps1 (実測)
 どれも 1 行目を key=value で返すので、それを読む。
@@ -71,7 +71,7 @@ def build_cmd(host, action, args):
 def decode(b):
     """端末の出力を読む。まず UTF-8、読めなければ cp932。
     日本語版 Windows は、ssh 越しの PowerShell が UTF-8 を返す一方で、
-    icacls などの標準コマンドは OEM コードページ (cp932) で返す (2026-09-25 nucbox で実測)"""
+    icacls などの標準コマンドは OEM コードページ (cp932) で返す (2026-09-25 実機で実測)"""
     try:
         return b.decode("utf-8")
     except UnicodeDecodeError:
