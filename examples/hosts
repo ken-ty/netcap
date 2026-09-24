@@ -1,0 +1,9 @@
+# netcap が管理する端末。1 行 1 台で「名前 OS 経路」
+#   名前  netcap status <名前> で指す。all は使えない
+#   OS    mac (pf + dummynet) か win (NetQosPolicy)
+#   経路  ~/.ssh/config の Host 名。netcap を叩くこの機械自身なら -
+#
+# 端末側に netshape を入れておくこと (mac/install.sh)。
+laptop   mac  -
+server   mac  server-netcap
+gamepc   win  gamepc

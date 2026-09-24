@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""netcap — Ken の常用機 3 台の WAN 帯域上限を 1 本で扱う。
+"""netcap — 手元で管理している端末の WAN 帯域上限を 1 本で扱う。
 
   netcap status [host|all] [--json]           実物 (pf の pipe / QoS policy) を読む
   netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
@@ -16,32 +16,35 @@ set は永続する設定だけを変え、on の flag は「今回の完全な�
 tailscale の up/down ではなく on/off のままにした。
 
 端末側の実体:
-  mac (mbp / mini) : /Library/PrivilegedHelperTools/ken-ty-netshape  (pf + dummynet)
+  mac              : /Library/PrivilegedHelperTools/ken-ty-netshape  (pf + dummynet)
                      /usr/local/bin/netcap-check      (実測。root 不要)
-  win (nucbox)     : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy)
+  win              : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy)
 どれも 1 行目を key=value で返すので、それを読む。
+
+どの端末を管理するか (hosts) と、まとめて動かす組 (profiles) は利用者のもの。
+コードには持たず ~/.config/netcap/ に置く ($NETCAP_CONFIG_DIR で差し替えられる)。
+書き方は examples/ を見る。どちらも 1 行 1 件のテキストで、# から後はコメント。
 """
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
-import tomllib
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-HOSTS = {
-    "mbp": {"os": "mac", "ssh": None, "label": "MacBook Pro"},
-    "mini": {"os": "mac", "ssh": "macmini-admin", "label": "Mac mini"},
-    "nucbox": {"os": "win", "ssh": "nucbox", "label": "nucbox (Windows)"},
-}
-ORDER = list(HOSTS)
+CONFIG_DIR = Path(os.environ.get("NETCAP_CONFIG_DIR")
+                  or Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "netcap")
+EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+# main() が CONFIG_DIR/hosts から埋める。{名前: {"os": "mac"|"win", "ssh": Host 名 | None}}
+HOSTS = {}
+ORDER = []
 MAC_BIN = "/Library/PrivilegedHelperTools/ken-ty-netshape"
 MAC_CHECK = "/usr/local/bin/netcap-check"
 WIN_SCRIPT = r"C:\ProgramData\netcap\netcap-qos.ps1"
 WIN_CHECK = r"C:\ProgramData\netcap\netcap-check.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
-PROFILES = Path(__file__).resolve().parent.parent / "netcap.toml"
 # check は転送が終わるまで返らない。1 Mbit/s まで絞られていると 1MB で 10 秒近くかかる
 TIMEOUT = {"check": 180}
 
@@ -70,7 +73,7 @@ def run(host, action, args=()):
     """端末で 1 コマンド実行して、解釈済みの dict を返す。"""
     cmd = build_cmd(host, action, list(args))
     try:
-        # nucbox の PowerShell は cp932 で返す (ssh 越しの OEM コードページ)
+        # 日本語版 Windows の PowerShell は cp932 で返す (ssh 越しの OEM コードページ)
         enc = "cp932" if HOSTS[host]["os"] == "win" else "utf-8"
         p = subprocess.run(cmd, capture_output=True, text=True, encoding=enc,
                            errors="replace", timeout=TIMEOUT.get(action, 60))
@@ -97,13 +100,43 @@ def run(host, action, args=()):
     return res
 
 
+def config_lines(name):
+    """CONFIG_DIR/name を読み、コメントと空行を除いた (行番号, 語の列) を返す。"""
+    path = CONFIG_DIR / name
+    if not path.exists():
+        sys.exit(f"{path} が無い。書き方は {EXAMPLES / name} を見る\n"
+                 f"  mkdir -p {CONFIG_DIR} && cp {EXAMPLES / name} {path}")
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        words = line.split("#", 1)[0].split()
+        if words:
+            yield path, n, words
+
+
+def load_hosts():
+    """hosts: 1 行 1 台。「名前 OS 経路」。経路は ~/.ssh/config の Host 名、この機械自身なら -"""
+    for path, n, words in config_lines("hosts"):
+        if len(words) != 3 or words[1] not in ("mac", "win") or words[0] == "all":
+            sys.exit(f"{path}:{n}: 「名前 mac|win 経路」の 3 語で書く (名前に all は使えない): {' '.join(words)}")
+        name, os_, ssh = words
+        if name in HOSTS:
+            sys.exit(f"{path}:{n}: {name} が 2 回出てくる")
+        HOSTS[name] = {"os": os_, "ssh": None if ssh == "-" else ssh}
+        ORDER.append(name)
+    if not HOSTS:
+        sys.exit(f"{CONFIG_DIR / 'hosts'} に端末が 1 台も無い")
+
+
+def host_names():
+    return " | ".join([*ORDER, "all"])
+
+
 def resolve(target, default_all=False):
     if target in (None, "all"):
         if target is None and not default_all:
-            sys.exit("host を指定してください (mbp | mini | nucbox | all)")
+            sys.exit(f"host を指定してください ({host_names()})")
         return ORDER
     if target not in HOSTS:
-        sys.exit(f"unknown host: {target} (mbp | mini | nucbox | all のどれか)")
+        sys.exit(f"unknown host: {target} ({host_names()} のどれか)")
     return [target]
 
 
@@ -193,10 +226,14 @@ def apply_and_read(hosts, action, args, as_json, raw):
 
 
 def load_profiles():
-    if not PROFILES.exists():
-        sys.exit(f"プロファイルが無い: {PROFILES}")
-    with open(PROFILES, "rb") as f:
-        return tomllib.load(f).get("profiles", {})
+    """profiles: 1 行 1 組。「名前 端末=値 端末=値 …」。netcap profiles の表示と同じ形"""
+    profiles = {}
+    for path, n, words in config_lines("profiles"):
+        name, *pairs = words
+        if not pairs or any("=" not in p for p in pairs):
+            sys.exit(f"{path}:{n}: 「名前 端末=上り/下り …」で書く: {' '.join(words)}")
+        profiles[name] = dict(p.split("=", 1) for p in pairs)
+    return profiles
 
 
 def parse_profile_value(host, value):
@@ -246,7 +283,7 @@ def cmd_profiles(a):
 
 
 def add_target(p, optional=False):
-    p.add_argument("host", nargs="?" if optional else None, help="mbp | mini | nucbox | all")
+    p.add_argument("host", nargs="?" if optional else None, help="hosts に書いた名前か all")
 
 
 def main():
@@ -280,6 +317,7 @@ def main():
     sub.add_parser("profiles", help="プロファイル一覧")
 
     a = ap.parse_args()
+    load_hosts()
 
     if a.cmd in ("on", "set"):
         # 旧形式 netcap set <host> 2 2 は意味が変わった。黙って別の動作をさせない

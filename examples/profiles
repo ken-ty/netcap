@@ -1,0 +1,6 @@
+# 複数の端末をまとめて動かす組。1 行 1 組で「名前 端末=値 端末=値 …」
+#   値   "上り/下り" (Mbit/s) か off。書かなかった端末は触らない
+#   netcap use <名前> で揃え、netcap profiles で一覧する (表示もこの形)
+game    laptop=2/2  server=1/1  gamepc=off
+quiet   laptop=1/1  server=1/1
+none    laptop=off  server=off  gamepc=off

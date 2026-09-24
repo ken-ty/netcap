@@ -30,7 +30,7 @@ netcap profiles                             プロファイル一覧
 既に up/down を使っている。`netcap up mini --up 2` は読めないので `on` / `off` のままにした。
 
 **プロファイルは tailscale に無い概念。** netcap は 1 台ではなく 3 台をまとめて扱うので、
-「LoL やるから他を絞る」を 1 コマンドにする `netcap use lol` を足した (`netcap.toml`)。
+「LoL やるから他を絞る」を 1 コマンドにする `netcap use lol` を足した (`~/.config/netcap/profiles`)。
 
 ## なぜ
 
@@ -129,18 +129,29 @@ dnctl で確かめたうえで、値だけ `on` 時の記録 (`/var/run/com.ken-
   突き合わせるほうが確か
 - 今夜の WAN は下り 20〜33 / 上り 5〜8 Mbit/s (4G 相当)。バンドは記録していない
 
-## プロファイル
+## 端末とプロファイルは利用者のもの (`~/.config/netcap/`)
 
-`netcap.toml` に「どの台をいくらにするか」を名前付きで持つ。書かなかった台は触らない。
+**どの端末を管理するか (`hosts`) と、まとめて動かす組 (`profiles`) はコードに持たない。**
+netcap は `~/.config/netcap/` (`$XDG_CONFIG_HOME` / `$NETCAP_CONFIG_DIR` で差し替え可) から読む。
+brew で入れた版の中 (Cellar) に置くと、編集できず `brew upgrade` のたびに消えるため。
+
+どちらも 1 行 1 件のテキストで、`#` から後はコメント。書き方は `examples/` にある。
 
 ```
-$ netcap profiles
+$ cat ~/.config/netcap/hosts
+mbp     mac  -               # 名前 OS 経路 (~/.ssh/config の Host 名。この機械自身なら -)
+mini    mac  macmini-admin
+nucbox  win  nucbox
+
+$ netcap profiles             # ~/.config/netcap/profiles をそのまま表にしたもの
 lol    mbp=2/2  mini=1/1  nucbox=off
 none   mbp=off  mini=off  nucbox=off
 quiet  mbp=1/1  mini=1/1  nucbox=off
 
 $ netcap use lol
 ```
+
+`profiles` のファイルの形は `netcap profiles` の表示と同じにしてある。書かなかった端末は触らない。
 
 ## 段 2 (予定)
 
