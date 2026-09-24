@@ -7,6 +7,8 @@ class Netcap < Formula
       revision: "d19c4bc3df0b1d6ad9f94073c2bb6e725fd33c86"
   head "https://github.com/ken-ty/netcap.git", branch: "main"
 
+  license "MIT"
+
   depends_on :macos
   depends_on "python@3.13"
 
