@@ -47,7 +47,7 @@ probe が shaper の待ち行列を測らないようにするため。
 | --- | --- | --- | --- | --- |
 | `mbp` | macOS | ローカル | `mac/` — pf + dummynet (`/Library/PrivilegedHelperTools/ken-ty-netshape`) | 素のまま (`--boot off`) |
 | `mini` | macOS | `ssh macmini-admin` | asakusa-t の `admin/netshape` が入れた旧形 (`/usr/local/sbin`)。netcap からはまだ叩けない | **上下 1 Mbit/s** (`--boot on`。asakusa-t ADR 0021) |
-| `nucbox` | Windows | `ssh nucbox` | `win/` — NetQosPolicy。**下りは Windows 標準では絞れない** | (段 1 で決める) |
+| `nucbox` | Windows | `ssh nucbox` | `win/` — NetQosPolicy。**上りだけ絞れる** (下の「Windows を入れる」) | 状態がそのまま残る (`boot=keep`) |
 
 `off` は一時的な操作。再起動すればその端末の起動時既定に戻る。既定そのものを変えるのは
 `netcap set` (端末の `/etc/ken-ty-netshape.conf` を書き換える)。
@@ -122,6 +122,47 @@ netcap の表に出る `reach` の意味:
 | `no-sudo` | 端末側の sudoers に無い |
 | `no-agent` | 端末側に `netcap-agent` が入っていない |
 | `unreachable` / `timeout` | ssh が届かない |
+
+### Windows を入れる
+
+**Windows は管理される側にだけなれる。** netcap の CLI (操作する側) は brew で入る macOS 用。
+Windows の端末には、netcap から ssh で頼まれたことを実行する側だけを入れる。
+
+```
+# win/ を Windows に置いて、管理者の PowerShell で
+powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
+```
+
+`C:\ProgramData\netcap\` に `netshape.ps1` (本体) / `netcap-agent.ps1` (入口) / `netcap-check.ps1` (実測) /
+`uninstall.ps1` を置く。`C:\ProgramData` の既定の ACL は、Users が配下にファイルを作り書き込める。
+管理者で動くスクリプトを差し替えられないよう、install.ps1 が継承を切り、SYSTEM と Administrators
+だけが書けるようにする (mac で `/usr/local/sbin` を避けたのと同じ理由)。
+
+mac 版とできることが違う。
+
+| | mac (pf + dummynet) | Windows (NetQosPolicy) |
+| --- | --- | --- |
+| 上りを絞る | できる | できる |
+| 下りを絞る | できる | **できない**。Windows の QoS ポリシーは送信側にしか効かない。表では `非対応` |
+| 宅内・tailnet・DNS を素通し | できる | できる (宛先ごとのポリシーで `-Default` から外す) |
+| status / get / set / check | できる | できる |
+| 再起動したとき | `--boot on` なら上限をかけ直す。`off` なら素のまま | **`on` / `off` の状態がそのまま残る** (`boot=keep`) |
+| 操作する側 (netcap の CLI) | なれる | なれない |
+
+**ポリシーは永続の保存先 (localhost) に置く。** 再起動で消える ActiveStore のほうが mac の
+`--boot off` に近いが、ActiveStore は宛先の条件 (`-IPDstPrefixMatchCondition`) を保持せず、
+宅内宛ても絞ってしまった (2026-09-25 nucbox で実測。宅内への送信が 20.8 → 1.8 Mbit/s)。
+永続の保存先では宅内は 20.6 Mbit/s のまま、WAN の上りだけ 2 Mbit/s 以下になった。
+
+forced command は mac と同じ形で、置き場所だけ違う。管理者の鍵なら
+`C:\ProgramData\ssh\administrators_authorized_keys` に書く。
+
+```
+restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check'" ssh-ed25519 AAAA… netcap@<この機械>
+```
+
+Windows の管理者の ssh セッションは昇格した状態で動くので、mac の sudoers のような二段目が無い。
+forced command が唯一の関門になる。
 
 ### root で動くものの置き場所
 
