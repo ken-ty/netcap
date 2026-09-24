@@ -4,6 +4,7 @@ set -u
 launchctl bootout system/com.ken-ty.netshape 2>/dev/null || true
 /Library/PrivilegedHelperTools/ken-ty-netshape off 2>/dev/null || true
 rm -f /Library/LaunchDaemons/com.ken-ty.netshape.plist /Library/PrivilegedHelperTools/ken-ty-netshape \
+  /Library/PrivilegedHelperTools/netcap-agent \
   /usr/local/bin/netcap-check \
   /etc/pf.anchors/com.ken-ty.netshape /etc/ken-ty-netshape.conf \
   /etc/sudoers.d/ken-ty-netshape

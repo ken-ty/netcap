@@ -16,8 +16,8 @@ set は永続する設定だけを変え、on の flag は「今回の完全な�
 tailscale の up/down ではなく on/off のままにした。
 
 端末側の実体:
-  mac              : /Library/PrivilegedHelperTools/ken-ty-netshape  (pf + dummynet)
-                     /usr/local/bin/netcap-check      (実測。root 不要)
+  mac              : /Library/PrivilegedHelperTools/netcap-agent    (入口。forced command にも使う)
+                       → ken-ty-netshape (pf + dummynet。sudo -n) / netcap-check (実測。root 不要)
   win              : C:\\ProgramData\\netcap\\netcap-qos.ps1 (NetQosPolicy)
 どれも 1 行目を key=value で返すので、それを読む。
 
@@ -40,8 +40,9 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 # main() が CONFIG_DIR/hosts から埋める。{名前: {"os": "mac"|"win", "ssh": Host 名 | None}}
 HOSTS = {}
 ORDER = []
-MAC_BIN = "/Library/PrivilegedHelperTools/ken-ty-netshape"
-MAC_CHECK = "/usr/local/bin/netcap-check"
+# mac は何を頼むときもこの入口を通す。端末側の authorized_keys が forced command で
+# この agent に固定していれば、その端末が許した動詞しか通らない
+MAC_AGENT = "/Library/PrivilegedHelperTools/netcap-agent"
 WIN_SCRIPT = r"C:\ProgramData\netcap\netcap-qos.ps1"
 WIN_CHECK = r"C:\ProgramData\netcap\netcap-check.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
@@ -53,10 +54,7 @@ def build_cmd(host, action, args):
     """端末で叩くコマンドを組む。ssh が要る台は 1 本の文字列にまとめる。"""
     h = HOSTS[host]
     if h["os"] == "mac":
-        if action == "check":
-            remote = [MAC_CHECK, *args]  # 実測は root が要らない
-        else:
-            remote = ["sudo", "-n", MAC_BIN, action, *args]
+        remote = [MAC_AGENT, action, *args]
     else:
         script = WIN_CHECK if action == "check" else WIN_SCRIPT
         remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script]
@@ -79,6 +77,8 @@ def run(host, action, args=()):
                            errors="replace", timeout=TIMEOUT.get(action, 60))
     except subprocess.TimeoutExpired:
         return {"host": host, "reach": "timeout", "raw": ""}
+    except FileNotFoundError as e:  # この機械自身に netcap-agent が入っていない
+        return {"host": host, "reach": "no-agent", "raw": str(e)}
     out = (p.stdout or "") + (p.stderr or "")
     res = {"host": host, "raw": out.strip(), "rc": p.returncode}
     if p.returncode == 255 and HOSTS[host]["ssh"]:
@@ -87,6 +87,10 @@ def run(host, action, args=()):
     res["reach"] = "ok"
     if "a password is required" in out or "sudo: a terminal is required" in out:
         res["reach"] = "no-sudo"  # sudoers が入っていない
+    elif p.returncode == 77 and "netcap-agent:" in out:
+        res["reach"] = "denied"  # 端末側がこの動詞を許していない (forced command)
+    elif p.returncode == 127:
+        res["reach"] = "no-agent"  # 端末側に netcap-agent が入っていない (ssh 先の command not found)
     # 端末側は 1 行目を key=value で返す。それを拾う
     for line in out.splitlines():
         if "=" in line and line.split()[0] in ("netshape", "netcheck"):

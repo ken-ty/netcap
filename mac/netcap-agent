@@ -1,0 +1,62 @@
+#!/bin/bash
+# netcap-agent — netcap が端末側で叩く入口。ssh の forced command にもそのまま使う
+#
+#   netcap-agent <動詞> [引数...]              直接 (この機械のログインユーザーとして)
+#   netcap-agent --allow "<動詞> <動詞> …"     forced command として。頼まれた中身は
+#                                              $SSH_ORIGINAL_COMMAND で来る
+#
+# 動詞: status get check on off set
+#
+# 許可を決めるのは操作される側。authorized_keys の 1 行で、その鍵に頼めることを絞る:
+#
+#   restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status get check'" ssh-ed25519 AAAA… netcap@laptop
+#
+# こう書いた端末は、netcap から読めても上限を外せない。その鍵で ssh してきても、
+# 並べた動詞のほかは何も走らない (シェルも取れない。restrict で pty も転送も切る)。
+#
+# root が要る動詞は sudo -n で ken-ty-netshape に渡す。sudoers も動詞単位で絞ってあるので、
+# ここを抜けても sudoers で止まる。
+set -eu
+
+NETSHAPE=/Library/PrivilegedHelperTools/ken-ty-netshape
+CHECK=/usr/local/bin/netcap-check
+VERBS="status get check on off set"
+
+deny() {
+  echo "netcap-agent: $*" >&2
+  exit 77
+}
+
+allowed=$VERBS
+if [ "${1:-}" = --allow ]; then
+  [ $# -eq 2 ] || deny "usage: netcap-agent --allow \"<動詞> …\""
+  allowed=$2
+  [ -n "${SSH_ORIGINAL_COMMAND:-}" ] || deny "コマンドを付けて呼ぶ (許可されている動詞: $allowed)"
+  # 頼まれた中身は空白で区切るだけ。グロブも引用も解釈しない
+  set -f
+  # shellcheck disable=SC2086
+  set -- $SSH_ORIGINAL_COMMAND
+  set +f
+  # netcap は "<この agent のパス> <動詞> …" の形で送ってくる。先頭の自分の名前は捨てる
+  [ "${1##*/}" = netcap-agent ] && shift
+fi
+
+verb=${1:-}
+[ -n "$verb" ] || deny "usage: netcap-agent <動詞> [引数...] (動詞: $VERBS)"
+shift
+case " $VERBS " in *" $verb "*) ;; *) deny "知らない動詞: $verb" ;; esac
+case " $allowed " in *" $verb "*) ;; *) deny "この鍵には許可されていない: $verb (許可: $allowed)" ;; esac
+
+if [ "$verb" = check ]; then
+  # 実測は root が要らない。受けるのは --bytes <数値> だけ
+  if [ $# -gt 0 ]; then
+    [ $# -eq 2 ] && [ "$1" = --bytes ] && [[ "$2" =~ ^[0-9]+$ ]] || deny "check が受けるのは --bytes <数値> だけ"
+  fi
+  exec "$CHECK" "$@"
+fi
+
+# 数値を取るのは on / set だけ。それ以外の動詞は引数を取らない
+for a in "$@"; do
+  [[ "$a" =~ ^[0-9]+([.][0-9]+)?$ ]] || deny "引数は数値だけ: $a"
+done
+exec sudo -n "$NETSHAPE" "$verb" "$@"

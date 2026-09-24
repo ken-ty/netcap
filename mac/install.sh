@@ -6,6 +6,7 @@
 #
 # 何をするか:
 #   /Library/PrivilegedHelperTools/ken-ty-netshape   本体 (root で動く)
+#   /Library/PrivilegedHelperTools/netcap-agent      netcap が叩く入口 (forced command にも使う)
 #   /usr/local/bin/netcap-check                      実測 (root は要らない)
 #   /etc/pf.anchors/com.ken-ty.netshape              pf のルール (アンカー com.apple/ken-ty.netshape に読む)
 #   /etc/sudoers.d/ken-ty-netshape                   呼び出したユーザーに NOPASSWD (本体の決まった動詞だけ)
@@ -18,6 +19,7 @@ set -eu
 cd "$(dirname "$0")"
 
 BIN=/Library/PrivilegedHelperTools/ken-ty-netshape
+AGENT=/Library/PrivilegedHelperTools/netcap-agent
 CONF=/etc/ken-ty-netshape.conf
 ANCHOR_FILE=/etc/pf.anchors/com.ken-ty.netshape
 SUDOERS=/etc/sudoers.d/ken-ty-netshape
@@ -75,6 +77,7 @@ if [ -f /usr/local/etc/ken-ty-netshape.conf ]; then
 fi
 
 install -o root -g wheel -m 0755 ken-ty-netshape "$BIN"
+install -o root -g wheel -m 0755 netcap-agent "$AGENT"
 install -o root -g wheel -m 0755 netcap-check /usr/local/bin/netcap-check
 install -o root -g wheel -m 0644 com.ken-ty.netshape "$ANCHOR_FILE"
 
