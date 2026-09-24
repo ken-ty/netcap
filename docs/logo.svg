@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 264 72" width="264" height="72" role="img" aria-label="netcap">
+  <style>
+    .cap { fill: #e4572e; }
+    .wave { fill: none; stroke: #1f2937; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+    .text { fill: #1f2937; font: 700 44px ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; letter-spacing: -1px; }
+    @media (prefers-color-scheme: dark) {
+      .wave { stroke: #e5e7eb; }
+      .text { fill: #e5e7eb; }
+    }
+  </style>
+  <!-- 帽子 (上限) -->
+  <path class="cap" d="M10 30 A22 18 0 0 1 54 30 Z"/>
+  <rect class="cap" x="44" y="26" width="22" height="4" rx="2"/>
+  <!-- 帽子の縁で頭打ちになった通信の波 -->
+  <path class="wave" d="M6 60 L14 38 L22 38 L30 60 L38 38 L46 38 L54 60 L60 46"/>
+  <text class="text" x="80" y="54">netcap</text>
+</svg>
