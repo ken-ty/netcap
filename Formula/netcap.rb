@@ -3,8 +3,8 @@ class Netcap < Formula
   desc "Ken の常用機 3 台の WAN 帯域上限を 1 本の CLI で on / off する"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
-      tag:      "v0.4.0",
-      revision: "c2bcd979ea3614f4a27d0c3b95a8d55385a74629"
+      tag:      "v0.5.0",
+      revision: "0ba5920bffa74080957792502e63941acdd2ca34"
   head "https://github.com/ken-ty/netcap.git", branch: "main"
 
   license "MIT"
@@ -17,6 +17,8 @@ class Netcap < Formula
     libexec.install Dir["*"] - ["Formula"]
     inreplace libexec/"bin/netcap", %r{\A#!/usr/bin/env python3$},
               "#!#{Formula["python@3.13"].opt_bin}/python3.13"
+    # 版の正本はタグ。netcap --version が出す値をここで埋める
+    inreplace libexec/"bin/netcap", '"@VERSION@"', "\"#{version}\""
     bin.install_symlink libexec/"bin/netcap"
   end
 
@@ -32,5 +34,6 @@ class Netcap < Formula
 
   test do
     assert_match "usage: netcap", shell_output("#{bin}/netcap --help")
+    assert_equal "netcap #{version}", shell_output("#{bin}/netcap --version").strip
   end
 end
