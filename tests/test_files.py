@@ -44,22 +44,33 @@ class Exempt(unittest.TestCase):
             self.assertIn("proto { tcp udp }", r)  # ICMP は当たらない
             self.assertIn("port != 53", r)
 
+    def test_linux_ranges(self):
+        sh = read("linux/netcap-netshape")
+        self.assertEqual(nets(re.search(r"^LOCAL=.*", sh, re.M).group()), self.table)
+
+    def test_dns_and_icmp_pass_on_linux(self):
+        sh = read("linux/netcap-netshape")
+        self.assertRegex(sh, r"ip protocol 1 0xff")  # ICMP
+        self.assertRegex(sh, r"ip dport 53 0xffff")  # DNS (上り)
+        self.assertRegex(sh, r"ip sport 53 0xffff")  # DNS (下り)
+
     def test_dns_passes_on_win(self):
         self.assertRegex(read("win/netshape.ps1"), r"-IPDstPortMatchCondition 53 ")
 
 
 class HostSetup(unittest.TestCase):
-    """docs/host-setup.md の macOS の表にあるパスを、install.sh が置き uninstall.sh が消す"""
+    """docs/host-setup.md の表にあるパスを、install.sh が置き uninstall.sh が消す"""
 
     def test_paths(self):
-        doc = read("docs/host-setup.md").split("## macOS")[1].split("\n## ")[0]
-        paths = re.findall(r"^\| `(/[^`]+)`", doc, re.M)
-        self.assertTrue(paths)
-        install, uninstall = read("mac/install.sh"), read("mac/uninstall.sh")
-        for p in paths:
-            with self.subTest(path=p):
-                self.assertIn(p, install)
-                self.assertIn(p, uninstall)
+        for section, d in (("macOS", "mac"), ("Linux", "linux")):
+            doc = read("docs/host-setup.md").split(f"## {section}\n")[1].split("\n## ")[0]
+            paths = re.findall(r"^\| `(/[^`]+)`", doc, re.M)
+            self.assertTrue(paths)
+            install, uninstall = read(f"{d}/install.sh"), read(f"{d}/uninstall.sh")
+            for p in paths:
+                with self.subTest(os=d, path=p):
+                    self.assertIn(p, install)
+                    self.assertIn(p, uninstall)
 
 
 class Release(unittest.TestCase):

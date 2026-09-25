@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/ken-ty/netcap/tags"><img alt="version" src="https://img.shields.io/github/v/tag/ken-ty/netcap?label=version&sort=semver"></a>
   <a href="LICENSE"><img alt="license" src="https://img.shields.io/github/license/ken-ty/netcap"></a>
-  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey">
+  <img alt="platform" src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey">
   <img alt="python" src="https://img.shields.io/badge/python-3-blue">
 </p>
 
@@ -13,7 +13,7 @@
   <a href="README.md">English</a> · 日本語
 </p>
 
-同じ回線を使う複数の端末の WAN 向け帯域を、1 台の Mac から 1 コマンドで絞る / 戻す CLI。
+同じ回線を使う複数の端末の WAN 向け帯域を、1 台の機械から 1 コマンドで絞る / 戻す CLI。
 ルーターで帯域を制御できない回線でも、端末の側で上限をかけられる。
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ## Quick Start
 
-1. 操作する Mac に CLI を入れる (Python 3 だけで動く)
+1. 操作する機械に CLI を入れる (macOS か Linux。Python 3 だけで動く)
 
    ```bash
    brew tap ken-ty/netcap https://github.com/ken-ty/netcap
@@ -36,7 +36,8 @@
 2. 絞られる各端末に端末側を root / 管理者で入れる (Windows は [docs/host-setup.md](docs/host-setup.md))
 
    ```bash
-   sudo bash mac/install.sh --boot off
+   sudo bash mac/install.sh --boot off     # macOS
+   sudo bash linux/install.sh --boot off   # Linux
    ```
 
 3. `~/.config/netcap/` に端末とプロファイルを書く (雛形は [examples/](examples/))
@@ -64,10 +65,10 @@ ssh 鍵の forced command の設定は [docs/host-setup.md](docs/host-setup.md#�
 
 ## 対応 OS
 
-| 役割 | macOS | Windows | Linux |
+| 役割 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| 操作する側 (CLI) | ✅ | — | — |
-| 操作される側 | ✅ 上り・下り (pf + dummynet) | ⚠️ 上りのみ (NetQosPolicy) | — |
+| 操作する側 (CLI) | ✅ | ✅ | — |
+| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上りのみ (NetQosPolicy) |
 
 ## ユースケース
 

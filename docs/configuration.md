@@ -15,7 +15,7 @@ gamepc   win  gamepc
 | 列 | 値 |
 | --- | --- |
 | 名前 | `netcap status <名前>` で指す名前。`all` は使えない |
-| OS | `mac` (pf + dummynet) か `win` (NetQosPolicy) |
+| OS | `mac` (pf + dummynet)、`linux` (tc)、`win` (NetQosPolicy) のどれか |
 | 経路 | `~/.ssh/config` の Host 名。netcap を叩くこの機械自身なら `-` |
 
 ## profiles

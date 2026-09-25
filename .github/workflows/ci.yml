@@ -12,13 +12,17 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 -m unittest discover -v tests
 
-  e2e-mac:
-    runs-on: macos-latest
+  e2e-unix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # v0.5.0 からの移行を試すのにタグが要る
-      - run: bash tests/e2e-mac.sh
+          fetch-depth: 0 # macOS で v0.5.0 からの移行を試すのにタグが要る
+      - run: bash tests/e2e-unix.sh
 
   e2e-win:
     runs-on: windows-latest

@@ -5,7 +5,7 @@ CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を�
 
 ## スクリプトの在り処
 
-リポジトリの `mac/` と `win/`。brew で入れたなら `$(brew --prefix)/opt/netcap/libexec/` の下。
+リポジトリの `mac/`、`linux/`、`win/`。brew で入れたなら `$(brew --prefix)/opt/netcap/libexec/` の下。
 brew を使わないなら clone か curl で取る。CLI は `bin/netcap` を PATH に通せば動く。
 
 ```bash
@@ -49,6 +49,23 @@ sudo bash mac/install.sh --boot on|off
 - 外すのは `sudo bash mac/uninstall.sh`
 - v0.5.0 までの旧名 `ken-ty-netshape` は、`install.sh` を流し直せば外れる。上限も外れるので `netcap on` でかけ直す
 
+## Linux
+
+```bash
+sudo bash linux/install.sh --boot on|off
+```
+
+| パス | 役割 |
+| --- | --- |
+| `/usr/local/libexec/netcap/netcap-agent` | netcap が叩く入口。forced command にも使う |
+| `/usr/local/libexec/netcap/netcap-netshape` | 本体 (root で動く。tc) |
+| `/usr/local/bin/netcap-check` | 実測 (root 不要) |
+| `/etc/sudoers.d/netcap-netshape` | 呼び出したユーザーに、本体の決まった動詞だけ NOPASSWD |
+| `/etc/systemd/system/netcap-netshape.service` | `--boot on` のときだけ |
+
+- 既定の経路のインターフェースを絞る。下りは `ifb` で受信を折り返して絞る
+- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh`
+
 ## Windows
 
 管理者の PowerShell で:
@@ -76,6 +93,8 @@ ssh-keygen -t ed25519 -f ~/.ssh/netcap -C netcap@<この機械> -N ""
 ```text
 restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<この機械>
 ```
+
+操作される Linux では、agent のパスを `/usr/local/libexec/netcap/netcap-agent` にする。
 
 操作される Windows では、管理者の鍵なら `C:\ProgramData\ssh\administrators_authorized_keys` に:
 
@@ -107,7 +126,7 @@ Host server-netcap
 | `unreachable` | ssh が届かない (終了コード 255) |
 | `timeout` | 時間内に応答が返らない |
 | `no-agent` | 端末側に agent が入っていない |
-| `no-sudo` | 端末側の sudoers に無い (mac) |
+| `no-sudo` | 端末側の sudoers に無い (mac、linux) |
 | `denied` | 端末側がその動詞を許していない (forced command の `--allow`) |
 | `error` | 届いたが、端末側が 0 以外で終わった |
 
