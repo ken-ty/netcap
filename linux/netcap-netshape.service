@@ -1,0 +1,14 @@
+# netcap-netshape — 起動時に既定の上限をかける。linux/install.sh --boot on のときだけ置く
+[Unit]
+Description=netcap: cap internet bandwidth at boot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/netcap/netcap-netshape on
+ExecStop=/usr/libexec/netcap/netcap-netshape off
+
+[Install]
+WantedBy=multi-user.target

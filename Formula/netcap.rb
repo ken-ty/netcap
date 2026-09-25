@@ -9,11 +9,10 @@ class Netcap < Formula
 
   license "MIT"
 
-  depends_on :macos
   depends_on "python@3.13"
 
   def install
-    # bin/netcap は自分の位置から ../examples を案内し、mac/ は端末側に入れるので、木ごと libexec に置く
+    # bin/netcap は自分の位置から ../examples を案内し、mac/ と linux/ は端末側に入れるので、木ごと libexec に置く
     libexec.install Dir["*"] - ["Formula"]
     inreplace libexec/"bin/netcap", %r{\A#!/usr/bin/env python3$},
               "#!#{Formula["python@3.13"].opt_bin}/python3.13"
@@ -28,7 +27,8 @@ class Netcap < Formula
         mkdir -p ~/.config/netcap && cp #{opt_libexec}/examples/* ~/.config/netcap/
 
       brew が入れるのは CLI だけです。端末側の netshape と netcap-agent は root が要るので別に入れます:
-        sudo bash #{opt_libexec}/mac/install.sh --boot off
+        sudo bash #{opt_libexec}/mac/install.sh --boot off     # macOS
+        sudo bash #{opt_libexec}/linux/install.sh --boot off   # Linux
     EOS
   end
 

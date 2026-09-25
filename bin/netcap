@@ -19,6 +19,8 @@ tailscale の up/down ではなく on/off のままにした。
 端末側の実体:
   mac              : /Library/PrivilegedHelperTools/netcap-agent    (入口。forced command にも使う)
                        → netcap-netshape (pf + dummynet。sudo -n) / netcap-check (実測。root 不要)
+  linux            : /usr/libexec/netcap/netcap-agent               (入口。mac と同じ agent)
+                       → netcap-netshape (tc。sudo -n) / netcap-check (実測。root 不要)
   win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (入口。forced command にも使う)
                        → netshape.ps1 (NetQosPolicy。上りだけ) / netcap-check.ps1 (実測)
 どれも 1 行目を key=value で返すので、それを読む。
@@ -49,6 +51,7 @@ ORDER = []
 # mac は何を頼むときもこの入口を通す。端末側の authorized_keys が forced command で
 # この agent に固定していれば、その端末が許した動詞しか通らない
 MAC_AGENT = "/Library/PrivilegedHelperTools/netcap-agent"
+LINUX_AGENT = "/usr/libexec/netcap/netcap-agent"
 WIN_AGENT = r"C:\ProgramData\netcap\netcap-agent.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
 # check は転送が終わるまで返らない。1 Mbit/s まで絞られていると 1MB で 10 秒近くかかる
@@ -58,8 +61,8 @@ TIMEOUT = {"check": 180}
 def build_cmd(host, action, args):
     """端末で叩くコマンドを組む。ssh が要る台は 1 本の文字列にまとめる。"""
     h = HOSTS[host]
-    if h["os"] == "mac":
-        remote = [MAC_AGENT, action, *args]
+    if h["os"] in ("mac", "linux"):
+        remote = [MAC_AGENT if h["os"] == "mac" else LINUX_AGENT, action, *args]
     else:
         remote = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", WIN_AGENT, action, *args]
     if h["ssh"] is None:
@@ -95,7 +98,7 @@ def run(host, action, args=()):
     res["reach"] = "ok"
     if "a password is required" in out or "sudo: a terminal is required" in out:
         res["reach"] = "no-sudo"  # sudoers が入っていない
-    elif p.returncode != 0 and "netcap-agent:" in out:
+    elif p.returncode != 0 and any(l.startswith("netcap-agent: ") for l in out.splitlines()):
         # 端末側がこの動詞を許していない (forced command)。agent は 77 で終わるが、
         # Windows は ssh の既定シェル (PowerShell) が 0 以外を 1 に丸めるので、値では見ない
         res["reach"] = "denied"
@@ -151,10 +154,10 @@ def config_lines(name):
 
 
 def load_hosts():
-    """hosts: 1 行 1 台。「名前 OS 経路」。経路は ~/.ssh/config の Host 名、この機械自身なら -"""
+    """hosts: 1 行 1 台。「名前 OS 経路」。OS は mac / linux / win。経路は ~/.ssh/config の Host 名、この機械自身なら -"""
     for path, n, words in config_lines("hosts"):
-        if len(words) != 3 or words[1] not in ("mac", "win") or words[0] == "all":
-            sys.exit(f"{path}:{n}: 「名前 mac|win 経路」の 3 語で書く (名前に all は使えない): {' '.join(words)}")
+        if len(words) != 3 or words[1] not in ("mac", "linux", "win") or words[0] == "all":
+            sys.exit(f"{path}:{n}: 「名前 mac|linux|win 経路」の 3 語で書く (名前に all は使えない): {' '.join(words)}")
         name, os_, ssh = words
         if name in HOSTS:
             sys.exit(f"{path}:{n}: {name} が 2 回出てくる")
@@ -331,7 +334,14 @@ def main():
     ap.add_argument("-v", "--version", action=VersionAction)
     ap.add_argument("--json", action="store_true", help="機械が読む形で出す")
     ap.add_argument("--raw", action="store_true", help="端末側の生の出力も出す")
+    # README の書き方 (netcap status all --json) で通すため、サブコマンドの後ろでも受ける。
+    # SUPPRESS にしないと、前に付けた --json をサブコマンドの既定値 False が上書きする
+    out = argparse.ArgumentParser(add_help=False)
+    out.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="機械が読む形で出す")
+    out.add_argument("--raw", action="store_true", default=argparse.SUPPRESS, help="端末側の生の出力も出す")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    _add = sub.add_parser
+    sub.add_parser = lambda *a, **k: _add(*a, parents=[out], **k)
 
     p = sub.add_parser("status", help="実物 (pf の pipe / QoS policy) を読む")
     add_target(p, optional=True)

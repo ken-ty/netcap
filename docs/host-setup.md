@@ -58,8 +58,8 @@ sudo bash linux/install.sh --boot on|off
 
 | パス | 役割 |
 | --- | --- |
-| `/usr/local/libexec/netcap/netcap-agent` | netcap が叩く入口。forced command にも使う |
-| `/usr/local/libexec/netcap/netcap-netshape` | 本体 (root で動く。tc) |
+| `/usr/libexec/netcap/netcap-agent` | netcap が叩く入口。forced command にも使う |
+| `/usr/libexec/netcap/netcap-netshape` | 本体 (root で動く。tc) |
 | `/usr/local/bin/netcap-check` | 実測 (root 不要) |
 | `/etc/sudoers.d/netcap-netshape` | 呼び出したユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/etc/systemd/system/netcap-netshape.service` | `--boot on` のときだけ |
@@ -95,7 +95,7 @@ ssh-keygen -t ed25519 -f ~/.ssh/netcap -C netcap@<この機械> -N ""
 restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<この機械>
 ```
 
-操作される Linux では、agent のパスを `/usr/local/libexec/netcap/netcap-agent` にする。
+操作される Linux では、agent のパスを `/usr/libexec/netcap/netcap-agent` にする。
 
 操作される Windows では、管理者の鍵なら `C:\ProgramData\ssh\administrators_authorized_keys` に:
 

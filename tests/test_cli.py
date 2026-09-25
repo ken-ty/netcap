@@ -133,7 +133,7 @@ class CLI(unittest.TestCase):
     def test_linux_host(self):
         (self.conf / "hosts").write_text("box linux h-off\n")
         self.assertEqual(self.netcap("status", "box").returncode, 0)
-        self.assertIn("/usr/local/libexec/netcap/netcap-agent status", self.log.read_text())
+        self.assertIn("/usr/libexec/netcap/netcap-agent status", self.log.read_text())
 
     # docs/configuration.md: 置き場所は $NETCAP_CONFIG_DIR か $XDG_CONFIG_HOME/netcap
     def test_config_dir(self):

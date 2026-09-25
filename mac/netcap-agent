@@ -18,7 +18,11 @@
 # ここを抜けても sudoers で止まる。
 set -eu
 
-NETSHAPE=/Library/PrivilegedHelperTools/netcap-netshape
+# Linux も同じ agent を使う (linux/install.sh が置く)。本体の置き場所だけ違う
+case "$(uname)" in
+  Darwin) NETSHAPE=/Library/PrivilegedHelperTools/netcap-netshape ;;
+  *) NETSHAPE=/usr/libexec/netcap/netcap-netshape ;;
+esac
 CHECK=/usr/local/bin/netcap-check
 VERBS="status get check on off set"
 

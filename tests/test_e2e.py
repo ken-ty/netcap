@@ -17,12 +17,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 OS = {"darwin": "mac", "linux": "linux", "win32": "win"}.get(sys.platform)
 AGENT = {"mac": "/Library/PrivilegedHelperTools/netcap-agent",
-         "linux": "/usr/local/libexec/netcap/netcap-agent",
+         "linux": "/usr/libexec/netcap/netcap-agent",
          "win": r"C:\ProgramData\netcap\netcap-agent.ps1"}.get(OS)
 INSTALLED = {"mac": ["/Library/PrivilegedHelperTools/netcap-netshape", "/Library/PrivilegedHelperTools/netcap-agent",
                      "/usr/local/bin/netcap-check", "/etc/pf.anchors/netcap-netshape",
                      "/etc/sudoers.d/netcap-netshape", "/Library/LaunchDaemons/netcap-netshape.plist"],
-             "linux": ["/usr/local/libexec/netcap/netcap-netshape", "/usr/local/libexec/netcap/netcap-agent",
+             "linux": ["/usr/libexec/netcap/netcap-netshape", "/usr/libexec/netcap/netcap-agent",
                        "/usr/local/bin/netcap-check", "/etc/sudoers.d/netcap-netshape",
                        "/etc/systemd/system/netcap-netshape.service"],
              "win": [r"C:\ProgramData\netcap"]}.get(OS)
