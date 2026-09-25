@@ -27,6 +27,7 @@ curl で入れると `netcap --version` は `unknown` になる。Windows でも
 curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.5.0.zip
 tar -xf netcap.zip
 cd netcap-0.5.0
+python bin\netcap --version   # CLI として使うなら
 ```
 
 ## macOS

@@ -13,7 +13,7 @@
   <a href="README.md">English</a> · 日本語
 </p>
 
-同じ回線を使う複数の端末の WAN 向け帯域を、1 台の機械から 1 コマンドで絞る / 戻す CLI。
+同じ回線を使う複数の端末の WAN 向け帯域を、1 台の端末から 1 コマンドで絞る / 戻す CLI。
 ルーターで帯域を制御できない回線でも、端末の側で上限をかけられる。
 
 <p align="center">
@@ -26,7 +26,7 @@
 
 ## Quick Start
 
-1. 操作する機械に CLI を入れる (macOS か Linux。Python 3 だけで動く)
+1. 操作する機械に CLI を入れる (Python 3 だけで動く。Windows は [docs/host-setup.md](docs/host-setup.md))
 
    ```bash
    brew tap ken-ty/netcap https://github.com/ken-ty/netcap
@@ -67,7 +67,7 @@ ssh 鍵の forced command の設定は [docs/host-setup.md](docs/host-setup.md#�
 
 | 役割 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| 操作する側 (CLI) | ✅ | ✅ | — |
+| 操作する側 (CLI) | ✅ | ✅ | ✅ |
 | 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上りのみ (NetQosPolicy) |
 
 ## ユースケース

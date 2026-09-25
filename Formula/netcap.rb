@@ -1,6 +1,6 @@
 # このリポジトリ自体を tap にしている。入れ方は README の Quick Start。
 class Netcap < Formula
-  desc "Cap the internet bandwidth of devices on your network from one Mac"
+  desc "Cap the internet bandwidth of devices on your network from one device"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
       tag:      "v0.5.0",

@@ -13,7 +13,7 @@
   English · <a href="README.ja.md">日本語</a>
 </p>
 
-A CLI that caps the internet bandwidth of every device on your network, from one machine, with one command.
+A CLI that caps the internet bandwidth of every device on your network, from one device, with one command.
 Works where the router has no QoS: the cap is enforced on each device itself.
 
 <p align="center">
@@ -26,7 +26,7 @@ Works where the router has no QoS: the cap is enforced on each device itself.
 
 ## Quick Start
 
-1. Install the CLI on the machine you control from (macOS or Linux, needs only Python 3)
+1. Install the CLI on the machine you control from (needs only Python 3; on Windows, see [docs/host-setup.md](docs/host-setup.md))
 
    ```bash
    brew tap ken-ty/netcap https://github.com/ken-ty/netcap
@@ -64,7 +64,7 @@ Works where the router has no QoS: the cap is enforced on each device itself.
 
 | Role | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| Controller (CLI) | ✅ | ✅ | — |
+| Controller (CLI) | ✅ | ✅ | ✅ |
 | Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload only (NetQosPolicy) |
 
 ## Use cases
