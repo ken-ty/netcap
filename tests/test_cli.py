@@ -1,4 +1,4 @@
-"""README と docs が約束する CLI の振る舞い。端末には ssh の偽物を置いて答えさせる。
+"""The CLI behavior promised by the README and docs. A fake ssh answers for the devices.
 
   python3 -m unittest discover tests
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NETCAP = ROOT / "bin" / "netcap"
 
-# 偽の ssh。Host 名で答え方を決め、呼ばれた Host を log に残す
+# A fake ssh. The Host name decides the answer; each called Host is written to the log
 FAKE_SSH = textwrap.dedent("""\
     #!/usr/bin/env python3
     import os, sys, time
@@ -37,7 +37,7 @@ FAKE_SSH = textwrap.dedent("""\
     elif host == "h-nosudo":
         print("sudo: a password is required", file=sys.stderr); sys.exit(1)
     elif host == "h-denied":
-        print("netcap-agent: この鍵には許可されていない: on", file=sys.stderr); sys.exit(77)
+        print("netcap-agent: not allowed for this key: on", file=sys.stderr); sys.exit(77)
     elif host == "h-noagent":
         print("bash: line 1: /Library/PrivilegedHelperTools/netcap-agent: No such file or directory", file=sys.stderr); sys.exit(127)
     elif host == "h-error":
@@ -75,7 +75,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(p.stderr, "", p.stderr)
         return json.loads(p.stdout)[0]
 
-    # README: Usage の一覧にある形がそのまま通る
+    # README: the forms listed under Usage work as written
     def test_usage_forms_in_readme(self):
         self.hosts("off", profiles="p  off=off\n")
         for args in (["status", "off", "--json"], ["status", "all", "--json"], ["get", "off", "--json"],
@@ -88,7 +88,7 @@ class CLI(unittest.TestCase):
                 self.assertNotIn("invalid choice", p.stderr)
                 self.assertEqual(p.returncode, 0, p.stderr)
 
-    # docs/host-setup.md「表の読み方」reach
+    # docs/host-setup.md: Reading the table, reach
     def test_reach(self):
         self.hosts("off", "unreachable", "nosudo", "denied", "noagent", "error")
         rows = {r["host"]: r["reach"] for r in json.loads(self.netcap("status", "all", "--json").stdout)}
@@ -104,7 +104,7 @@ class CLI(unittest.TestCase):
         os.environ.update(PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log))
         self.assertEqual(mod.run("slow", "status")["reach"], "timeout")
 
-    # docs/host-setup.md「表の読み方」cap と note
+    # docs/host-setup.md: Reading the table, cap and note
     def test_cap_and_note(self):
         self.hosts("off", "on", "partial", "error")
         lines = {l.split()[0]: l for l in self.netcap("status", "all").stdout.splitlines()[2:] if l.strip()}
@@ -113,14 +113,14 @@ class CLI(unittest.TestCase):
         self.assertRegex(lines["partial"], r"^partial\s+ok\s+partial\s")
         self.assertRegex(lines["error"], r"^error\s+error\s+\?\s.*last line of error$")
 
-    # docs/configuration.md: 書かなかった端末は触らない
+    # docs/configuration.md: devices not listed are left untouched
     def test_use_leaves_unlisted_hosts(self):
         self.hosts("off", "on", profiles="quiet  off=1/1\n")
         self.assertEqual(self.netcap("use", "quiet").returncode, 0)
         called = {l.split()[0] for l in self.log.read_text().splitlines()}
         self.assertEqual(called, {"h-off"})
 
-    # docs/configuration.md: 値は 上り/下り か off
+    # docs/configuration.md: a value is up/down or off
     def test_profile_values(self):
         self.hosts("off", profiles="a  off=2/3\nb  off=off\n")
         self.assertEqual(self.netcap("use", "a").returncode, 0)
@@ -129,13 +129,13 @@ class CLI(unittest.TestCase):
         self.assertIn("netcap-agent on 2 3", log)
         self.assertIn("netcap-agent off", log)
 
-    # docs/configuration.md: OS は mac / linux / win。docs/host-setup.md: Linux の agent の置き場所
+    # docs/configuration.md: OS is mac / linux / win. docs/host-setup.md: where the Linux agent lives
     def test_linux_host(self):
         (self.conf / "hosts").write_text("box linux h-off\n")
         self.assertEqual(self.netcap("status", "box").returncode, 0)
         self.assertIn("/usr/libexec/netcap/netcap-agent status", self.log.read_text())
 
-    # docs/configuration.md: 置き場所は $NETCAP_CONFIG_DIR か $XDG_CONFIG_HOME/netcap
+    # docs/configuration.md: the location is $NETCAP_CONFIG_DIR or $XDG_CONFIG_HOME/netcap
     def test_config_dir(self):
         self.hosts("off")
         xdg = self.tmp / "xdg"
@@ -143,13 +143,13 @@ class CLI(unittest.TestCase):
         env = {k: v for k, v in self.env.items() if k != "NETCAP_CONFIG_DIR"}
         self.assertEqual(self.netcap("status", "off", env={**env, "XDG_CONFIG_HOME": str(xdg)}).returncode, 0)
 
-    # README: examples/ を写せばそのまま読める
+    # README: a copy of examples/ is read as is
     def test_examples_parse(self):
         shutil.copy(ROOT / "examples" / "hosts", self.conf)
         shutil.copy(ROOT / "examples" / "profiles", self.conf)
         self.assertEqual(self.netcap("profiles").returncode, 0)
 
-    # docs/host-setup.md: curl で入れると --version は unknown
+    # docs/host-setup.md: installed with curl, --version is unknown
     def test_version_without_git(self):
         copy = self.tmp / "tree" / "bin"
         copy.mkdir(parents=True)

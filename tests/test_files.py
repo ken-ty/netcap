@@ -1,4 +1,4 @@
-"""docs に書いた値と、端末側のファイルの中身が食い違っていないか。"""
+"""Do the values written in the docs match the contents of the device-side files?"""
 import ipaddress
 import re
 import unittest
@@ -12,13 +12,13 @@ def read(p):
 
 
 def with_translations(p):
-    """"docs/host-setup.md" とその翻訳 (docs/host-setup.<lang>.md)。"""
+    """docs/host-setup.md and its translations (docs/host-setup.<lang>.md)."""
     p = Path(p)
     return [p] + sorted(q.relative_to(ROOT) for q in (ROOT / p.parent).glob(f"{p.stem}.*{p.suffix}"))
 
 
 def nets(text):
-    """"10/8" や "10.0.0.0/8" を ip_network の集合にする。"""
+    """Turn "10/8" and "10.0.0.0/8" into a set of ip_network."""
     out = set()
     for m in re.findall(r"\b(\d{1,3}(?:\.\d{1,3}){0,3})/(\d{1,2})\b", text):
         addr = ".".join((m[0].split(".") + ["0"] * 4)[:4])
@@ -47,7 +47,7 @@ class Exempt(unittest.TestCase):
         rules = [l for l in pf.splitlines() if l.startswith("dummynet")]
         self.assertTrue(rules)
         for r in rules:
-            self.assertIn("proto { tcp udp }", r)  # ICMP は当たらない
+            self.assertIn("proto { tcp udp }", r)  # ICMP does not match
             self.assertIn("port != 53", r)
 
     def test_linux_ranges(self):
@@ -57,15 +57,15 @@ class Exempt(unittest.TestCase):
     def test_dns_and_icmp_pass_on_linux(self):
         sh = read("linux/netcap-netshape")
         self.assertRegex(sh, r"ip protocol 1 0xff")  # ICMP
-        self.assertRegex(sh, r"ip dport 53 0xffff")  # DNS (上り)
-        self.assertRegex(sh, r"ip sport 53 0xffff")  # DNS (下り)
+        self.assertRegex(sh, r"ip dport 53 0xffff")  # DNS (up)
+        self.assertRegex(sh, r"ip sport 53 0xffff")  # DNS (down)
 
     def test_dns_passes_on_win(self):
         self.assertRegex(read("win/netshape.ps1"), r"-IPDstPortMatchCondition 53 ")
 
 
 class HostSetup(unittest.TestCase):
-    """docs/host-setup.md (と翻訳) の表にあるパスを、install.sh が置き uninstall.sh が消す"""
+    """install.sh places, and uninstall.sh removes, the paths in the tables of docs/host-setup.md (and translations)"""
 
     def test_paths(self):
         for md in with_translations("docs/host-setup.md"):
@@ -81,7 +81,7 @@ class HostSetup(unittest.TestCase):
 
 
 class Release(unittest.TestCase):
-    """CONTRIBUTING.md のリリース手順: Formula のタグと docs の curl / zip の版が揃っている"""
+    """CONTRIBUTING.md Release: the Formula tag matches the version in the curl / zip examples of the docs"""
 
     def test_versions_match(self):
         tag = re.search(r'tag:\s+"v([\d.]+)"', read("Formula/netcap.rb")).group(1)
@@ -93,7 +93,7 @@ class Release(unittest.TestCase):
 
 
 class Readme(unittest.TestCase):
-    """README.md とその翻訳は同じコマンドを載せる (CONTRIBUTING.md)"""
+    """README.md and its translations list the same commands (CONTRIBUTING.md)"""
 
     def commands(self, p):
         return re.findall(r"^netcap [^\n]*?(?=\s{2,}|$)", read(p), re.M)

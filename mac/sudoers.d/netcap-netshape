@@ -1,11 +1,11 @@
-# netcap が無人で叩けるように、netcap-netshape の決まった動詞だけパスワード無しにする。
-# 置き場所: /etc/sudoers.d/netcap-netshape (0440 root:wheel)。mac/install.sh が置く
+# Let netcap run unattended: only fixed netcap-netshape verbs are passwordless.
+# Location: /etc/sudoers.d/netcap-netshape (0440 root:wheel). Installed by mac/install.sh
 #
-# 引数まで書く。status / get / off / 引数無しの on は完全一致。
-# 数値を取る on / set だけ * を使う (sudoers の * は空白も含めて何にでも合うので、
-# 引数の数と形は本体が検査する — 2 個の数値でなければ exit 2)。
-# 本体は root だけが書ける /Library/PrivilegedHelperTools に置く。
-# 利用者が書けるディレクトリに置くと、差し替えるだけで root が取れる。
+# Arguments are spelled out. status / get / off / on without arguments match exactly.
+# Only on / set, which take numbers, use * (sudoers' * matches anything, including spaces,
+# so the shaper checks the argument count and form — exit 2 unless two numbers).
+# The shaper lives in /Library/PrivilegedHelperTools, writable only by root.
+# In a user-writable directory, swapping it would be enough to get root.
 Cmnd_Alias NETSHAPE = /Library/PrivilegedHelperTools/netcap-netshape status, \
                       /Library/PrivilegedHelperTools/netcap-netshape get, \
                       /Library/PrivilegedHelperTools/netcap-netshape off, \

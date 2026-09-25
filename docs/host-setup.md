@@ -79,7 +79,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
 
 Installs into `C:\ProgramData\netcap\`. To remove: `C:\ProgramData\netcap\uninstall.ps1`.
 
-Two differences from mac: download cannot be capped (shown as `非対応` in the table), and the `on` / `off` state survives reboots (`boot=keep`).
+Two differences from mac: download cannot be capped (shown as `unsupported` in the table), and the `on` / `off` state survives reboots (`boot=keep`).
 
 ## The capped device decides what is allowed
 

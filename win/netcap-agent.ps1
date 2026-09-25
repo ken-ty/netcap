@@ -1,18 +1,18 @@
-﻿# netcap-agent.ps1 — netcap が Windows の端末側で叩く入口。ssh の forced command にもそのまま使う
+﻿# netcap-agent.ps1 — the entry point netcap calls on a Windows device. Also works as-is as an ssh forced command
 #
-#   netcap-agent.ps1 <動詞> [引数...]              直接
-#   netcap-agent.ps1 --allow '<動詞> <動詞> …'     forced command として。頼まれた中身は
-#                                                  $env:SSH_ORIGINAL_COMMAND で来る
+#   netcap-agent.ps1 <verb> [args...]           directly
+#   netcap-agent.ps1 --allow '<verb> <verb> …'  as a forced command. The requested command
+#                                               arrives in $env:SSH_ORIGINAL_COMMAND
 #
-# 動詞: status get check on off set (mac 版の netcap-agent と同じ)
+# verbs: status get check on off set (same as the mac netcap-agent)
 #
-# 許可を決めるのは操作される側。管理者の鍵なら
-# C:\ProgramData\ssh\administrators_authorized_keys の 1 行で、その鍵に頼めることを絞る:
+# The side being controlled decides what is allowed. For an Administrator key, one line in
+# C:\ProgramData\ssh\administrators_authorized_keys limits what that key may ask for:
 #
 #   restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check'" ssh-ed25519 AAAA… netcap@laptop
 #
-# Windows の管理者の ssh セッションは昇格した状態で動く。mac の sudoers のような二段目は無く、
-# ここが唯一の関門になる。だから forced command で固定することが mac 以上に効く。
+# On Windows an Administrator's ssh session runs elevated. There is no second layer like sudoers on mac,
+# so this is the only gate. That is why pinning it with a forced command matters even more than on mac.
 $ErrorActionPreference = 'Stop'
 
 $Dir = 'C:\ProgramData\netcap'
@@ -26,34 +26,34 @@ function Deny([string]$m) {
 $words = @($args)
 $allowed = $Verbs
 if ($words.Count -ge 1 -and $words[0] -eq '--allow') {
-  if ($words.Count -ne 2) { Deny "usage: netcap-agent.ps1 --allow '<動詞> …'" }
+  if ($words.Count -ne 2) { Deny "usage: netcap-agent.ps1 --allow '<verb> …'" }
   $allowed = @($words[1] -split '\s+' | Where-Object { $_ })
   $orig = $env:SSH_ORIGINAL_COMMAND
-  if (-not $orig) { Deny "コマンドを付けて呼ぶ (許可されている動詞: $($allowed -join ' '))" }
-  # 頼まれた中身は空白で区切るだけ。引用も式も解釈しない
+  if (-not $orig) { Deny "call with a command (allowed verbs: $($allowed -join ' '))" }
+  # The requested command is only split on whitespace. Quotes and expressions are not interpreted
   $words = @($orig -split '\s+' | Where-Object { $_ })
-  # netcap は "powershell … -File …\netcap-agent.ps1 <動詞> …" の形で送ってくる。agent より前を捨てる
+  # netcap sends "powershell … -File …\netcap-agent.ps1 <verb> …". Drop everything up to the agent
   for ($i = 0; $i -lt $words.Count; $i++) {
     if ($words[$i] -match 'netcap-agent\.ps1$') { $words = @($words | Select-Object -Skip ($i + 1)); break }
   }
 }
 
-if ($words.Count -eq 0) { Deny "usage: netcap-agent.ps1 <動詞> [引数...] (動詞: $($Verbs -join ' '))" }
+if ($words.Count -eq 0) { Deny "usage: netcap-agent.ps1 <verb> [args...] (verbs: $($Verbs -join ' '))" }
 $verb = $words[0]
 $rest = @($words | Select-Object -Skip 1)
-if ($Verbs -notcontains $verb) { Deny "知らない動詞: $verb" }
-if ($allowed -notcontains $verb) { Deny "この鍵には許可されていない: $verb (許可: $($allowed -join ' '))" }
+if ($Verbs -notcontains $verb) { Deny "unknown verb: $verb" }
+if ($allowed -notcontains $verb) { Deny "not allowed for this key: $verb (allowed: $($allowed -join ' '))" }
 
 if ($verb -eq 'check') {
-  # 実測が受けるのは --bytes <数値> だけ
+  # The measurement accepts only --bytes <number>
   if ($rest.Count -gt 0 -and ($rest.Count -ne 2 -or $rest[0] -ne '--bytes' -or $rest[1] -notmatch '^[0-9]+$')) {
-    Deny 'check が受けるのは --bytes <数値> だけ'
+    Deny 'check accepts only --bytes <number>'
   }
   & (Join-Path $Dir 'netcap-check.ps1') @rest
   exit $LASTEXITCODE
 }
 
-# 数値を取るのは on / set だけ。それ以外の動詞は引数を取らない
-foreach ($a in $rest) { if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "引数は数値だけ: $a" } }
+# Only on / set take numbers. The other verbs take no arguments
+foreach ($a in $rest) { if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" } }
 & (Join-Path $Dir 'netshape.ps1') $verb @rest
 exit $LASTEXITCODE

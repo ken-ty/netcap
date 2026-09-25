@@ -81,7 +81,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
 
 `C:\ProgramData\netcap\` に入る。外すのは `C:\ProgramData\netcap\uninstall.ps1`。
 
-mac との違いは 2 つ。下りは絞れない (表では `非対応`)。`on` / `off` の状態は再起動しても残る (`boot=keep`)。
+mac との違いは 2 つ。下りは絞れない (表では `unsupported`)。`on` / `off` の状態は再起動しても残る (`boot=keep`)。
 
 ## 許可は操作される側が決める
 

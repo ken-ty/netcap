@@ -1,25 +1,25 @@
-﻿# netshape.ps1 — この Windows 自身の WAN 向け通信に上限をかける (NetQosPolicy)
+﻿# netshape.ps1 — caps this Windows machine's own WAN traffic (NetQosPolicy)
 #
-#   netshape.ps1 on [UP_MBIT DOWN_MBIT]  上限をかける。引数を付けると今回だけその値
-#   netshape.ps1 off                     上限を外す
-#   netshape.ps1 status                  いまの状態。1 行目は実物 (NetQosPolicy) から導く
-#   netshape.ps1 set UP_MBIT DOWN_MBIT   既定を書き換える。いま上限がかかっていれば張り直す
-#   netshape.ps1 get                     既定と起動時の挙動を 1 行で
+#   netshape.ps1 on [UP_MBIT DOWN_MBIT]  apply the cap. With arguments, use those values this time only
+#   netshape.ps1 off                     remove the cap
+#   netshape.ps1 status                  current state. Line 1 is derived from the actual NetQosPolicy objects
+#   netshape.ps1 set UP_MBIT DOWN_MBIT   change the defaults. Reapplies the cap if one is in effect
+#   netshape.ps1 get                     defaults and boot behavior on one line
 #
-# mac 版 (pf + dummynet) との違い:
-#   - 絞れるのは上り (送信) だけ。Windows の QoS ポリシーは送信側にしか効かない。
-#     DOWN_MBIT は受け取るが使わず、status は down_src=unsupported を返す
-#   - ポリシーはこの機械の永続の保存先 (localhost) に置く。on / off の状態は再起動してもそのまま
-#     残る (get は boot=keep を返す)。ActiveStore (再起動で消える保存先) は宛先の条件
-#     (-IPDstPrefixMatchCondition) を保持せず、宅内宛ても絞ってしまった (2026-09-25 実機で実測)
+# Differences from the mac version (pf + dummynet):
+#   - Only upload (send) can be capped. Windows QoS policies act only on the sending side.
+#     DOWN_MBIT is accepted but unused, and status returns down_src=unsupported
+#   - Policies go in this machine's persistent store (localhost), so the on / off state survives
+#     reboots (get returns boot=keep). ActiveStore (a store cleared on reboot) dropped the destination
+#     condition (-IPDstPrefixMatchCondition) and capped LAN traffic too (measured on real hardware, 2026-09-25)
 #
-# 触るのは名前が netcap- で始まるポリシーだけ。
-#   netcap-wan       -Default (他のどれにも当たらない通信) を UP_MBIT に絞る
-#   netcap-local-N   プライベート IP・CGNAT 帯などの宛先。絞らない (DSCP 0 を付けるだけ)
-#   netcap-dns       宛先ポート 53。絞らない
-# 他に当たるポリシーがある通信は -Default に落ちないので、宛先ごとのポリシーで素通しにできる。
+# Only policies whose names start with netcap- are touched.
+#   netcap-wan       caps -Default (traffic no other policy matches) to UP_MBIT
+#   netcap-local-N   destinations such as private IPs and the CGNAT range. Not capped (only sets DSCP 0)
+#   netcap-dns       destination port 53. Not capped
+# Traffic matched by another policy never falls through to -Default, so per-destination policies let it pass through.
 #
-# 管理者で動く。置き場所 (C:\ProgramData\netcap) は install.ps1 が管理者だけ書けるようにする。
+# Runs as Administrator. install.ps1 makes its location (C:\ProgramData\netcap) writable by Administrators only.
 $ErrorActionPreference = 'Stop'
 
 $Dir = 'C:\ProgramData\netcap'
@@ -31,10 +31,10 @@ function Usage([string]$m) { [Console]::Error.WriteLine("usage: netshape.ps1 $m"
 
 $p = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-  [Console]::Error.WriteLine('管理者で実行してください'); exit 1
+  [Console]::Error.WriteLine('run as Administrator'); exit 1
 }
 
-# 既定値。設定は数値の key=value として読むだけ
+# Defaults. The config is read only as numeric key=value pairs
 $UpMbit = '1'; $DownMbit = '1'
 if (Test-Path $Conf) {
   foreach ($line in Get-Content $Conf) {
@@ -79,7 +79,7 @@ function Status {
   if ($wan) { $up = '{0:G}' -f ($wan.ThrottleRate / 1000000) }
   if ($wan -and $ours.Count -eq $expected) { $state = 'on' }
   elseif ($ours.Count -eq 0) { $state = 'off' }
-  else { $state = 'partial' }  # 一部だけ残っている。on か off を打ち直す
+  else { $state = 'partial' }  # only some are left. Run on or off again
   "netshape state=$state up_mbit=$up down_mbit=- down_src=unsupported policies=$($ours.Count)"
   '--- policies (netcap-*)'
   if ($ours.Count -eq 0) { '(none)' }
@@ -94,13 +94,13 @@ function Get-Default {
 function Set-Default([string[]]$a) {
   if ($a.Count -ne 2 -or -not (IsNumber $a[0]) -or -not (IsNumber $a[1])) { Usage 'set UP_MBIT DOWN_MBIT' }
   $tmp = "$Conf.tmp"
-  "# netshape.ps1 の既定値。netshape.ps1 set が書く`r`nUP_MBIT=$($a[0])`r`nDOWN_MBIT=$($a[1])" | Set-Content -Path $tmp -Encoding ASCII
+  "# netshape.ps1 defaults. Written by netshape.ps1 set`r`nUP_MBIT=$($a[0])`r`nDOWN_MBIT=$($a[1])" | Set-Content -Path $tmp -Encoding ASCII
   Move-Item -Force $tmp $Conf
   if (Ours | Where-Object Name -eq 'netcap-wan') {
     On $a | Out-Null
-    "netshape SET up=$($a[0])Mbit/s down=$($a[1])Mbit/s (適用中だったので張り直した)"
+    "netshape SET up=$($a[0])Mbit/s down=$($a[1])Mbit/s (reapplied, since a cap was in effect)"
   } else {
-    "netshape SET up=$($a[0])Mbit/s down=$($a[1])Mbit/s (次の on から効く)"
+    "netshape SET up=$($a[0])Mbit/s down=$($a[1])Mbit/s (takes effect at the next on)"
   }
 }
 

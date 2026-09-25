@@ -8,10 +8,10 @@
       .text { fill: #e5e7eb; }
     }
   </style>
-  <!-- 帽子 (上限) -->
+  <!-- hat (the cap) -->
   <path class="cap" d="M10 30 A22 18 0 0 1 54 30 Z"/>
   <rect class="cap" x="44" y="26" width="22" height="4" rx="2"/>
-  <!-- 帽子の縁で頭打ちになった通信の波 -->
+  <!-- traffic wave flattened by the hat's brim -->
   <path class="wave" d="M6 60 L14 38 L22 38 L30 60 L38 38 L46 38 L54 60 L60 46"/>
   <text class="text" x="80" y="54">netcap</text>
 </svg>

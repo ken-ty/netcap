@@ -1,20 +1,20 @@
 #!/bin/bash
-# この Mac に netshape を入れる。mac/ ディレクトリごと置いてから:
+# Install netshape on this Mac. Copy the whole mac/ directory, then:
 #
-#   sudo bash install.sh --boot on     起動時から上限をかける (既定 1/1)
-#   sudo bash install.sh --boot off    起動時は素のまま。netcap on で必要なときだけ
+#   sudo bash install.sh --boot on     cap from boot (default 1/1)
+#   sudo bash install.sh --boot off    no cap at boot; only when needed via netcap on
 #
-# 何をするか:
-#   /Library/PrivilegedHelperTools/netcap-netshape   本体 (root で動く)
-#   /Library/PrivilegedHelperTools/netcap-agent      netcap が叩く入口 (forced command にも使う)
-#   /usr/local/bin/netcap-check                      実測 (root は要らない)
-#   /etc/pf.anchors/netcap-netshape                  pf のルール (アンカー com.apple/netcap-netshape に読む)
-#   /etc/sudoers.d/netcap-netshape                   呼び出したユーザーに NOPASSWD (本体の決まった動詞だけ)
-#   /Library/LaunchDaemons/netcap-netshape.plist     --boot on のときだけ
+# What it installs:
+#   /Library/PrivilegedHelperTools/netcap-netshape   the shaper (runs as root)
+#   /Library/PrivilegedHelperTools/netcap-agent      entry point netcap calls (also used as the forced command)
+#   /usr/local/bin/netcap-check                      measurement (no root needed)
+#   /etc/pf.anchors/netcap-netshape                  pf rules (loaded into anchor com.apple/netcap-netshape)
+#   /etc/sudoers.d/netcap-netshape                   NOPASSWD for the invoking user (fixed shaper verbs only)
+#   /Library/LaunchDaemons/netcap-netshape.plist     only with --boot on
 #
-# root で動くもの (本体・設定・アンカー・sudoers) は、置き場所の親ディレクトリまで
-# すべて root 所有で group / other が書けないことを確かめてから置く。
-# 利用者が書けるディレクトリに置くと、中身を差し替えるだけで root が取れるため。
+# Root-run files (shaper, config, anchor, sudoers) are placed only after checking that
+# every parent directory is root-owned and not writable by group / other.
+# In a user-writable directory, swapping the contents would be enough to get root.
 set -eu
 cd "$(dirname "$0")"
 
@@ -33,21 +33,21 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ "$BOOT" = on ] || [ "$BOOT" = off ] || { echo "usage: sudo bash install.sh --boot on|off" >&2; exit 2; }
-[ "$(id -u)" = 0 ] || { echo "sudo で実行してください" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
 USER_NAME=${NETCAP_USER:-${SUDO_USER:-}}
-[ -n "$USER_NAME" ] || { echo "NETCAP_USER=<user> を指定してください" >&2; exit 1; }
-# sudoers に埋め込むので、ユーザー名として素直な文字列だけ通す
-[[ "$USER_NAME" =~ ^[a-z_][a-z0-9_.-]*$ ]] || { echo "ユーザー名が読めない: $USER_NAME" >&2; exit 1; }
-id "$USER_NAME" >/dev/null 2>&1 || { echo "そのユーザーはいない: $USER_NAME" >&2; exit 1; }
+[ -n "$USER_NAME" ] || { echo "set NETCAP_USER=<user>" >&2; exit 1; }
+# Embedded in sudoers, so accept only plain user-name strings
+[[ "$USER_NAME" =~ ^[a-z_][a-z0-9_.-]*$ ]] || { echo "cannot parse the user name: $USER_NAME" >&2; exit 1; }
+id "$USER_NAME" >/dev/null 2>&1 || { echo "no such user: $USER_NAME" >&2; exit 1; }
 
-# dir から / まで、すべて root 所有で group / other が書けないこと
+# From dir up to /, everything must be root-owned and not writable by group / other
 require_root_only() {
   local d
   d=$(cd -P "$1" && pwd)
   while :; do
     read -r uid mode <<<"$(stat -f '%u %Lp' "$d")"
     if [ "$uid" != 0 ] || (( 8#$mode & 8#022 )); then
-      echo "root 以外が書ける: $d (uid=$uid mode=$mode)。ここには root で動くものを置けない" >&2
+      echo "writable by non-root: $d (uid=$uid mode=$mode); cannot place root-run files here" >&2
       exit 1
     fi
     [ "$d" = / ] && break
@@ -60,24 +60,24 @@ for f in "$BIN" "$CONF" "$ANCHOR_FILE" "$SUDOERS" "$PLIST"; do
   require_root_only "$(dirname "$f")"
 done
 
-# 旧版の後始末。旧版は /usr/local/sbin (利用者が書けることがある) に居たので、実行はしない。
-# 旧版の on は main ruleset を差し替えていたので、その印が残っていれば /etc/pf.conf に戻す
+# Clean up the old version. It lived in /usr/local/sbin (may be user-writable), so never run it.
+# Its on replaced the main ruleset; if that marker remains, restore /etc/pf.conf
 if [ -f /var/run/com.ken-ty.netshape.pf.conf ]; then
   pfctl -q -f /etc/pf.conf
   dnctl -q pipe delete 1 2 2>/dev/null || true
   rm -f /var/run/com.ken-ty.netshape.pf.conf /var/run/com.ken-ty.netshape.applied
-  echo "旧版の pf ルールを外した (main ruleset を /etc/pf.conf に戻した)"
+  echo "removed the old version's pf rules (restored the main ruleset from /etc/pf.conf)"
 fi
 rm -f /usr/local/sbin/ken-ty-netshape
 if [ -f /usr/local/etc/ken-ty-netshape.conf ]; then
-  # 利用者が書ける場所にあった設定は信用しない。値は netcap set で入れ直す
-  echo "旧版の設定を捨てた (/usr/local/etc/ken-ty-netshape.conf):" >&2
+  # Do not trust a config from a user-writable location. Re-enter the values with netcap set
+  echo "discarded the old version's config (/usr/local/etc/ken-ty-netshape.conf):" >&2
   sed 's/^/  /' /usr/local/etc/ken-ty-netshape.conf >&2
   rm -f /usr/local/etc/ken-ty-netshape.conf
 fi
 
-# 旧名 (ken-ty-netshape。v0.5.0 まで) からの移行。旧名も root だけが書ける場所に居たので、
-# off を呼んで pf と dnctl を片付けてから消す。既定値は引き継ぐ
+# Migrate from the old name (ken-ty-netshape, up to v0.5.0). It also lived in a root-only location,
+# so call its off to clean up pf and dnctl, then remove it. The defaults carry over
 if [ -e /Library/PrivilegedHelperTools/ken-ty-netshape ]; then
   launchctl bootout system/com.ken-ty.netshape 2>/dev/null || true
   /Library/PrivilegedHelperTools/ken-ty-netshape off >/dev/null 2>&1 || true
@@ -85,7 +85,7 @@ if [ -e /Library/PrivilegedHelperTools/ken-ty-netshape ]; then
   rm -f /Library/PrivilegedHelperTools/ken-ty-netshape /etc/ken-ty-netshape.conf \
     /etc/pf.anchors/com.ken-ty.netshape /etc/sudoers.d/ken-ty-netshape \
     /Library/LaunchDaemons/com.ken-ty.netshape.plist
-  echo "旧名 (ken-ty-netshape) を外した"
+  echo "removed the old name (ken-ty-netshape)"
 fi
 
 install -o root -g wheel -m 0755 netcap-netshape "$BIN"

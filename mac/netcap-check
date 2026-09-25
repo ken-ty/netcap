@@ -1,11 +1,11 @@
 #!/bin/bash
-# netcap-check — この端末から WAN の下り・上りを実測し、その最中の 1.1.1.1 への ping を取る。
-# 上限が効いていれば curl が上限に張り付き、ICMP は shaper を素通りするので ping は跳ねない。
+# netcap-check — measure WAN download / upload from this device, pinging 1.1.1.1 meanwhile.
+# If the cap works, curl sticks to the cap and ping stays flat, since ICMP passes through the shaper.
 #
 #   netcap-check [--bytes N] [--ping-host H]
 #
-# root は要らない (curl と ping だけ)。netcap が読めるよう 1 行目を key=value で出す。
-# 上限 1 Mbit/s だと 1MB で 8 秒かかるので、絞っているときは --bytes を小さくする。
+# No root needed (curl and ping only). The first line is key=value so netcap can parse it.
+# At a 1 Mbit/s cap 1MB takes 8 seconds, so use a smaller --bytes when capped.
 set -eu
 
 BYTES=1000000
@@ -22,7 +22,7 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 head -c "$BYTES" /dev/urandom >"$tmp/up.bin"
 
-# 転送中の遅延が知りたいので、ping は転送と同時に走らせる
+# We want latency during the transfer, so ping runs alongside it
 ping -i 0.5 -c 300 "$PING_HOST" >"$tmp/ping.txt" 2>&1 &
 PING_PID=$!
 sleep 1
@@ -31,7 +31,7 @@ up=$(curl -s -o /dev/null -w '%{speed_upload}' -X POST --data-binary "@$tmp/up.b
 kill -INT "$PING_PID" 2>/dev/null || true
 wait "$PING_PID" 2>/dev/null || true
 
-# ping の中央値 / p95 / max。1 つも返らなければ n=0
+# ping median / p95 / max. n=0 if none came back
 read -r n med p95 max <<<"$(grep -o 'time=[0-9.]*' "$tmp/ping.txt" | cut -d= -f2 | sort -n | awk '
   { a[NR] = $1 }
   END {

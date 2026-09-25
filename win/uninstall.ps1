@@ -1,4 +1,4 @@
-﻿# uninstall.ps1 — netshape を全部外す (上限も解除する)。管理者で:
+﻿# uninstall.ps1 — removes netshape completely (also lifts the cap). As Administrator:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\uninstall.ps1
 $ErrorActionPreference = 'Continue'
 $Dir = 'C:\ProgramData\netcap'

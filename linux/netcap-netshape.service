@@ -1,4 +1,4 @@
-# netcap-netshape — 起動時に既定の上限をかける。linux/install.sh --boot on のときだけ置く
+# netcap-netshape — apply the default cap at boot. Installed only by linux/install.sh --boot on
 [Unit]
 Description=netcap: cap internet bandwidth at boot
 Wants=network-online.target

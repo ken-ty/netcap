@@ -1,5 +1,5 @@
 #!/bin/bash
-# sudo bash uninstall.sh — netshape を全部外す (上限も解除する)
+# sudo bash uninstall.sh — remove netshape entirely (also lifts the cap)
 set -u
 systemctl disable netcap-netshape >/dev/null 2>&1 || true
 /usr/libexec/netcap/netcap-netshape off 2>/dev/null || true
