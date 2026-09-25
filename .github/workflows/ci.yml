@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -v tests
+
+  e2e:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # macOS で v0.5.0 からの移行を試すのにタグが要る
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      # ランナーは受信側に自前の eBPF フィルタを置いている。netcap は受信側を他の道具と分け合わないので外す
+      - if: runner.os == 'Linux'
+        run: sudo tc qdisc del dev "$(ip route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')" clsact
+      - run: python -m unittest -v tests/test_e2e.py
+        env:
+          NETCAP_E2E: "1"
+          PYTHONUTF8: "1"

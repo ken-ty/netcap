@@ -11,11 +11,11 @@
 #     DOWN_MBIT は受け取るが使わず、status は down_src=unsupported を返す
 #   - ポリシーはこの機械の永続の保存先 (localhost) に置く。on / off の状態は再起動してもそのまま
 #     残る (get は boot=keep を返す)。ActiveStore (再起動で消える保存先) は宛先の条件
-#     (-IPDstPrefixMatchCondition) を保持せず、宅内宛ても絞ってしまった (2026-09-25 nucbox で実測)
+#     (-IPDstPrefixMatchCondition) を保持せず、宅内宛ても絞ってしまった (2026-09-25 実機で実測)
 #
 # 触るのは名前が netcap- で始まるポリシーだけ。
 #   netcap-wan       -Default (他のどれにも当たらない通信) を UP_MBIT に絞る
-#   netcap-local-N   宅内・tailnet などの宛先。絞らない (DSCP 0 を付けるだけ)
+#   netcap-local-N   プライベート IP・CGNAT 帯などの宛先。絞らない (DSCP 0 を付けるだけ)
 #   netcap-dns       宛先ポート 53。絞らない
 # 他に当たるポリシーがある通信は -Default に落ちないので、宛先ごとのポリシーで素通しにできる。
 #

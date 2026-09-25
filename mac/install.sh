@@ -1,16 +1,16 @@
 #!/bin/bash
 # この Mac に netshape を入れる。mac/ ディレクトリごと置いてから:
 #
-#   sudo bash install.sh --boot on     起動時から上限をかける (mini。既定 1/1)
-#   sudo bash install.sh --boot off    起動時は素のまま。netcap on で必要なときだけ (MBP)
+#   sudo bash install.sh --boot on     起動時から上限をかける (既定 1/1)
+#   sudo bash install.sh --boot off    起動時は素のまま。netcap on で必要なときだけ
 #
 # 何をするか:
-#   /Library/PrivilegedHelperTools/ken-ty-netshape   本体 (root で動く)
+#   /Library/PrivilegedHelperTools/netcap-netshape   本体 (root で動く)
 #   /Library/PrivilegedHelperTools/netcap-agent      netcap が叩く入口 (forced command にも使う)
 #   /usr/local/bin/netcap-check                      実測 (root は要らない)
-#   /etc/pf.anchors/com.ken-ty.netshape              pf のルール (アンカー com.apple/ken-ty.netshape に読む)
-#   /etc/sudoers.d/ken-ty-netshape                   呼び出したユーザーに NOPASSWD (本体の決まった動詞だけ)
-#   /Library/LaunchDaemons/com.ken-ty.netshape.plist --boot on のときだけ
+#   /etc/pf.anchors/netcap-netshape                  pf のルール (アンカー com.apple/netcap-netshape に読む)
+#   /etc/sudoers.d/netcap-netshape                   呼び出したユーザーに NOPASSWD (本体の決まった動詞だけ)
+#   /Library/LaunchDaemons/netcap-netshape.plist     --boot on のときだけ
 #
 # root で動くもの (本体・設定・アンカー・sudoers) は、置き場所の親ディレクトリまで
 # すべて root 所有で group / other が書けないことを確かめてから置く。
@@ -18,12 +18,12 @@
 set -eu
 cd "$(dirname "$0")"
 
-BIN=/Library/PrivilegedHelperTools/ken-ty-netshape
+BIN=/Library/PrivilegedHelperTools/netcap-netshape
 AGENT=/Library/PrivilegedHelperTools/netcap-agent
-CONF=/etc/ken-ty-netshape.conf
-ANCHOR_FILE=/etc/pf.anchors/com.ken-ty.netshape
-SUDOERS=/etc/sudoers.d/ken-ty-netshape
-PLIST=/Library/LaunchDaemons/com.ken-ty.netshape.plist
+CONF=/etc/netcap-netshape.conf
+ANCHOR_FILE=/etc/pf.anchors/netcap-netshape
+SUDOERS=/etc/sudoers.d/netcap-netshape
+PLIST=/Library/LaunchDaemons/netcap-netshape.plist
 
 BOOT=
 while [ $# -gt 0 ]; do
@@ -76,24 +76,36 @@ if [ -f /usr/local/etc/ken-ty-netshape.conf ]; then
   rm -f /usr/local/etc/ken-ty-netshape.conf
 fi
 
-install -o root -g wheel -m 0755 ken-ty-netshape "$BIN"
+# 旧名 (ken-ty-netshape。v0.5.0 まで) からの移行。旧名も root だけが書ける場所に居たので、
+# off を呼んで pf と dnctl を片付けてから消す。既定値は引き継ぐ
+if [ -e /Library/PrivilegedHelperTools/ken-ty-netshape ]; then
+  launchctl bootout system/com.ken-ty.netshape 2>/dev/null || true
+  /Library/PrivilegedHelperTools/ken-ty-netshape off >/dev/null 2>&1 || true
+  if [ -f /etc/ken-ty-netshape.conf ] && [ ! -e "$CONF" ]; then mv /etc/ken-ty-netshape.conf "$CONF"; fi
+  rm -f /Library/PrivilegedHelperTools/ken-ty-netshape /etc/ken-ty-netshape.conf \
+    /etc/pf.anchors/com.ken-ty.netshape /etc/sudoers.d/ken-ty-netshape \
+    /Library/LaunchDaemons/com.ken-ty.netshape.plist
+  echo "旧名 (ken-ty-netshape) を外した"
+fi
+
+install -o root -g wheel -m 0755 netcap-netshape "$BIN"
 install -o root -g wheel -m 0755 netcap-agent "$AGENT"
 install -o root -g wheel -m 0755 netcap-check /usr/local/bin/netcap-check
-install -o root -g wheel -m 0644 com.ken-ty.netshape "$ANCHOR_FILE"
+install -o root -g wheel -m 0644 netcap-netshape.pf "$ANCHOR_FILE"
 
 tmp=$(mktemp)
-sed "s/__USER__/${USER_NAME}/" sudoers.d/ken-ty-netshape >"$tmp"
+sed "s/__USER__/${USER_NAME}/" sudoers.d/netcap-netshape >"$tmp"
 visudo -cf "$tmp" >/dev/null
 install -o root -g wheel -m 0440 "$tmp" "$SUDOERS"
 rm -f "$tmp"
 
 if [ "$BOOT" = on ]; then
-  install -o root -g wheel -m 0644 com.ken-ty.netshape.plist "$PLIST"
-  launchctl bootout system/com.ken-ty.netshape 2>/dev/null || true
+  install -o root -g wheel -m 0644 netcap-netshape.plist "$PLIST"
+  launchctl bootout system/netcap-netshape 2>/dev/null || true
   launchctl bootstrap system "$PLIST"
   sleep 1
 else
-  launchctl bootout system/com.ken-ty.netshape 2>/dev/null || true
+  launchctl bootout system/netcap-netshape 2>/dev/null || true
   rm -f "$PLIST"
 fi
 

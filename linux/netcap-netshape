@@ -1,0 +1,205 @@
+#!/bin/bash
+# netcap-netshape — この Linux のインターネット宛て通信に上限をかける (tc)
+#
+#   netcap-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (systemd の unit が起動時に呼ぶ)
+#   netcap-netshape off                     上限を外す
+#   netcap-netshape status                  いまの状態。1 行目は実物 (tc) から導く
+#   netcap-netshape set UP_MBIT DOWN_MBIT   既定を書き換える。いま上限がかかっていれば張り直す
+#   netcap-netshape get                     既定と起動時の挙動を 1 行で
+#
+# 既定の経路のインターフェースの root qdisc を自分の HTB (ca9:) に差し替える。下りは ingress を
+# ifb-netcap に折り返し、そこの HTB で絞る。素通しの宛先と ICMP・DNS は絞らないクラス (:20) へ。
+# 受信側の qdisc (ingress / clsact) が既にあれば、そこに自分のフィルタ (prio 4930) を 1 本足すだけにする。
+# 他の道具のフィルタが受信側にあれば止まる (先に判定を確定させるフィルタがあると、下りが黙って絞れない)。
+# off は自分の qdisc・フィルタ・ifb-netcap を消すだけ。root qdisc は消せばカーネルの既定に戻る。
+#
+# root で動くので、本体と設定は root だけが書ける場所に置く (linux/install.sh が検査する)。
+# 設定は source せず、key=value を数値として読むだけにする。
+set -eu
+
+UP_MBIT=1
+DOWN_MBIT=1
+
+CONF=/etc/netcap-netshape.conf
+UNIT=/etc/systemd/system/netcap-netshape.service # あれば起動時に on
+DEV_FILE=/run/netcap-netshape.dev                # "インターフェース 受信側の親 受信側の qdisc を作ったか" (off のため)
+IFB=ifb-netcap
+H=ca9
+# docs/design.md「素通しにする宛先」
+LOCAL="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4"
+# ponytail: IPv4 だけ振り分ける。IPv6 は宛先を問わず絞る側に落ちる。要るなら protocol ipv6 の filter を足す
+
+[ "$(id -u)" = 0 ] || {
+  echo "root で実行してください (sudo)" >&2
+  exit 1
+}
+
+is_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
+
+if [ -f "$CONF" ]; then
+  while IFS='=' read -r key value; do
+    is_number "${value:-}" || continue
+    case "$key" in
+      UP_MBIT) UP_MBIT=$value ;;
+      DOWN_MBIT) DOWN_MBIT=$value ;;
+    esac
+  done <"$CONF"
+fi
+
+wan_dev() {
+  ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1
+}
+
+dev() {
+  if [ -s "$DEV_FILE" ]; then awk '{print $1}' "$DEV_FILE"; else wan_dev; fi
+}
+
+# 他の道具が root に分類型の qdisc を置いていれば、差し替えずに止まる (差し替えると他人の設定を消す)
+require_free() {
+  local root
+  root=$(tc qdisc show dev "$1" root)
+  if [[ "$root" =~ qdisc\ (htb|hfsc|cake|tbf|prio|drr|qfq|cbq|ets)\  ]] && [[ "$root" != *" $H: "* ]]; then
+    echo "$1 の root qdisc を他の道具が使っている: $root" >&2
+    exit 3
+  fi
+  local p others
+  for p in ffff: ffff:fff2; do
+    others=$(tc filter show dev "$1" parent "$p" 2>/dev/null | grep "^filter " | grep -v " pref 4930 " || true)
+    if [ -n "$others" ]; then
+      echo "$1 の受信側を他の道具が使っている (tc filter show dev $1 parent $p):" >&2
+      echo "$others" >&2
+      exit 3
+    fi
+  done
+}
+
+# shape <dev> <Mbit/s> <src|dst> <DNS の match>
+shape() {
+  local dev=$1 rate=$2 dir=$3 n
+  tc qdisc replace dev "$dev" root handle "$H:" htb default 10
+  tc class add dev "$dev" parent "$H:" classid "$H:10" htb rate "${rate}mbit" ceil "${rate}mbit"
+  tc class add dev "$dev" parent "$H:" classid "$H:20" htb rate 10gbit
+  for n in $LOCAL; do
+    tc filter add dev "$dev" parent "$H:" protocol ip prio 1 u32 match ip "$dir" "$n" flowid "$H:20"
+  done
+  # shellcheck disable=SC2086
+  tc filter add dev "$dev" parent "$H:" protocol ip prio 1 u32 match $4 flowid "$H:20"
+  tc filter add dev "$dev" parent "$H:" protocol ip prio 1 u32 match ip protocol 1 0xff flowid "$H:20" # ICMP
+}
+
+on() {
+  if [ $# -ge 1 ]; then
+    [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
+      echo "usage: $0 on [UP_MBIT DOWN_MBIT]" >&2
+      exit 2
+    }
+    UP_MBIT=$1
+    DOWN_MBIT=$2
+  fi
+  local dev
+  dev=$(wan_dev)
+  [ -n "$dev" ] || { echo "既定の経路が無い (ip route get 1.1.1.1)" >&2; exit 3; }
+  require_free "$dev"
+  off >/dev/null
+  shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff"
+  modprobe ifb numifbs=0 2>/dev/null || true
+  ip link add "$IFB" type ifb
+  ip link set "$IFB" up
+  # 受信側の親。clsact なら ffff:fff2、ingress なら ffff:。どちらも無ければ clsact を作る
+  local parent=ffff: created=0
+  if tc qdisc show dev "$dev" | grep -q "^qdisc clsact "; then
+    parent=ffff:fff2
+  elif ! tc qdisc show dev "$dev" | grep -q "^qdisc ingress "; then
+    tc qdisc add dev "$dev" clsact
+    parent=ffff:fff2 created=1
+  fi
+  echo "$dev $parent $created" >"$DEV_FILE"
+  tc filter add dev "$dev" parent "$parent" protocol all prio 4930 u32 match u32 0 0 \
+    action mirred egress redirect dev "$IFB"
+  shape "$IFB" "$DOWN_MBIT" src "ip sport 53 0xffff"
+  echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s dev=${dev}"
+}
+
+off() {
+  local dev
+  dev=$(dev)
+  if [ -n "$dev" ] && tc qdisc show dev "$dev" root | grep -q " $H: "; then
+    tc qdisc del dev "$dev" root
+  fi
+  if [ -s "$DEV_FILE" ]; then
+    local parent created
+    read -r _ parent created <"$DEV_FILE"
+    tc filter del dev "$dev" parent "$parent" prio 4930 2>/dev/null || true
+    [ "$created" = 1 ] && tc qdisc del dev "$dev" clsact 2>/dev/null || true
+  fi
+  if ip link show "$IFB" >/dev/null 2>&1; then
+    ip link del "$IFB"
+  fi
+  rm -f "$DEV_FILE"
+  echo "netshape OFF"
+}
+
+# 絞る側のクラス (:10) の帯域を Mbit/s で返す。無ければ空
+class_mbit() {
+  tc class show dev "$1" classid "$H:10" 2>/dev/null | awk '
+    { for (i = 1; i < NF; i++) if ($i == "rate") {
+        v = $(i + 1) + 0
+        if ($(i + 1) ~ /Gbit/) v *= 1000
+        else if ($(i + 1) ~ /Kbit/) v /= 1000
+        else if ($(i + 1) !~ /Mbit/) v /= 1000000
+        printf "%g\n", v; exit
+      } }'
+}
+
+set_default() {
+  [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
+    echo "usage: $0 set UP_MBIT DOWN_MBIT" >&2
+    exit 2
+  }
+  local tmp
+  tmp=$(mktemp)
+  printf '# netcap-netshape の既定値。netcap-netshape set が書く\nUP_MBIT=%s\nDOWN_MBIT=%s\n' "$1" "$2" >"$tmp"
+  install -o root -g root -m 0644 "$tmp" "$CONF"
+  rm -f "$tmp"
+  if [ -n "$(class_mbit "$(dev)")" ]; then
+    on "$1" "$2" >/dev/null
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (適用中だったので張り直した)"
+  else
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (次の on / 再起動から効く)"
+  fi
+}
+
+get() {
+  local boot=off
+  [ -f "$UNIT" ] && boot=on
+  echo "netshape default_up=${UP_MBIT} default_down=${DOWN_MBIT} boot=${boot} conf=$([ -f "$CONF" ] && echo "$CONF" || echo none)"
+}
+
+status() {
+  local dev up down state
+  dev=$(dev)
+  up=$(class_mbit "$dev")
+  down=$(class_mbit "$IFB")
+  if [ -n "$up" ] && [ -n "$down" ]; then
+    state=on
+  elif [ -z "$up" ] && [ -z "$down" ]; then
+    state=off
+  else
+    state=partial # 片方だけ残っている。on か off を打ち直す
+  fi
+  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=tc dev=${dev:--}"
+  echo "--- qdisc (${dev:--} / ${IFB})"
+  { tc qdisc show dev "$dev"; tc qdisc show dev "$IFB"; } 2>/dev/null || true
+}
+
+case "${1:-}" in
+  on) shift; on "$@" ;;
+  off) off ;;
+  status) status ;;
+  set) shift; set_default "$@" ;;
+  get) get ;;
+  *)
+    echo "usage: $0 {on [UP_MBIT DOWN_MBIT]|off|status|set UP_MBIT DOWN_MBIT|get}" >&2
+    exit 2
+    ;;
+esac
