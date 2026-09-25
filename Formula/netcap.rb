@@ -3,8 +3,8 @@ class Netcap < Formula
   desc "Cap the internet bandwidth of devices on your network from one device"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
-      tag:      "v0.5.0",
-      revision: "0ba5920bffa74080957792502e63941acdd2ca34"
+      tag:      "v0.6.0",
+      revision: "8291374258eef4b53f3214a4fb075b7763b21faf"
   head "https://github.com/ken-ty/netcap.git", branch: "main"
 
   license "MIT"
