@@ -58,6 +58,22 @@ SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveI
 TIMEOUT = {"check": 180}
 
 
+def locale_name():
+    """The message locale, in the order POSIX looks it up: LC_ALL, LC_MESSAGES, LANG."""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        if os.environ.get(var):
+            return os.environ[var]
+    return ""
+
+
+def _(msg):
+    """Translate a message for people. A message with no translation stays in English.
+    Never pass it what a machine reads: --json, key=value, or the values in the table"""
+    if locale_name().startswith("ja"):
+        return JA.get(msg, msg)
+    return msg
+
+
 def build_cmd(host, action, args):
     """Build the command to run on a device. For devices behind ssh, join it into one string."""
     h = HOSTS[host]
@@ -134,7 +150,7 @@ class VersionAction(argparse.Action):
     """Look up the version only when --version is given (do not run git every time)."""
 
     def __init__(self, option_strings, dest, **kwargs):
-        super().__init__(option_strings, dest, nargs=0, help="print the version and exit")
+        super().__init__(option_strings, dest, nargs=0, help=_("print the version and exit"))
 
     def __call__(self, parser, namespace, values, option_string=None):
         print(f"netcap {version()}")
@@ -145,8 +161,8 @@ def config_lines(name):
     """Read CONFIG_DIR/name and yield (line number, words), skipping comments and blank lines."""
     path = CONFIG_DIR / name
     if not path.exists():
-        sys.exit(f"{path} does not exist. See {EXAMPLES / name} for the format\n"
-                 f"  mkdir -p {CONFIG_DIR} && cp {EXAMPLES / name} {path}")
+        sys.exit(_("{path} does not exist. See {example} for the format\n"
+                   "  mkdir -p {dir} && cp {example} {path}").format(path=path, example=EXAMPLES / name, dir=CONFIG_DIR))
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         words = line.split("#", 1)[0].split()
         if words:
@@ -157,14 +173,15 @@ def load_hosts():
     """hosts: one device per line, "name OS route". OS is mac / linux / win. route is a Host name in ~/.ssh/config, or - for this machine"""
     for path, n, words in config_lines("hosts"):
         if len(words) != 3 or words[1] not in ("mac", "linux", "win") or words[0] == "all":
-            sys.exit(f"{path}:{n}: write 3 words, \"name mac|linux|win route\" (all is not allowed as a name): {' '.join(words)}")
+            sys.exit(f"{path}:{n}: " + _("write 3 words, \"name mac|linux|win route\" (all is not allowed as a name): {line}")
+                     .format(line=' '.join(words)))
         name, os_, ssh = words
         if name in HOSTS:
-            sys.exit(f"{path}:{n}: {name} appears twice")
+            sys.exit(f"{path}:{n}: " + _("{name} appears twice").format(name=name))
         HOSTS[name] = {"os": os_, "ssh": None if ssh == "-" else ssh}
         ORDER.append(name)
     if not HOSTS:
-        sys.exit(f"{CONFIG_DIR / 'hosts'} has no devices")
+        sys.exit(_("{path} has no devices").format(path=CONFIG_DIR / "hosts"))
 
 
 def host_names():
@@ -174,10 +191,10 @@ def host_names():
 def resolve(target, default_all=False):
     if target in (None, "all"):
         if target is None and not default_all:
-            sys.exit(f"specify a host ({host_names()})")
+            sys.exit(_("specify a host ({names})").format(names=host_names()))
         return ORDER
     if target not in HOSTS:
-        sys.exit(f"unknown host: {target} (one of {host_names()})")
+        sys.exit(_("unknown host: {host} (one of {names})").format(host=target, names=host_names()))
     return [target]
 
 
@@ -199,7 +216,7 @@ def print_table(rows, cols, footnote=None):
         vals = [f(r) for _, _, f in cols]
         print("  ".join(f"{v:<{w}}" if w else v for v, (_, w, _) in zip(vals, cols)))
     if footnote and any(r.get("down_src") == "applied" for r in rows):
-        print(footnote)
+        print(_(footnote))
 
 
 def note(r):
@@ -273,7 +290,7 @@ def load_profiles():
     for path, n, words in config_lines("profiles"):
         name, *pairs = words
         if not pairs or any("=" not in p for p in pairs):
-            sys.exit(f"{path}:{n}: write \"name device=up/down …\": {' '.join(words)}")
+            sys.exit(f"{path}:{n}: " + _("write \"name device=up/down …\": {line}").format(line=' '.join(words)))
         profiles[name] = dict(p.split("=", 1) for p in pairs)
     return profiles
 
@@ -287,17 +304,17 @@ def parse_profile_value(host, value):
     if "/" in value:
         up, down = value.split("/", 1)
         return "on", [up.strip(), down.strip()]
-    sys.exit(f"cannot read the profile value: {host} = {value!r} (\"up/down\" or \"off\")")
+    sys.exit(_("cannot read the profile value: {host} = {value!r} (\"up/down\" or \"off\")").format(host=host, value=value))
 
 
 def cmd_use(a):
     profiles = load_profiles()
     if a.profile not in profiles:
-        sys.exit(f"unknown profile: {a.profile} (available: {', '.join(profiles)})")
+        sys.exit(_("unknown profile: {profile} (available: {names})").format(profile=a.profile, names=", ".join(profiles)))
     plan = profiles[a.profile]
     unknown = [h for h in plan if h not in HOSTS]
     if unknown:
-        sys.exit(f"the profile has unknown hosts: {', '.join(unknown)}")
+        sys.exit(_("the profile has unknown hosts: {names}").format(names=", ".join(unknown)))
     hosts = [h for h in ORDER if h in plan]  # devices not listed are left untouched
 
     def one(host):
@@ -325,46 +342,132 @@ def cmd_profiles(a):
 
 
 def add_target(p, optional=False):
-    p.add_argument("host", nargs="?" if optional else None, help="a name from hosts, or all")
+    p.add_argument("host", nargs="?" if optional else None, help=_("a name from hosts, or all"))
+
+
+# Translations of the messages above, keyed by the English text. English is the source of truth:
+# change the English first; a key left behind here is caught by the tests, a missing one falls back to English
+JA = {
+    __doc__: """netcap — 管理している機器の WAN 帯域の上限を、1 コマンドで扱う。
+
+  netcap status [host|all] [--json]           実際の状態を読む (pf のパイプ / QoS ポリシー)
+  netcap get    [host|all] [--json]           設定を読む (既定値、起動時の挙動)
+  netcap on     <host|all> [--up N --down N]  上限をかける。--up/--down は今回だけ有効
+  netcap off    <host|all>                    上限を外す
+  netcap set    <host|all> --up N --down N    既定値を変える (再起動後も残る)
+  netcap check  <host|all> [--json]           測る (curl の上り/下り + ping)
+  netcap use    <profile>                     プロファイルを全機器に適用する
+  netcap profiles                             プロファイルの一覧
+  netcap --version                            バージョン (-v でも可)
+
+コマンドの形は tailscale に倣っている。status (実際の状態) と get (設定) は別のコマンドで、
+set は永続する設定だけを変え、on のフラグは「今回の望む状態のすべて」を表す。動詞だけは倣っていない。
+netcap の領域では up/down が既に上り/下りの意味なので、tailscale の up/down ではなく on/off にしている。
+
+各機器で動くもの:
+  mac              : /Library/PrivilegedHelperTools/netcap-agent    (入口。forced command も兼ねる)
+                       → netcap-netshape (pf + dummynet。sudo -n) / netcap-check (測定。root 不要)
+  linux            : /usr/libexec/netcap/netcap-agent               (入口。mac と同じ agent)
+                       → netcap-netshape (tc。sudo -n) / netcap-check (測定。root 不要)
+  win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (入口。forced command も兼ねる)
+                       → netshape.ps1 (NetQosPolicy。上りのみ) / netcap-check.ps1 (測定)
+どれも 1 行目に key=value を返し、netcap はそれを読む。
+
+どの機器を管理するか (hosts) と、どれをまとめて動かすか (profiles) は利用者のもの。
+コードではなく ~/.config/netcap/ に置く ($NETCAP_CONFIG_DIR で変更可)。
+書式は examples/ を参照。どちらも 1 行 1 項目のテキストで、# 以降はコメント。
+""",
+    "print the version and exit": "バージョンを表示して終了する",
+    "print in machine-readable form": "機械が読める形で出力する",
+    "also print the raw output from the device": "機器の生の出力も表示する",
+    "a name from hosts, or all": "hosts にある名前、または all",
+    "read the real state (pf pipes / QoS policy)": "実際の状態を読む (pf のパイプ / QoS ポリシー)",
+    "read the settings (default, boot behavior)": "設定を読む (既定値、起動時の挙動)",
+    "apply a cap; --up/--down apply this time only": "上限をかける。--up/--down は今回だけ有効",
+    "remove the cap": "上限を外す",
+    "change the default (survives reboots)": "既定値を変える (再起動後も残る)",
+    "measure (curl up/down + ping)": "測る (curl の上り/下り + ping)",
+    "bytes to transfer; use less while capped": "転送するバイト数。上限をかけている間は少なめに",
+    "apply a profile to all devices": "プロファイルを全機器に適用する",
+    "list profiles": "プロファイルの一覧",
+    "{path} does not exist. See {example} for the format\n"
+    "  mkdir -p {dir} && cp {example} {path}":
+        "{path} がありません。書式は {example} を参照\n"
+        "  mkdir -p {dir} && cp {example} {path}",
+    "write 3 words, \"name mac|linux|win route\" (all is not allowed as a name): {line}":
+        "\"名前 mac|linux|win 経路\" の 3 語で書く (all は名前に使えない): {line}",
+    "{name} appears twice": "{name} が 2 回出てくる",
+    "{path} has no devices": "{path} に機器がない",
+    "specify a host ({names})": "機器を指定する ({names})",
+    "unknown host: {host} (one of {names})": "知らない機器: {host} ({names} のどれか)",
+    "write \"name device=up/down …\": {line}": "\"名前 機器=上り/下り …\" の形で書く: {line}",
+    "cannot read the profile value: {host} = {value!r} (\"up/down\" or \"off\")":
+        "プロファイルの値を読めない: {host} = {value!r} (\"上り/下り\" か \"off\")",
+    "unknown profile: {profile} (available: {names})": "知らないプロファイル: {profile} (あるもの: {names})",
+    "the profile has unknown hosts: {names}": "プロファイルに知らない機器がある: {names}",
+    "values as positional arguments are no longer accepted ({given}).\n"
+    "  cap this time only : netcap on {host} --up N --down N\n"
+    "  change the default : netcap set {host} --up N --down N":
+        "値を位置引数で渡す形は廃止した ({given})。\n"
+        "  今回だけ上限をかける : netcap on {host} --up N --down N\n"
+        "  既定値を変える       : netcap set {host} --up N --down N",
+    "give --up and --down together (with only one, the other would silently stay at the default)":
+        "--up と --down は一緒に渡す (片方だけだと、もう片方が黙って既定値のままになる)",
+    "usage: netcap set <host|all> --up N --down N": "使い方: netcap set <host|all> --up N --down N",
+    "--up / --down must be numbers in Mbit/s: {values}": "--up / --down は Mbit/s の数値で渡す: {values}",
+    DOWN_NOTE: "* 下りは on のときに記録した値。macOS の dnctl は pipe 2 の帯域を表示できないため (パイプ自体は確認済み)",
+    # argparse's own words
+    "usage: ": "使い方: ",
+    "positional arguments": "位置引数",
+    "options": "オプション",
+    "show this help message and exit": "このヘルプを表示して終了する",
+    "%(prog)s: error: %(message)s\n": "%(prog)s: エラー: %(message)s\n",
+    "the following arguments are required: %s": "次の引数が必要: %s",
+    "unrecognized arguments: %s": "知らない引数: %s",
+    "invalid choice: %(value)r (choose from %(choices)s)": "選べない値: %(value)r (%(choices)s から選ぶ)",
+    "argument %(argument_name)s: %(message)s": "引数 %(argument_name)s: %(message)s",
+    "expected one argument": "値が 1 つ必要",
+}
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="netcap", description=__doc__,
+    argparse._ = _  # argparse's own words (usage:, options:, errors) go through the same table
+    ap = argparse.ArgumentParser(prog="netcap", description=_(__doc__),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-v", "--version", action=VersionAction)
-    ap.add_argument("--json", action="store_true", help="print in machine-readable form")
-    ap.add_argument("--raw", action="store_true", help="also print the raw output from the device")
+    ap.add_argument("--json", action="store_true", help=_("print in machine-readable form"))
+    ap.add_argument("--raw", action="store_true", help=_("also print the raw output from the device"))
     # Also accept these after the subcommand, so the README form (netcap status all --json) works.
     # Without SUPPRESS, the subcommand's default False would overwrite a --json given before it
     out = argparse.ArgumentParser(add_help=False)
-    out.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help="print in machine-readable form")
-    out.add_argument("--raw", action="store_true", default=argparse.SUPPRESS, help="also print the raw output from the device")
+    out.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=_("print in machine-readable form"))
+    out.add_argument("--raw", action="store_true", default=argparse.SUPPRESS, help=_("also print the raw output from the device"))
     sub = ap.add_subparsers(dest="cmd", required=True)
     _add = sub.add_parser
     sub.add_parser = lambda *a, **k: _add(*a, parents=[out], **k)
 
-    p = sub.add_parser("status", help="read the real state (pf pipes / QoS policy)")
+    p = sub.add_parser("status", help=_("read the real state (pf pipes / QoS policy)"))
     add_target(p, optional=True)
-    p = sub.add_parser("get", help="read the settings (default, boot behavior)")
+    p = sub.add_parser("get", help=_("read the settings (default, boot behavior)"))
     add_target(p, optional=True)
-    p = sub.add_parser("on", help="apply a cap; --up/--down apply this time only")
+    p = sub.add_parser("on", help=_("apply a cap; --up/--down apply this time only"))
     add_target(p)
     p.add_argument("--up", metavar="MBIT")
     p.add_argument("--down", metavar="MBIT")
     p.add_argument("values", nargs="*", help=argparse.SUPPRESS)  # to catch the old form
-    p = sub.add_parser("off", help="remove the cap")
+    p = sub.add_parser("off", help=_("remove the cap"))
     add_target(p)
-    p = sub.add_parser("set", help="change the default (survives reboots)")
+    p = sub.add_parser("set", help=_("change the default (survives reboots)"))
     add_target(p)
     p.add_argument("--up", metavar="MBIT")
     p.add_argument("--down", metavar="MBIT")
     p.add_argument("values", nargs="*", help=argparse.SUPPRESS)
-    p = sub.add_parser("check", help="measure (curl up/down + ping)")
+    p = sub.add_parser("check", help=_("measure (curl up/down + ping)"))
     add_target(p, optional=True)
-    p.add_argument("--bytes", metavar="N", help="bytes to transfer; use less while capped")
-    p = sub.add_parser("use", help="apply a profile to all devices")
+    p.add_argument("--bytes", metavar="N", help=_("bytes to transfer; use less while capped"))
+    p = sub.add_parser("use", help=_("apply a profile to all devices"))
     p.add_argument("profile")
-    sub.add_parser("profiles", help="list profiles")
+    sub.add_parser("profiles", help=_("list profiles"))
 
     a = ap.parse_args()
     load_hosts()
@@ -372,19 +475,20 @@ def main():
     if a.cmd in ("on", "set"):
         # The old form netcap set <host> 2 2 changed meaning. Do not silently do something else
         if a.values:
-            sys.exit(f"values as positional arguments are no longer accepted ({a.cmd} {a.host} {' '.join(a.values)}).\n"
-                     f"  cap this time only : netcap on {a.host} --up N --down N\n"
-                     f"  change the default : netcap set {a.host} --up N --down N")
+            sys.exit(_("values as positional arguments are no longer accepted ({given}).\n"
+                       "  cap this time only : netcap on {host} --up N --down N\n"
+                       "  change the default : netcap set {host} --up N --down N")
+                     .format(given=f"{a.cmd} {a.host} {' '.join(a.values)}", host=a.host))
         # As with tailscale up, flags must describe the complete desired state
         if (a.up is None) != (a.down is None):
-            sys.exit("give --up and --down together (with only one, the other would silently "
-                     "stay at the default)")
+            sys.exit(_("give --up and --down together (with only one, the other would silently "
+                       "stay at the default)"))
         if a.cmd == "set" and a.up is None:
-            sys.exit("usage: netcap set <host|all> --up N --down N")
+            sys.exit(_("usage: netcap set <host|all> --up N --down N"))
         args = [a.up, a.down] if a.up is not None else []
         bad = [v for v in args if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", v)]
         if bad:
-            sys.exit(f"--up / --down must be numbers in Mbit/s: {' '.join(bad)}")
+            sys.exit(_("--up / --down must be numbers in Mbit/s: {values}").format(values=" ".join(bad)))
         return apply_and_read(resolve(a.host), a.cmd, args, a.json, a.raw)
 
     if a.cmd == "off":

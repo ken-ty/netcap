@@ -94,6 +94,8 @@ netcap profiles                             プロファイル一覧
 netcap --version
 ```
 
+ヘルプとエラーはロケール (`LANG`) に従い、日本語でも出る。英語で見たいときは `LC_ALL=C netcap -h`。
+
 ## ドキュメント
 
 - [docs/host-setup.ja.md](docs/host-setup.ja.md) — 端末側のセットアップと許可

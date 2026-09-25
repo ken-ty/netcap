@@ -2,6 +2,8 @@
 
   python3 -m unittest discover tests
 """
+import argparse
+import ast
 import importlib.machinery
 import importlib.util
 import json
@@ -59,8 +61,9 @@ class CLI(unittest.TestCase):
         self.log.touch()
         self.conf = self.tmp / "conf"
         self.conf.mkdir()
+        # LC_ALL=C: the assertions read English messages, whatever the locale of the machine running the tests
         self.env = {**os.environ, "PATH": f"{self.tmp / 'bin'}{os.pathsep}{os.environ['PATH']}",
-                    "FAKE_SSH_LOG": str(self.log), "NETCAP_CONFIG_DIR": str(self.conf)}
+                    "FAKE_SSH_LOG": str(self.log), "NETCAP_CONFIG_DIR": str(self.conf), "LC_ALL": "C"}
 
     def hosts(self, *names, profiles=""):
         (self.conf / "hosts").write_text("".join(f"{n} mac h-{n}\n" for n in names))
@@ -96,9 +99,7 @@ class CLI(unittest.TestCase):
                                 "denied": "denied", "noagent": "no-agent", "error": "error"})
 
     def test_reach_timeout(self):
-        spec = importlib.util.spec_from_loader("netcap", importlib.machinery.SourceFileLoader("netcap", str(NETCAP)))
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
+        mod = load_netcap()
         mod.HOSTS["slow"] = {"os": "mac", "ssh": "h-slow"}
         mod.TIMEOUT["status"] = 1
         os.environ.update(PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log))
@@ -157,6 +158,46 @@ class CLI(unittest.TestCase):
         p = subprocess.run([sys.executable, str(copy / "netcap"), "--version"], capture_output=True, text=True,
                            env={**self.env, "GIT_CEILING_DIRECTORIES": str(self.tmp)})
         self.assertEqual(p.stdout.strip(), "netcap unknown")
+
+    # CONTRIBUTING.md: Language. Messages for people follow LC_ALL, LC_MESSAGES, LANG in that order
+    def test_japanese_messages(self):
+        self.hosts("off")
+        env = {k: v for k, v in self.env.items() if k not in ("LC_ALL", "LC_MESSAGES")}
+        ja = self.netcap("-h", env={**env, "LANG": "ja_JP.UTF-8"})
+        self.assertIn("使い方:", ja.stdout)
+        self.assertIn("上限を外す", ja.stdout)
+        self.assertIn("知らない機器: nope", self.netcap("on", "nope", env={**env, "LANG": "ja_JP.UTF-8"}).stderr)
+        self.assertIn("unknown host: nope", self.netcap("on", "nope", env={**env, "LANG": "ja_JP.UTF-8", "LC_ALL": "C"}).stderr)
+        self.assertIn("show this help", self.netcap("-h", env={**env, "LANG": "en_US.UTF-8"}).stdout)
+
+    # CONTRIBUTING.md: Language. What a machine reads is never translated
+    def test_json_is_not_translated(self):
+        self.hosts("off")
+        env = {**self.env, "LC_ALL": "ja_JP.UTF-8"}
+        self.assertEqual(self.netcap("status", "off", "--json", env=env).stdout,
+                         self.netcap("status", "off", "--json").stdout)
+
+    # CONTRIBUTING.md: Language. Every translation belongs to a message that still exists, with the same placeholders
+    def test_translations_match_messages(self):
+        mod = load_netcap()
+        messages = {v for v in vars(mod).values() if isinstance(v, str)}
+        for path in (NETCAP, Path(argparse.__file__)):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "_" and node.args
+                        and isinstance(node.args[0], ast.Constant)):
+                    messages.add(node.args[0].value)
+        placeholders = lambda s: sorted(re.findall(r"\{[^}]*\}|%\(\w+\)\w|%s", s))
+        for en, ja in mod.JA.items():
+            with self.subTest(en=en[:40]):
+                self.assertIn(en, messages, "the English message is gone; remove or update its translation")
+                self.assertEqual(placeholders(ja), placeholders(en))
+
+
+def load_netcap():
+    spec = importlib.util.spec_from_loader("netcap", importlib.machinery.SourceFileLoader("netcap", str(NETCAP)))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 if __name__ == "__main__":
