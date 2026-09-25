@@ -194,12 +194,16 @@ class E2E(unittest.TestCase):
         self.netcap("on", "self", "--up", "1", "--down", "1")
         try:
             capped = check(500_000)  # 1 Mbit/s で 4 秒
+            # 落ちたときに、どこを通ったかを見るため
+            diag = "" if OS != "linux" else sh("bash", "-c", "ip -br link; tc qdisc show; for d in $(ls /sys/class/net); do "
+                                               "tc -s filter show dev $d parent ffff:fff2; tc -s filter show dev $d parent ffff:; "
+                                               "done; tc -s class show dev ifb-netcap").stdout
         finally:
             self.netcap("off", "self")
         print(f"\n  上限無し 下り {free[0]} / 上り {free[1]}、1/1 で 下り {capped[0]} / 上り {capped[1]} Mbit/s")
         self.assertLess(capped[1], 1.5)
         if OS != "win":  # Windows は下りを絞れない
-            self.assertLess(capped[0], 1.5)
+            self.assertLess(capped[0], 1.5, diag)
 
     @unittest.skipIf(OS == "win", "Windows は起動時も状態が残る (boot=keep)")
     def test_40_boot_on(self):
