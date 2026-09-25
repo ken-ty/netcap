@@ -37,7 +37,8 @@ pipe 番号は機械全体で共有なので、pipe 1 / 2 を使う Network Link
 
 - 既定の経路のインターフェースの root qdisc を自分の HTB (handle `ca9:`) に差し替え、`off` で消して既定に戻す。
   他の道具が root に qdisc を置いていれば、差し替えずに止まる
-- 下りは ingress を `ifb-netcap` に折り返して、そこの HTB で絞る
+- 下りは受信を `ifb-netcap` に折り返して、そこの HTB で絞る。受信側の qdisc (ingress / clsact) が既にあれば、
+  自分のフィルタを 1 本足すだけにする
 - 素通しの宛先と ICMP・DNS は、絞らないクラスへ振り分ける
 
 ## macOS の status の下りに付く `*`

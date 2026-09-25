@@ -9,7 +9,8 @@
 #
 # 既定の経路のインターフェースの root qdisc を自分の HTB (ca9:) に差し替える。下りは ingress を
 # ifb-netcap に折り返し、そこの HTB で絞る。素通しの宛先と ICMP・DNS は絞らないクラス (:20) へ。
-# off は自分の qdisc と ifb-netcap を消すだけ。root qdisc は消せばカーネルの既定に戻る。
+# 受信側の qdisc (ingress / clsact) が既にあれば、そこに自分のフィルタ (prio 4930) を 1 本足すだけにする。
+# off は自分の qdisc・フィルタ・ifb-netcap を消すだけ。root qdisc は消せばカーネルの既定に戻る。
 #
 # root で動くので、本体と設定は root だけが書ける場所に置く (linux/install.sh が検査する)。
 # 設定は source せず、key=value を数値として読むだけにする。
@@ -20,7 +21,7 @@ DOWN_MBIT=1
 
 CONF=/etc/netcap-netshape.conf
 UNIT=/etc/systemd/system/netcap-netshape.service # あれば起動時に on
-DEV_FILE=/run/netcap-netshape.dev                # on で絞ったインターフェース (経路が変わっても off できるように)
+DEV_FILE=/run/netcap-netshape.dev                # "インターフェース 受信側の親 受信側の qdisc を作ったか" (off のため)
 IFB=ifb-netcap
 H=ca9
 # docs/design.md「素通しにする宛先」
@@ -49,7 +50,7 @@ wan_dev() {
 }
 
 dev() {
-  if [ -s "$DEV_FILE" ]; then cat "$DEV_FILE"; else wan_dev; fi
+  if [ -s "$DEV_FILE" ]; then awk '{print $1}' "$DEV_FILE"; else wan_dev; fi
 }
 
 # 他の道具が root に分類型の qdisc を置いていれば、差し替えずに止まる (差し替えると他人の設定を消す)
@@ -90,13 +91,21 @@ on() {
   [ -n "$dev" ] || { echo "既定の経路が無い (ip route get 1.1.1.1)" >&2; exit 3; }
   require_free "$dev"
   off >/dev/null
-  echo "$dev" >"$DEV_FILE"
   shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff"
   modprobe ifb numifbs=0 2>/dev/null || true
   ip link add "$IFB" type ifb
   ip link set "$IFB" up
-  tc qdisc add dev "$dev" handle ffff: ingress
-  tc filter add dev "$dev" parent ffff: protocol all prio 1 u32 match u32 0 0 action mirred egress redirect dev "$IFB"
+  # 受信側の親。clsact なら ffff:fff2、ingress なら ffff:。どちらも無ければ clsact を作る
+  local parent=ffff: created=0
+  if tc qdisc show dev "$dev" | grep -q "^qdisc clsact "; then
+    parent=ffff:fff2
+  elif ! tc qdisc show dev "$dev" | grep -q "^qdisc ingress "; then
+    tc qdisc add dev "$dev" clsact
+    parent=ffff:fff2 created=1
+  fi
+  echo "$dev $parent $created" >"$DEV_FILE"
+  tc filter add dev "$dev" parent "$parent" protocol all prio 4930 u32 match u32 0 0 \
+    action mirred egress redirect dev "$IFB"
   shape "$IFB" "$DOWN_MBIT" src "ip sport 53 0xffff"
   echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s dev=${dev}"
 }
@@ -107,8 +116,13 @@ off() {
   if [ -n "$dev" ] && tc qdisc show dev "$dev" root | grep -q " $H: "; then
     tc qdisc del dev "$dev" root
   fi
+  if [ -s "$DEV_FILE" ]; then
+    local parent created
+    read -r _ parent created <"$DEV_FILE"
+    tc filter del dev "$dev" parent "$parent" prio 4930 2>/dev/null || true
+    [ "$created" = 1 ] && tc qdisc del dev "$dev" clsact 2>/dev/null || true
+  fi
   if ip link show "$IFB" >/dev/null 2>&1; then
-    [ -n "$dev" ] && tc qdisc del dev "$dev" ingress 2>/dev/null || true
     ip link del "$IFB"
   fi
   rm -f "$DEV_FILE"
