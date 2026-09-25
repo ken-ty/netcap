@@ -59,11 +59,11 @@ class E2E(unittest.TestCase):
             old = Path(tempfile.mkdtemp())
             subprocess.run(f"git -C {ROOT} archive v0.5.0 mac | tar -x -C {old}", shell=True, check=True)
             install("on", src=old)
-        cls.installed = install("off")
-        conf = Path(tempfile.mkdtemp())
-        (conf / "hosts").write_text(f"self {OS} -\n")
-        (conf / "profiles").write_text("p     self=2/3\nnone  self=off\n")
-        cls.env = {**os.environ, "NETCAP_CONFIG_DIR": str(conf)}
+        # README: Quick Start. netcap install puts the agent on this machine and registers it in hosts
+        cls.conf = Path(tempfile.mkdtemp())
+        cls.env = {**os.environ, "NETCAP_CONFIG_DIR": str(cls.conf)}
+        cls.installed = sh(sys.executable, str(ROOT / "bin" / "netcap"), "install", "self", "--boot", "off", env=cls.env)
+        (cls.conf / "profiles").write_text("p     self=2/3\nnone  self=off\n")
 
     @classmethod
     def tearDownClass(cls):
@@ -95,6 +95,10 @@ class E2E(unittest.TestCase):
     # --- hosts: README Usage ---
     def test_00_install(self):
         self.assertEqual(self.installed.returncode, 0, self.installed.stdout + self.installed.stderr)
+        self.assertEqual((self.conf / "hosts").read_text().split(), ["self", OS, "-"])
+        self.assertIn("netcap off self", self.installed.stdout)
+        # The agent reports the version of the CLI that installed it
+        self.assertEqual("netcap " + self.row("get")["agent"], self.netcap("--version").strip())
         if OS == "mac":
             self.assertIn("removed the old name (ken-ty-netshape)", self.installed.stdout)
             self.assertFalse(Path("/Library/PrivilegedHelperTools/ken-ty-netshape").exists())
@@ -218,9 +222,10 @@ class E2E(unittest.TestCase):
             agent("off")
 
     def test_99_uninstall(self):
-        uninstall()
+        self.netcap("uninstall", "self")
         for p in INSTALLED:
             self.assertFalse(Path(p).exists(), p)
+        self.assertNotIn("self", (self.conf / "hosts").read_text())
         install("off")  # tearDownClass removes it again
 
 

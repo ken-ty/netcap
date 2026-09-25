@@ -9,6 +9,9 @@
   netcap check  <host|all> [--json]           measure (curl up/down + ping)
   netcap use    <profile>                     apply a profile to all devices
   netcap profiles                             list profiles
+  netcap install [name] [--ssh DEST]          install the agent on a device and register it
+  netcap uninstall <name>                     remove the agent and the registration
+  netcap rename <old> <new>                   rename a device in hosts and profiles
   netcap --version                            version (also -v)
 
 The command layout is borrowed from tailscale. status (real state) and get (settings) are separate
@@ -30,12 +33,16 @@ They are not in the code but in ~/.config/netcap/ (override with $NETCAP_CONFIG_
 See examples/ for the format. Both are plain text, one entry per line; everything after # is a comment.
 """
 import argparse
+import base64
 import json
 import os
 import re
 import shlex
+import shutil
+import socket
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -44,7 +51,8 @@ from pathlib import Path
 VERSION = "@VERSION@"
 CONFIG_DIR = Path(os.environ.get("NETCAP_CONFIG_DIR")
                   or Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "netcap")
-EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+ROOT = Path(__file__).resolve().parent.parent
+EXAMPLES = ROOT / "examples"
 # Filled by main() from CONFIG_DIR/hosts. {name: {"os": "mac"|"linux"|"win", "ssh": Host name | None}}
 HOSTS = {}
 ORDER = []
@@ -54,6 +62,10 @@ MAC_AGENT = "/Library/PrivilegedHelperTools/netcap-agent"
 LINUX_AGENT = "/usr/libexec/netcap/netcap-agent"
 WIN_AGENT = r"C:\ProgramData\netcap\netcap-agent.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
+# The key netcap install registers on devices, pinned there to the agent (forced command).
+# It is offered first; a device without it falls back to the keys of the user's own ssh config
+KEY = Path.home() / ".ssh" / "netcap"
+VERBS = "status get check on off set"
 # check does not return until the transfer ends. Capped at 1 Mbit/s, 1MB takes almost 10 seconds
 TIMEOUT = {"check": 180}
 
@@ -84,7 +96,10 @@ def build_cmd(host, action, args):
     if h["ssh"] is None:
         return remote
     # OpenSSH on Windows splits the arguments too, so this form works there as well
-    return ["ssh", *SSH_OPTS, h["ssh"], " ".join(shlex.quote(a) for a in remote)]
+    # ControlPath=none: a shared connection (ControlMaster) from the user's own login would carry the request
+    # past the netcap key and its forced command
+    key = ["-i", str(KEY), "-o", "ControlPath=none"] if KEY.exists() else []
+    return ["ssh", *SSH_OPTS, *key, h["ssh"], " ".join(shlex.quote(a) for a in remote)]
 
 
 def decode(b):
@@ -245,6 +260,7 @@ GET_COLS = [
     ("default", 12, lambda r: "-" if fmt(r.get("default_up")) == "-"
      else f"{r['default_up']}/{r['default_down']} Mbit/s"),
     ("boot", 6, lambda r: fmt(r.get("boot"))),
+    ("agent", 10, lambda r: fmt(r.get("agent"))),
     ("note", 0, note),
 ]
 
@@ -351,6 +367,279 @@ def add_target(p, optional=False):
     p.add_argument("host", nargs="?" if optional else None, help=_("a name from hosts, or all"))
 
 
+# --- install / uninstall / rename ---------------------------------------------------------------
+# netcap install does what host-setup.md used to ask people to do by hand: copy the device side,
+# run its installer (sudo / Administrator), register the netcap key as a forced command, and add hosts.
+
+NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+THIS_OS = {"darwin": "mac", "linux": "linux", "win32": "win"}.get(sys.platform)
+
+
+def say(msg):
+    print(f"==> {msg}", flush=True)
+
+
+def ssh_plain(dest, cmd, tty=False, input=None, capture=True):
+    """ssh with the user's own keys (not the netcap key, which only reaches the agent)."""
+    opts = ["-t"] if tty else ["-o", "BatchMode=yes"]
+    p = subprocess.run(["ssh", *opts, "-o", "ConnectTimeout=10", dest, cmd], input=input,
+                       capture_output=capture)
+    if capture:
+        p.out = decode(p.stdout).strip()
+        p.err = decode(p.stderr).strip()
+    return p
+
+
+def powershell(dest, script, capture=True):
+    """Run a PowerShell script on a Windows device. -EncodedCommand avoids every quoting layer."""
+    script = "$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'\n" + script
+    enc = base64.b64encode(script.encode("utf-16-le")).decode()
+    return ssh_plain(dest, f"powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}", capture=capture)
+
+
+def ps_quote(s):
+    return "'" + s.replace("'", "''") + "'"
+
+
+def detect_os(dest):
+    p = ssh_plain(dest, "uname -s")
+    if p.returncode == 255:
+        sys.exit(_("cannot reach {dest} over ssh: {err}").format(dest=dest, err=p.err))
+    if p.returncode == 0 and p.out in ("Darwin", "Linux"):
+        return {"Darwin": "mac", "Linux": "linux"}[p.out]
+    if "Win32NT" in powershell(dest, "[Environment]::OSVersion.Platform").out:
+        return "win"
+    sys.exit(_("cannot tell the OS of {dest} (uname: {out})").format(dest=dest, out=p.out or p.err))
+
+
+def stage():
+    """Copy the device side into a temporary directory, with this CLI's version written into the agents."""
+    tmp = Path(tempfile.mkdtemp(prefix="netcap-"))
+    for d in ("mac", "linux", "win"):
+        shutil.copytree(ROOT / d, tmp / d)
+    for agent in (tmp / "mac" / "netcap-agent", tmp / "win" / "netcap-agent.ps1"):
+        agent.write_bytes(agent.read_bytes().replace(b"@VERSION@", version().encode()))
+    return tmp
+
+
+def ensure_key():
+    if not KEY.exists():
+        KEY.parent.mkdir(mode=0o700, exist_ok=True)
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(KEY),
+                        "-C", f"netcap@{socket.gethostname().split('.')[0]}"], check=True)
+        say(_("created the netcap key: {key}").format(key=KEY))
+    pub = KEY.with_suffix(".pub").read_text().strip()
+    return pub, pub.split()[1]
+
+
+def key_line(os_, pub):
+    """The authorized_keys line that pins the netcap key to the agent (docs/host-setup.md)."""
+    if os_ == "win":
+        agent = f"powershell -NoProfile -ExecutionPolicy Bypass -File {WIN_AGENT}"
+    else:
+        agent = MAC_AGENT if os_ == "mac" else LINUX_AGENT
+    return f"restrict,command=\"{agent} --allow '{VERBS}'\" {pub}"
+
+
+# Append the line unless the key is already there. Keep the file's last line intact
+UNIX_AUTHORIZE = """umask 077; mkdir -p ~/.ssh; f=~/.ssh/authorized_keys; touch "$f"
+grep -qF '{blob}' "$f" && exit 0
+if [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ]; then echo >> "$f"; fi
+cat >> "$f" <<'NETCAP_EOF'
+{line}
+NETCAP_EOF
+"""
+UNIX_UNAUTHORIZE = """f=~/.ssh/authorized_keys; [ -f "$f" ] || exit 0
+grep -vF '{blob}' "$f" > "$f.netcap" || true
+cat "$f.netcap" > "$f"; rm -f "$f.netcap"
+"""
+# sshd reads this file for administrators and silently ignores it if it is UTF-16 or writable by others,
+# so write UTF-8 and give a new file the ACL sshd wants (SYSTEM and Administrators only)
+WIN_KEYS = r"$f = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'" + "\n"
+WIN_AUTHORIZE = WIN_KEYS + """$new = -not (Test-Path $f)
+if (-not $new -and ([IO.File]::ReadAllText($f)).Contains({blob})) {{ exit 0 }}
+if (-not $new) {{ $b = [IO.File]::ReadAllBytes($f); if ($b.Length -gt 0 -and $b[-1] -ne 10) {{ [IO.File]::AppendAllText($f, "`r`n") }} }}
+[IO.File]::AppendAllText($f, {line} + "`r`n")
+if ($new) {{ icacls.exe $f /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null }}
+"""
+WIN_UNAUTHORIZE = WIN_KEYS + """if (-not (Test-Path $f)) { exit 0 }
+[IO.File]::WriteAllLines($f, [string[]]@([IO.File]::ReadAllLines($f) | Where-Object { -not $_.Contains(BLOB) }))
+"""
+
+
+def authorize(dest, os_):
+    pub, blob = ensure_key()
+    line = key_line(os_, pub)
+    if os_ == "win":
+        p = powershell(dest, WIN_AUTHORIZE.format(blob=ps_quote(blob), line=ps_quote(line)))
+    else:
+        p = ssh_plain(dest, "sh -s", input=UNIX_AUTHORIZE.format(blob=blob, line=line).encode())
+    if p.returncode != 0:
+        sys.exit(_("could not register the netcap key on {dest}: {err}").format(dest=dest, err=p.err))
+
+
+def unauthorize(dest, os_):
+    if not KEY.with_suffix(".pub").exists():
+        return
+    blob = KEY.with_suffix(".pub").read_text().split()[1]
+    if os_ == "win":
+        p = powershell(dest, WIN_UNAUTHORIZE.replace("BLOB", ps_quote(blob)))
+    else:
+        p = ssh_plain(dest, "sh -s", input=UNIX_UNAUTHORIZE.format(blob=blob).encode())
+    if p.returncode != 0:
+        sys.exit(_("could not remove the netcap key on {dest}: {err}").format(dest=dest, err=p.err))
+
+
+def run_device_script(dest, os_, script, args=()):
+    """Run mac|linux/<script> (install.sh / uninstall.sh) or win\\<script> on a device, from a staged copy.
+    dest None means this machine. Output goes straight to the terminal: sudo may ask for a password."""
+    src = stage()
+    try:
+        if dest is None:
+            if os_ == "win":
+                cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(src / "win" / script), *args]
+            else:
+                cmd = ["sudo", "bash", str(src / os_ / script), *args]
+            return subprocess.run(cmd).returncode
+        if os_ == "win":
+            tmp = powershell(dest, "$d = Join-Path $env:TEMP ('netcap-' + [guid]::NewGuid()); "
+                                   "New-Item -ItemType Directory $d | Out-Null; $d").out.splitlines()[-1]
+            scp = subprocess.run(["scp", "-q", "-r", str(src / "win"), f"{dest}:{tmp.replace(chr(92), '/')}/"])
+            if scp.returncode != 0:
+                return scp.returncode
+            return powershell(dest, f"try {{ & (Join-Path {ps_quote(tmp)} 'win\\{script}') {' '.join(args)}; "
+                                    f"exit $LASTEXITCODE }} finally {{ Remove-Item -Recurse -Force {ps_quote(tmp)} }}",
+                              capture=False).returncode
+        tmp = ssh_plain(dest, "mktemp -d /tmp/netcap.XXXXXX").out
+        if not tmp.startswith("/tmp/netcap."):
+            sys.exit(_("could not make a temporary directory on {dest}").format(dest=dest))
+        # linux/install.sh also takes the agent and netcap-check from ../mac
+        scp = subprocess.run(["scp", "-q", "-r", str(src / "mac"), str(src / "linux"), f"{dest}:{tmp}/"])
+        if scp.returncode != 0:
+            return scp.returncode
+        cmd = f"sudo bash {tmp}/{os_}/{script} {' '.join(args)}; rc=$?; rm -rf {tmp}; exit $rc"
+        return ssh_plain(dest, cmd, tty=sys.stdin.isatty(), capture=False).returncode
+    finally:
+        shutil.rmtree(src, ignore_errors=True)
+
+
+def read_hosts():
+    """Load hosts if there is one (install starts from nothing)."""
+    if (CONFIG_DIR / "hosts").exists() and any(config_lines("hosts")):
+        load_hosts()
+
+
+def edit_config(name, fn):
+    """Rewrite CONFIG_DIR/name line by line. fn gets the part before # and returns the new part, or None to drop the line."""
+    path = CONFIG_DIR / name
+    if not path.exists():
+        return
+    out = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        code, sep, comment = line.partition("#")
+        if not code.strip():
+            out.append(line)
+            continue
+        new = fn(code)
+        if new is not None:
+            out.append(new + sep + comment)
+    path.write_text("".join(l + "\n" for l in out), encoding="utf-8")
+
+
+def ask_name(default):
+    if not sys.stdin.isatty():
+        return default
+    return input(_("Name for this device in netcap (Enter for {default}): ").format(default=default)).strip() or default
+
+
+def check_name(name):
+    if not NAME_RE.fullmatch(name) or name == "all":
+        sys.exit(_("cannot use {name!r} as a name (letters, digits, _ . -; not all)").format(name=name))
+
+
+def cmd_install(a):
+    read_hosts()
+    if a.name in HOSTS and a.ssh is None:  # reinstall (update) a registered device
+        name, os_, dest = a.name, HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
+    else:
+        dest = a.ssh
+        name = a.name or ask_name(dest or "me")
+        check_name(name)
+        if dest is None and THIS_OS is None:
+            sys.exit(_("this OS is not supported: {os}").format(os=sys.platform))
+        os_ = THIS_OS if dest is None else detect_os(dest)
+        if name in HOSTS and (HOSTS[name]["os"], HOSTS[name]["ssh"]) != (os_, dest):
+            sys.exit(_("{name} is already another device in hosts. Choose another name, or: netcap rename {name} <new>")
+                     .format(name=name))
+    where = dest or _("this machine")
+    say(_("installing the agent on {where} ({os})").format(where=where, os=os_))
+    args = [] if os_ == "win" else ["--boot", a.boot]
+    if run_device_script(dest, os_, "install.ps1" if os_ == "win" else "install.sh", args) != 0:
+        sys.exit(_("the install on {where} failed (see above)").format(where=where))
+    if dest is not None:
+        say(_("registering the netcap key on {dest}").format(dest=dest))
+        authorize(dest, os_)
+    if name not in HOSTS:
+        path = CONFIG_DIR / "hosts"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        if text and not text.endswith("\n"):
+            text += "\n"
+        path.write_text(text + f"{name:<8} {os_:<5} {dest or '-'}\n", encoding="utf-8")
+        HOSTS[name] = {"os": os_, "ssh": dest}
+        ORDER.append(name)
+        say(_("added {name} to {path}").format(name=name, path=path))
+    rc = emit([run(name, "get")], GET_COLS, a.json, a.raw)
+    if not a.json:
+        print(_("\nTry it:  netcap on {name} --up 2 --down 2\nUndo:    netcap off {name}").format(name=name))
+    return rc
+
+
+def cmd_uninstall(a):
+    load_hosts()
+    if a.name == "all":
+        sys.exit(_("uninstall one device at a time"))
+    resolve(a.name)
+    os_, dest = HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
+    if not a.config_only:
+        where = dest or _("this machine")
+        say(_("removing the agent from {where}").format(where=where))
+        if run_device_script(dest, os_, "uninstall.ps1" if os_ == "win" else "uninstall.sh") != 0:
+            sys.exit(_("the uninstall on {where} failed (see above). To only forget it here: "
+                       "netcap uninstall {name} --config-only").format(where=where, name=a.name))
+        if dest is not None:
+            unauthorize(dest, os_)
+    name = re.escape(a.name)
+    edit_config("hosts", lambda c: None if c.split()[0] == a.name else c)
+    dropped = []
+
+    def drop(code):
+        new = re.sub(rf"\s+{name}=\S+", "", code)
+        if new != code and len(new.split()) == 1:
+            dropped.append(new.split()[0])
+            return None
+        return new
+    edit_config("profiles", drop)
+    say(_("removed {name} from hosts and profiles").format(name=a.name))
+    if dropped:
+        say(_("removed profiles that had only {name}: {profiles}").format(name=a.name, profiles=", ".join(dropped)))
+    return 0
+
+
+def cmd_rename(a):
+    load_hosts()
+    if a.old not in HOSTS:
+        sys.exit(_("unknown host: {host} (one of {names})").format(host=a.old, names=host_names()))
+    check_name(a.new)
+    if a.new in HOSTS:
+        sys.exit(_("{name} is already in hosts").format(name=a.new))
+    old = re.escape(a.old)
+    edit_config("hosts", lambda c: re.sub(rf"^(\s*){old}(?=\s)", lambda m: m.group(1) + a.new, c))
+    edit_config("profiles", lambda c: re.sub(rf"(?<=\s){old}=", a.new + "=", c))
+    say(_("renamed {old} to {new} in hosts and profiles").format(old=a.old, new=a.new))
+    return 0
+
+
 # Translations of the messages above, keyed by the English text. English is the source of truth:
 # change the English first; a key left behind here is caught by the tests, a missing one falls back to English
 JA = {
@@ -364,6 +653,9 @@ JA = {
   netcap check  <host|all> [--json]           測る (curl の上り/下り + ping)
   netcap use    <profile>                     プロファイルを全機器に適用する
   netcap profiles                             プロファイルの一覧
+  netcap install [name] [--ssh DEST]          機器に agent を入れて登録する
+  netcap uninstall <name>                     agent と登録を外す
+  netcap rename <old> <new>                   hosts と profiles の機器名を変える
   netcap --version                            バージョン (-v でも可)
 
 コマンドの形は tailscale に倣っている。status (実際の状態) と get (設定) は別のコマンドで、
@@ -423,6 +715,45 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "--up / --down must be positive numbers in Mbit/s: {values}": "--up / --down は Mbit/s の正の数で渡す: {values}",
     "to undo: netcap off {host}": "戻すには: netcap off {host}",
     DOWN_NOTE: "* 下りは on のときに記録した値。macOS の dnctl は pipe 2 の帯域を表示できないため (パイプ自体は確認済み)",
+    "this machine": "この機器",
+    "uninstall one device at a time": "uninstall は 1 台ずつ",
+    "install the agent on a device and register it (this machine without --ssh)":
+        "機器に agent を入れて登録する (--ssh なしならこの機器)",
+    "the device's name in hosts (asked when omitted); a registered name updates it":
+        "hosts での機器名 (省略すると聞く)。登録済みの名前なら更新になる",
+    "ssh destination, such as a Host in ~/.ssh/config (omit for this machine)":
+        "ssh の宛先。~/.ssh/config の Host など (この機器なら省略)",
+    "mac / linux: apply the default cap at boot (default: off)": "mac / linux: 起動時に既定の上限をかける (既定: off)",
+    "remove the agent from a device and forget it": "機器から agent を外し、登録も消す",
+    "only forget it here (for a device that is gone)": "こちらの登録だけ消す (もう無い機器向け)",
+    "rename a device in hosts and profiles": "hosts と profiles の機器名を変える",
+    "cannot tell the OS of {dest} (uname: {out})": "{dest} の OS が分からない (uname: {out})",
+    "installing the agent on {where} ({os})": "{where} に agent を入れる ({os})",
+    "removed {name} from hosts and profiles": "hosts と profiles から {name} を消した",
+    "renamed {old} to {new} in hosts and profiles": "hosts と profiles で {old} を {new} に変えた",
+    "cannot reach {dest} over ssh: {err}": "{dest} に ssh で届かない: {err}",
+    "created the netcap key: {key}": "netcap 用の鍵を作った: {key}",
+    "could not register the netcap key on {dest}: {err}": "{dest} に netcap の鍵を登録できない: {err}",
+    "could not remove the netcap key on {dest}: {err}": "{dest} から netcap の鍵を外せない: {err}",
+    "cannot use {name!r} as a name (letters, digits, _ . -; not all)":
+        "{name!r} は名前に使えない (英数字と _ . -。all は不可)",
+    "the install on {where} failed (see above)": "{where} へのインストールが失敗した (上の出力を参照)",
+    "registering the netcap key on {dest}": "{dest} に netcap の鍵を登録する",
+    "added {name} to {path}": "{path} に {name} を足した",
+    "\nTry it:  netcap on {name} --up 2 --down 2\nUndo:    netcap off {name}":
+        "\n試す:    netcap on {name} --up 2 --down 2\n戻す:    netcap off {name}",
+    "removing the agent from {where}": "{where} から agent を外す",
+    "removed profiles that had only {name}: {profiles}": "{name} だけだったプロファイルを消した: {profiles}",
+    "{name} is already in hosts": "{name} は hosts にもうある",
+    "could not make a temporary directory on {dest}": "{dest} に一時ディレクトリを作れない",
+    "this OS is not supported: {os}": "この OS には対応していない: {os}",
+    "{name} is already another device in hosts. Choose another name, or: netcap rename {name} <new>":
+        "{name} は hosts で別の機器の名前。別の名前にするか: netcap rename {name} <新しい名前>",
+    "the uninstall on {where} failed (see above). To only forget it here: netcap uninstall {name} --config-only":
+        "{where} からのアンインストールが失敗した (上の出力を参照)。こちらの登録だけ消すなら: netcap uninstall {name} --config-only",
+    "\nThe agent differs from this CLI ({version}) on: {hosts}. Update with: netcap install <name>":
+        "\nagent の版がこの CLI ({version}) と違う機器: {hosts}。更新するには: netcap install <名前>",
+    "Name for this device in netcap (Enter for {default}): ": "netcap でのこの機器の名前 (Enter で {default}): ",
     # argparse's own words
     "usage: ": "使い方: ",
     "positional arguments": "位置引数",
@@ -475,8 +806,21 @@ def main():
     p = sub.add_parser("use", help=_("apply a profile to all devices"))
     p.add_argument("profile")
     sub.add_parser("profiles", help=_("list profiles"))
+    p = sub.add_parser("install", help=_("install the agent on a device and register it (this machine without --ssh)"))
+    p.add_argument("name", nargs="?", help=_("the device's name in hosts (asked when omitted); a registered name updates it"))
+    p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))
+    p.add_argument("--boot", choices=["on", "off"], default="off",
+                   help=_("mac / linux: apply the default cap at boot (default: off)"))
+    p = sub.add_parser("uninstall", help=_("remove the agent from a device and forget it"))
+    p.add_argument("name")
+    p.add_argument("--config-only", action="store_true", help=_("only forget it here (for a device that is gone)"))
+    p = sub.add_parser("rename", help=_("rename a device in hosts and profiles"))
+    p.add_argument("old")
+    p.add_argument("new")
 
     a = ap.parse_args()
+    if a.cmd in ("install", "uninstall", "rename"):
+        return {"install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename}[a.cmd](a)
     load_hosts()
 
     if a.cmd in ("on", "set"):
@@ -509,7 +853,14 @@ def main():
         return emit(fan_out(resolve(a.host, default_all=True), "status"), STATUS_COLS, a.json, a.raw)
 
     if a.cmd == "get":
-        return emit(fan_out(resolve(a.host, default_all=True), "get"), GET_COLS, a.json, a.raw)
+        rows = fan_out(resolve(a.host, default_all=True), "get")
+        rc = emit(rows, GET_COLS, a.json, a.raw)
+        # Point out agents that differ from this CLI (only for a release CLI; a clone's version has a git suffix)
+        old = [r["host"] for r in rows if r.get("reach") == "ok" and r.get("agent") != version()]
+        if old and not a.json and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version()):
+            print(_("\nThe agent differs from this CLI ({version}) on: {hosts}. Update with: netcap install <name>")
+                  .format(version=version(), hosts=", ".join(old)))
+        return rc
 
     if a.cmd == "check":
         args = ["--bytes", a.bytes] if a.bytes else []
