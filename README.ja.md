@@ -13,6 +13,8 @@
   <a href="README.md">English</a> · 日本語
 </p>
 
+> この文書は [README.md](README.md) の翻訳です。英語版と食い違うときは英語版が正です。
+
 同じ回線を使う複数の端末の WAN 向け帯域を、1 台の端末から 1 コマンドで絞る / 戻す CLI。
 ルーターで帯域を制御できない回線でも、端末の側で上限をかけられる。
 
@@ -26,14 +28,14 @@
 
 ## Quick Start
 
-1. 操作する機械に CLI を入れる (Python 3 だけで動く。Windows は [docs/host-setup.md](docs/host-setup.md))
+1. 操作する機械に CLI を入れる (Python 3 だけで動く。Windows は [docs/host-setup.ja.md](docs/host-setup.ja.md))
 
    ```bash
    brew tap ken-ty/netcap https://github.com/ken-ty/netcap
    brew install netcap
    ```
 
-2. 絞られる各端末に端末側を root / 管理者で入れる (Windows は [docs/host-setup.md](docs/host-setup.md))
+2. 絞られる各端末に端末側を root / 管理者で入れる (Windows は [docs/host-setup.ja.md](docs/host-setup.ja.md))
 
    ```bash
    sudo bash mac/install.sh --boot off     # macOS
@@ -60,8 +62,8 @@
    netcap use none      # 全台を戻す
    ```
 
-ssh 鍵の forced command の設定は [docs/host-setup.md](docs/host-setup.md#許可は操作される側が決める)、
-書式の詳細は [docs/configuration.md](docs/configuration.md)。
+ssh 鍵の forced command の設定は [docs/host-setup.ja.md](docs/host-setup.ja.md#許可は操作される側が決める)、
+書式の詳細は [docs/configuration.ja.md](docs/configuration.ja.md)。
 
 ## 対応 OS
 
@@ -94,9 +96,9 @@ netcap --version
 
 ## ドキュメント
 
-- [docs/host-setup.md](docs/host-setup.md) — 端末側のセットアップと許可
-- [docs/configuration.md](docs/configuration.md) — 設定ファイルの書式
-- [docs/design.md](docs/design.md) — 設計判断と実測
+- [docs/host-setup.ja.md](docs/host-setup.ja.md) — 端末側のセットアップと許可
+- [docs/configuration.ja.md](docs/configuration.ja.md) — 設定ファイルの書式
+- [docs/design.ja.md](docs/design.ja.md) — 設計判断と実測
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 開発とリリース
 
 ## License

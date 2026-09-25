@@ -11,6 +11,12 @@ def read(p):
     return (ROOT / p).read_text(encoding="utf-8-sig")
 
 
+def with_translations(p):
+    """"docs/host-setup.md" とその翻訳 (docs/host-setup.<lang>.md)。"""
+    p = Path(p)
+    return [p] + sorted(q.relative_to(ROOT) for q in (ROOT / p.parent).glob(f"{p.stem}.*{p.suffix}"))
+
+
 def nets(text):
     """"10/8" や "10.0.0.0/8" を ip_network の集合にする。"""
     out = set()
@@ -21,10 +27,10 @@ def nets(text):
 
 
 class Exempt(unittest.TestCase):
-    """docs/design.md「素通しにする宛先」"""
+    """docs/design.md: Destinations that pass through"""
 
     def setUp(self):
-        section = read("docs/design.md").split("## 素通しにする宛先")[1].split("\n## ")[0]
+        section = read("docs/design.md").split("## Destinations that pass through")[1].split("\n## ")[0]
         self.table = nets("\n".join(l for l in section.splitlines() if l.startswith("|")))
         self.assertTrue(self.table)
 
@@ -59,18 +65,19 @@ class Exempt(unittest.TestCase):
 
 
 class HostSetup(unittest.TestCase):
-    """docs/host-setup.md の表にあるパスを、install.sh が置き uninstall.sh が消す"""
+    """docs/host-setup.md (と翻訳) の表にあるパスを、install.sh が置き uninstall.sh が消す"""
 
     def test_paths(self):
-        for section, d in (("macOS", "mac"), ("Linux", "linux")):
-            doc = read("docs/host-setup.md").split(f"## {section}\n")[1].split("\n## ")[0]
-            paths = re.findall(r"^\| `(/[^`]+)`", doc, re.M)
-            self.assertTrue(paths)
-            install, uninstall = read(f"{d}/install.sh"), read(f"{d}/uninstall.sh")
-            for p in paths:
-                with self.subTest(os=d, path=p):
-                    self.assertIn(p, install)
-                    self.assertIn(p, uninstall)
+        for md in with_translations("docs/host-setup.md"):
+            for section, d in (("macOS", "mac"), ("Linux", "linux")):
+                doc = read(md).split(f"## {section}\n")[1].split("\n## ")[0]
+                paths = re.findall(r"^\| `(/[^`]+)`", doc, re.M)
+                self.assertTrue(paths)
+                install, uninstall = read(f"{d}/install.sh"), read(f"{d}/uninstall.sh")
+                for p in paths:
+                    with self.subTest(doc=str(md), os=d, path=p):
+                        self.assertIn(p, install)
+                        self.assertIn(p, uninstall)
 
 
 class Release(unittest.TestCase):
@@ -78,19 +85,25 @@ class Release(unittest.TestCase):
 
     def test_versions_match(self):
         tag = re.search(r'tag:\s+"v([\d.]+)"', read("Formula/netcap.rb")).group(1)
-        doc = read("docs/host-setup.md")
-        self.assertEqual(set(re.findall(r"refs/tags/v([\d.]+)\.", doc)), {tag})
-        self.assertEqual(set(re.findall(r"netcap-([\d.]+)\b", doc)), {tag})
+        for md in with_translations("docs/host-setup.md"):
+            with self.subTest(doc=str(md)):
+                doc = read(md)
+                self.assertEqual(set(re.findall(r"refs/tags/v([\d.]+)\.", doc)), {tag})
+                self.assertEqual(set(re.findall(r"netcap-([\d.]+)\b", doc)), {tag})
 
 
 class Readme(unittest.TestCase):
-    """README.md と README.ja.md は同じコマンドを載せる (CONTRIBUTING.md)"""
+    """README.md とその翻訳は同じコマンドを載せる (CONTRIBUTING.md)"""
 
     def commands(self, p):
         return re.findall(r"^netcap [^\n]*?(?=\s{2,}|$)", read(p), re.M)
 
     def test_same_commands(self):
-        self.assertEqual(self.commands("README.md"), self.commands("README.ja.md"))
+        translations = with_translations("README.md")[1:]
+        self.assertTrue(translations)
+        for md in translations:
+            with self.subTest(doc=str(md)):
+                self.assertEqual(self.commands("README.md"), self.commands(md))
 
 
 if __name__ == "__main__":

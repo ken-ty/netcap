@@ -60,6 +60,9 @@ Works where the router has no QoS: the cap is enforced on each device itself.
    netcap use none      # remove all caps
    ```
 
+For pinning the ssh key to a forced command, see [docs/host-setup.md](docs/host-setup.md#the-capped-device-decides-what-is-allowed);
+for the file format, see [docs/configuration.md](docs/configuration.md).
+
 ## Supported platforms
 
 | Role | macOS | Linux | Windows |
@@ -90,8 +93,6 @@ netcap --version
 ```
 
 ## Documentation
-
-The detailed docs are in Japanese.
 
 - [docs/host-setup.md](docs/host-setup.md) — device setup and ssh permissions
 - [docs/configuration.md](docs/configuration.md) — config file format
