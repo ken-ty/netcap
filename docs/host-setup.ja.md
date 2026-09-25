@@ -1,5 +1,9 @@
 # 端末側のセットアップ
 
+[English](host-setup.md) · 日本語
+
+> この文書は [host-setup.md](host-setup.md) の翻訳です。英語版と食い違うときは英語版が正です。
+
 CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を検査して本体に渡す。
 最短の手順は [README](../README.ja.md#quick-start) にある。
 

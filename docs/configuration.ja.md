@@ -1,5 +1,9 @@
 # 設定ファイル
 
+[English](configuration.md) · 日本語
+
+> この文書は [configuration.md](configuration.md) の翻訳です。英語版と食い違うときは英語版が正です。
+
 `~/.config/netcap/` に `hosts` と `profiles` を置く (`$NETCAP_CONFIG_DIR` か `$XDG_CONFIG_HOME/netcap` でも可)。
 1 行 1 件で、`#` から後はコメント。雛形は [examples/](../examples/)。
 
