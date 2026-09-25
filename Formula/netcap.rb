@@ -1,4 +1,4 @@
-# このリポジトリ自体を tap にしている。入れ方は README の Quick Start。
+# This repository is its own tap. See Quick Start in the README for installation.
 class Netcap < Formula
   desc "Cap the internet bandwidth of devices on your network from one device"
   homepage "https://github.com/ken-ty/netcap"
@@ -12,21 +12,21 @@ class Netcap < Formula
   depends_on "python@3.13"
 
   def install
-    # bin/netcap は自分の位置から ../examples を案内し、mac/ と linux/ は端末側に入れるので、木ごと libexec に置く
+    # bin/netcap points to ../examples relative to itself, and mac/ and linux/ get installed on devices, so put the whole tree in libexec
     libexec.install Dir["*"] - ["Formula"]
     inreplace libexec/"bin/netcap", %r{\A#!/usr/bin/env python3$},
               "#!#{Formula["python@3.13"].opt_bin}/python3.13"
-    # 版の正本はタグ。netcap --version が出す値をここで埋める
+    # The tag is the source of truth for the version. Fill in what netcap --version prints
     inreplace libexec/"bin/netcap", '"@VERSION@"', "\"#{version}\""
     bin.install_symlink libexec/"bin/netcap"
   end
 
   def caveats
     <<~EOS
-      管理する端末とプロファイルは ~/.config/netcap/ に書きます (例は #{opt_libexec}/examples):
+      Define your devices and profiles in ~/.config/netcap/ (examples are in #{opt_libexec}/examples):
         mkdir -p ~/.config/netcap && cp #{opt_libexec}/examples/* ~/.config/netcap/
 
-      brew が入れるのは CLI だけです。端末側の netshape と netcap-agent は root が要るので別に入れます:
+      brew installs only the CLI. netshape and netcap-agent on each device need root, so install them separately:
         sudo bash #{opt_libexec}/mac/install.sh --boot off     # macOS
         sudo bash #{opt_libexec}/linux/install.sh --boot off   # Linux
     EOS

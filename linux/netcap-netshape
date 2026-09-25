@@ -1,36 +1,37 @@
 #!/bin/bash
-# netcap-netshape — この Linux のインターネット宛て通信に上限をかける (tc)
+# netcap-netshape — cap this Linux's internet-bound traffic (tc)
 #
-#   netcap-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (systemd の unit が起動時に呼ぶ)
-#   netcap-netshape off                     上限を外す
-#   netcap-netshape status                  いまの状態。1 行目は実物 (tc) から導く
-#   netcap-netshape set UP_MBIT DOWN_MBIT   既定を書き換える。いま上限がかかっていれば張り直す
-#   netcap-netshape get                     既定と起動時の挙動を 1 行で
+#   netcap-netshape on [UP_MBIT DOWN_MBIT]  apply the cap (the systemd unit calls this at boot)
+#   netcap-netshape off                     remove the cap
+#   netcap-netshape status                  current state; line 1 is derived from the real thing (tc)
+#   netcap-netshape set UP_MBIT DOWN_MBIT   rewrite the default; reapply if a cap is in effect
+#   netcap-netshape get                     the default and boot behavior, in one line
 #
-# 既定の経路のインターフェースの root qdisc を自分の HTB (ca9:) に差し替える。下りは ingress を
-# ifb-netcap に折り返し、そこの HTB で絞る。素通しの宛先と ICMP・DNS は絞らないクラス (:20) へ。
-# 受信側の qdisc (ingress / clsact) が既にあれば、そこに自分のフィルタ (prio 4930) を 1 本足すだけにする。
-# 他の道具のフィルタが受信側にあれば止まる (先に判定を確定させるフィルタがあると、下りが黙って絞れない)。
-# off は自分の qdisc・フィルタ・ifb-netcap を消すだけ。root qdisc は消せばカーネルの既定に戻る。
+# Replace the root qdisc of the default route's interface with our HTB (ca9:). For download, redirect
+# ingress to ifb-netcap and cap with the HTB there. Pass-through destinations, ICMP and DNS go to the
+# uncapped class (:20). If an ingress qdisc (ingress / clsact) already exists, only add our one filter
+# (prio 4930) to it. Stop if another tool has filters on ingress (a filter that settles the verdict
+# first would silently leave download uncapped).
+# off removes only our qdisc, filter and ifb-netcap. Deleting the root qdisc restores the kernel default.
 #
-# root で動くので、本体と設定は root だけが書ける場所に置く (linux/install.sh が検査する)。
-# 設定は source せず、key=value を数値として読むだけにする。
+# Runs as root, so the shaper and config live where only root can write (linux/install.sh checks).
+# The config is never sourced; key=value is only read as numbers.
 set -eu
 
 UP_MBIT=1
 DOWN_MBIT=1
 
 CONF=/etc/netcap-netshape.conf
-UNIT=/etc/systemd/system/netcap-netshape.service # あれば起動時に on
-DEV_FILE=/run/netcap-netshape.dev                # "インターフェース 受信側の親 受信側の qdisc を作ったか" (off のため)
+UNIT=/etc/systemd/system/netcap-netshape.service # if present, on at boot
+DEV_FILE=/run/netcap-netshape.dev                # "interface ingress-parent created-ingress-qdisc" (for off)
 IFB=ifb-netcap
 H=ca9
-# docs/design.md「素通しにする宛先」
+# docs/design.md: Destinations that pass through
 LOCAL="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4"
-# ponytail: IPv4 だけ振り分ける。IPv6 は宛先を問わず絞る側に落ちる。要るなら protocol ipv6 の filter を足す
+# ponytail: only IPv4 is classified. IPv6 is capped regardless of destination. Add a protocol ipv6 filter if needed
 
 [ "$(id -u)" = 0 ] || {
-  echo "root で実行してください (sudo)" >&2
+  echo "run as root (sudo)" >&2
   exit 1
 }
 
@@ -54,26 +55,26 @@ dev() {
   if [ -s "$DEV_FILE" ]; then awk '{print $1}' "$DEV_FILE"; else wan_dev; fi
 }
 
-# 他の道具が root に分類型の qdisc を置いていれば、差し替えずに止まる (差し替えると他人の設定を消す)
+# If another tool has a classful root qdisc, stop instead of replacing it (replacing would wipe its setup)
 require_free() {
   local root
   root=$(tc qdisc show dev "$1" root)
   if [[ "$root" =~ qdisc\ (htb|hfsc|cake|tbf|prio|drr|qfq|cbq|ets)\  ]] && [[ "$root" != *" $H: "* ]]; then
-    echo "$1 の root qdisc を他の道具が使っている: $root" >&2
+    echo "the root qdisc on $1 is used by another tool: $root" >&2
     exit 3
   fi
   local p others
   for p in ffff: ffff:fff2; do
     others=$(tc filter show dev "$1" parent "$p" 2>/dev/null | grep "^filter " | grep -v " pref 4930 " || true)
     if [ -n "$others" ]; then
-      echo "$1 の受信側を他の道具が使っている (tc filter show dev $1 parent $p):" >&2
+      echo "ingress on $1 is used by another tool (tc filter show dev $1 parent $p):" >&2
       echo "$others" >&2
       exit 3
     fi
   done
 }
 
-# shape <dev> <Mbit/s> <src|dst> <DNS の match>
+# shape <dev> <Mbit/s> <src|dst> <DNS match>
 shape() {
   local dev=$1 rate=$2 dir=$3 n
   tc qdisc replace dev "$dev" root handle "$H:" htb default 10
@@ -98,14 +99,14 @@ on() {
   fi
   local dev
   dev=$(wan_dev)
-  [ -n "$dev" ] || { echo "既定の経路が無い (ip route get 1.1.1.1)" >&2; exit 3; }
+  [ -n "$dev" ] || { echo "no default route (ip route get 1.1.1.1)" >&2; exit 3; }
   require_free "$dev"
   off >/dev/null
   shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff"
   modprobe ifb numifbs=0 2>/dev/null || true
   ip link add "$IFB" type ifb
   ip link set "$IFB" up
-  # 受信側の親。clsact なら ffff:fff2、ingress なら ffff:。どちらも無ければ clsact を作る
+  # Ingress parent: ffff:fff2 for clsact, ffff: for ingress. Create clsact if neither exists
   local parent=ffff: created=0
   if tc qdisc show dev "$dev" | grep -q "^qdisc clsact "; then
     parent=ffff:fff2
@@ -139,7 +140,7 @@ off() {
   echo "netshape OFF"
 }
 
-# 絞る側のクラス (:10) の帯域を Mbit/s で返す。無ければ空
+# Print the rate of the capped class (:10) in Mbit/s. Empty if absent
 class_mbit() {
   tc class show dev "$1" classid "$H:10" 2>/dev/null | awk '
     { for (i = 1; i < NF; i++) if ($i == "rate") {
@@ -158,14 +159,14 @@ set_default() {
   }
   local tmp
   tmp=$(mktemp)
-  printf '# netcap-netshape の既定値。netcap-netshape set が書く\nUP_MBIT=%s\nDOWN_MBIT=%s\n' "$1" "$2" >"$tmp"
+  printf '# netcap-netshape defaults. Written by netcap-netshape set\nUP_MBIT=%s\nDOWN_MBIT=%s\n' "$1" "$2" >"$tmp"
   install -o root -g root -m 0644 "$tmp" "$CONF"
   rm -f "$tmp"
   if [ -n "$(class_mbit "$(dev)")" ]; then
     on "$1" "$2" >/dev/null
-    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (適用中だったので張り直した)"
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (reapplied, since a cap was in effect)"
   else
-    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (次の on / 再起動から効く)"
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (takes effect at the next on / reboot)"
   fi
 }
 
@@ -185,7 +186,7 @@ status() {
   elif [ -z "$up" ] && [ -z "$down" ]; then
     state=off
   else
-    state=partial # 片方だけ残っている。on か off を打ち直す
+    state=partial # only one side remains; run on or off again
   fi
   echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=tc dev=${dev:--}"
   echo "--- qdisc (${dev:--} / ${IFB})"

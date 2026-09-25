@@ -28,7 +28,7 @@
     </g>
   </defs>
 
-  <!-- 操作する端末 -->
+  <!-- the device you control from -->
   <rect class="term" x="16" y="90" width="236" height="124" rx="10"/>
   <text class="mono" xml:space="preserve" x="32" y="120" fill="#e5e7eb">$ netcap use game</text>
   <text class="mono" xml:space="preserve" x="32" y="150" fill="#f59e7d">laptop  ↑2 ↓2 Mbit/s</text>
@@ -42,12 +42,12 @@
   <path class="ssh" d="M252 152 C296 152 296 250 336 250"/>
   <text class="muted" x="292" y="142" font-size="12" text-anchor="middle">ssh</text>
 
-  <!-- 回線: 線の太さ = 使える帯域 -->
+  <!-- links: line width = available bandwidth -->
   <path class="pipe capped" stroke-width="3" d="M536 50 C580 50 580 146 616 146"/>
   <path class="pipe capped" stroke-width="2" d="M536 150 L616 150"/>
   <path class="pipe" stroke-width="12" d="M536 250 C580 250 580 156 616 156"/>
 
-  <!-- 端末 -->
+  <!-- devices -->
   <rect class="card" x="336" y="20" width="200" height="60" rx="10"/>
   <text class="fg" x="352" y="46" font-size="16" font-weight="700">laptop</text>
   <text class="muted" x="352" y="66" font-size="12">macOS · 2 Mbit/s</text>

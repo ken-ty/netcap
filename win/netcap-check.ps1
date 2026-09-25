@@ -1,9 +1,9 @@
-﻿# netcap-check.ps1 — この端末から WAN の下り・上りを実測し、その最中の 1.1.1.1 への ping を取る
+﻿# netcap-check.ps1 — measures WAN download and upload from this device, pinging 1.1.1.1 meanwhile
 #
 #   netcap-check.ps1 [--bytes N]
 #
-# mac 版の netcap-check と同じ 1 行 (netcheck key=value …) を返す。管理者は要らない。
-# 転送は Windows 標準の curl.exe、ping は Test-Connection を 0.5 秒おきに回すジョブで取る。
+# Prints the same single line (netcheck key=value …) as the mac netcap-check. No Administrator needed.
+# Transfers use the built-in curl.exe; pings come from a job running Test-Connection every 0.5 s.
 $ErrorActionPreference = 'Stop'
 
 $Bytes = 1000000
@@ -24,7 +24,7 @@ try {
   [IO.File]::WriteAllBytes($upFile, $buf)
   $stop = Join-Path $tmp 'stop'
 
-  # 転送中の遅延が知りたいので、ping は転送と同時に回す
+  # We want the latency during the transfers, so pings run alongside them
   $job = Start-Job -ArgumentList $PingHost, $stop {
     param($h, $stop)
     while (-not (Test-Path $stop)) {

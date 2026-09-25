@@ -1,7 +1,7 @@
-"""README と docs を実機でなぞる。CI の matrix (macOS / Linux / Windows) で同じテストを回す。
+"""Follow the README and docs on a real machine. CI runs the same tests on a matrix (macOS / Linux / Windows).
 
-この機械に端末側を入れ、hosts に自分自身を 1 台だけ書いて、CLI から操作する。
-端末の設定を書き換え、sudo (Windows は管理者) が要るので、NETCAP_E2E=1 のときだけ動く。
+Installs the device side on this machine, writes only this machine into hosts, and drives it from the CLI.
+It rewrites the machine's settings and needs sudo (Administrator on Windows), so it runs only with NETCAP_E2E=1.
 
   NETCAP_E2E=1 python3 -m unittest -v tests/test_e2e.py
 """
@@ -26,7 +26,7 @@ INSTALLED = {"mac": ["/Library/PrivilegedHelperTools/netcap-netshape", "/Library
                        "/usr/local/bin/netcap-check", "/etc/sudoers.d/netcap-netshape",
                        "/etc/systemd/system/netcap-netshape.service"],
              "win": [r"C:\ProgramData\netcap"]}.get(OS)
-# docs/design.md「素通しにする宛先」
+# docs/design.md: Destinations that pass through
 LOCAL = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4"]
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 
@@ -51,11 +51,11 @@ def agent(*args, env=None):
     return sh(*(PS if OS == "win" else []), AGENT, *args, env=env)
 
 
-@unittest.skipUnless(os.environ.get("NETCAP_E2E") and OS, "NETCAP_E2E=1 のときだけ (端末の設定を書き換える)")
+@unittest.skipUnless(os.environ.get("NETCAP_E2E") and OS, "only with NETCAP_E2E=1 (rewrites the machine's settings)")
 class E2E(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if OS == "mac":  # v0.5.0 の旧名から上げる (docs/host-setup.md)
+        if OS == "mac":  # upgrade from the v0.5.0 old name (docs/host-setup.md)
             old = Path(tempfile.mkdtemp())
             subprocess.run(f"git -C {ROOT} archive v0.5.0 mac | tar -x -C {old}", shell=True, check=True)
             install("on", src=old)
@@ -83,7 +83,7 @@ class E2E(unittest.TestCase):
         self.assertEqual(r["reach"], "ok", r)
         self.assertEqual(r["state"], state, r)
         self.assertEqual(r["up_mbit"], up, r)
-        if OS == "win":  # 下りは絞れない (README の対応 OS)
+        if OS == "win":  # download cannot be capped (README: Supported platforms)
             self.assertEqual(r["down_src"], "unsupported", r)
         else:
             self.assertEqual(r["down_mbit"], down, r)
@@ -92,11 +92,11 @@ class E2E(unittest.TestCase):
         r = self.row("get")
         self.assertEqual((r["default_up"], r["default_down"]), (up, down), r)
 
-    # --- hosts: README の Usage ---
+    # --- hosts: README Usage ---
     def test_00_install(self):
         self.assertEqual(self.installed.returncode, 0, self.installed.stdout + self.installed.stderr)
         if OS == "mac":
-            self.assertIn("旧名 (ken-ty-netshape) を外した", self.installed.stdout)
+            self.assertIn("removed the old name (ken-ty-netshape)", self.installed.stdout)
             self.assertFalse(Path("/Library/PrivilegedHelperTools/ken-ty-netshape").exists())
 
     def test_01_get(self):
@@ -136,7 +136,7 @@ class E2E(unittest.TestCase):
         self.netcap("use", "none")
         self.assertCap("off")
 
-    # --- 許可: docs/host-setup.md ---
+    # --- permissions: docs/host-setup.md ---
     def test_20_forced_command_denies(self):
         p = agent("--allow", "status get", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} on"})
         self.assertNotEqual(p.returncode, 0)
@@ -145,7 +145,7 @@ class E2E(unittest.TestCase):
     def test_21_args_are_not_shell(self):
         p = agent("--allow", "on", env={**os.environ, "SSH_ORIGINAL_COMMAND": "on $(id) 1"})
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("netcap-agent: 引数は数値だけ", p.stderr)
+        self.assertIn("netcap-agent: arguments must be numbers", p.stderr)
 
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
@@ -182,7 +182,7 @@ class E2E(unittest.TestCase):
             st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
             self.assertEqual(st.stdout.strip(), "0 755")
 
-    # --- 実測: 上限が本当に効くか (README の冒頭) ---
+    # --- measurement: does the cap really work (top of the README) ---
     def test_35_cap_really_limits(self):
         def check(n):
             r = json.loads(self.netcap("check", "self", "--bytes", str(n), "--json"))[0]
@@ -190,22 +190,22 @@ class E2E(unittest.TestCase):
 
         free = check(4_000_000)
         if min(free) < 5:
-            self.skipTest(f"この回線は上限無しでも遅すぎて比べられない: 下り {free[0]} / 上り {free[1]} Mbit/s")
+            self.skipTest(f"this line is too slow to compare even without a cap: down {free[0]} / up {free[1]} Mbit/s")
         self.netcap("on", "self", "--up", "1", "--down", "1")
         try:
-            capped = check(500_000)  # 1 Mbit/s で 4 秒
-            # 落ちたときに、どこを通ったかを見るため
+            capped = check(500_000)  # 4 seconds at 1 Mbit/s
+            # to see which path the traffic took when this fails
             diag = "" if OS != "linux" else sh("bash", "-c", "ip -br link; tc qdisc show; for d in $(ls /sys/class/net); do "
                                                "tc -s filter show dev $d parent ffff:fff2; tc -s filter show dev $d parent ffff:; "
                                                "done; tc -s class show dev ifb-netcap").stdout
         finally:
             self.netcap("off", "self")
-        print(f"\n  上限無し 下り {free[0]} / 上り {free[1]}、1/1 で 下り {capped[0]} / 上り {capped[1]} Mbit/s")
+        print(f"\n  no cap: down {free[0]} / up {free[1]}; at 1/1: down {capped[0]} / up {capped[1]} Mbit/s")
         self.assertLess(capped[1], 1.5)
-        if OS != "win":  # Windows は下りを絞れない
+        if OS != "win":  # Windows cannot cap download
             self.assertLess(capped[0], 1.5, diag)
 
-    @unittest.skipIf(OS == "win", "Windows は起動時も状態が残る (boot=keep)")
+    @unittest.skipIf(OS == "win", "Windows keeps its state across reboots (boot=keep)")
     def test_40_boot_on(self):
         install("on")
         try:
@@ -221,7 +221,7 @@ class E2E(unittest.TestCase):
         uninstall()
         for p in INSTALLED:
             self.assertFalse(Path(p).exists(), p)
-        install("off")  # tearDownClass がもう一度外す
+        install("off")  # tearDownClass removes it again
 
 
 if __name__ == "__main__":
