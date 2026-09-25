@@ -182,6 +182,25 @@ class E2E(unittest.TestCase):
             st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
             self.assertEqual(st.stdout.strip(), "0 755")
 
+    # --- 実測: 上限が本当に効くか (README の冒頭) ---
+    def test_35_cap_really_limits(self):
+        def check(n):
+            r = json.loads(self.netcap("check", "self", "--bytes", str(n), "--json"))[0]
+            return float(r["down_mbit"]), float(r["up_mbit"])
+
+        free = check(4_000_000)
+        if min(free) < 5:
+            self.skipTest(f"この回線は上限無しでも遅すぎて比べられない: 下り {free[0]} / 上り {free[1]} Mbit/s")
+        self.netcap("on", "self", "--up", "1", "--down", "1")
+        try:
+            capped = check(500_000)  # 1 Mbit/s で 4 秒
+        finally:
+            self.netcap("off", "self")
+        print(f"\n  上限無し 下り {free[0]} / 上り {free[1]}、1/1 で 下り {capped[0]} / 上り {capped[1]} Mbit/s")
+        self.assertLess(capped[1], 1.5)
+        if OS != "win":  # Windows は下りを絞れない
+            self.assertLess(capped[0], 1.5)
+
     @unittest.skipIf(OS == "win", "Windows は起動時も状態が残る (boot=keep)")
     def test_40_boot_on(self):
         install("on")
