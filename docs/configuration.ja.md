@@ -31,4 +31,4 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-値は `上り/下り` (Mbit/s) か `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。
+値は `上り/下り` (Mbit/s の正の数。macOS の dummynet は 0 を無制限と読むので、0 は受け付けない) か `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。

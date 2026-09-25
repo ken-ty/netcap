@@ -29,4 +29,4 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-A value is `up/down` (Mbit/s) or `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).
+A value is `up/down` (positive Mbit/s; 0 is refused, since dummynet on macOS reads it as unlimited) or `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).

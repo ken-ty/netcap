@@ -130,6 +130,23 @@ class CLI(unittest.TestCase):
         self.assertIn("netcap-agent on 2 3", log)
         self.assertIn("netcap-agent off", log)
 
+    # docs/configuration.md: a cap is a positive number. 0 would mean unlimited to dummynet on macOS
+    def test_zero_is_refused(self):
+        self.hosts("off", profiles="z  off=0/2\n")
+        for args in (["on", "off", "--up", "0", "--down", "2"], ["set", "off", "--up", "1", "--down", "0.0"], ["use", "z"]):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("positive", p.stderr)
+        self.assertFalse(self.log.exists() and "netcap-agent on" in self.log.read_text())
+
+    # README: Quick Start. on tells how to undo it, right where it is needed
+    def test_on_prints_undo(self):
+        self.hosts("off")
+        self.assertIn("to undo: netcap off off", self.netcap("on", "off").stdout)
+        self.assertNotIn("to undo", self.netcap("on", "off", "--json").stdout)
+        self.assertNotIn("to undo", self.netcap("off", "off").stdout)
+
     # docs/configuration.md: OS is mac / linux / win. docs/host-setup.md: where the Linux agent lives
     def test_linux_host(self):
         (self.conf / "hosts").write_text("box linux h-off\n")

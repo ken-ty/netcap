@@ -295,6 +295,11 @@ def load_profiles():
     return profiles
 
 
+def is_mbit(v):
+    """A cap in Mbit/s: a positive number. 0 is refused, because dummynet on macOS reads bw 0 as unlimited"""
+    return re.fullmatch(r"[0-9]+(\.[0-9]+)?", v) is not None and float(v) > 0
+
+
 def parse_profile_value(host, value):
     """"2/3" → ("on", ["2", "3"]) / "off" → ("off", [])"""
     if value == "off":
@@ -302,9 +307,10 @@ def parse_profile_value(host, value):
     if value == "on":
         return "on", []
     if "/" in value:
-        up, down = value.split("/", 1)
-        return "on", [up.strip(), down.strip()]
-    sys.exit(_("cannot read the profile value: {host} = {value!r} (\"up/down\" or \"off\")").format(host=host, value=value))
+        up, down = (v.strip() for v in value.split("/", 1))
+        if is_mbit(up) and is_mbit(down):
+            return "on", [up, down]
+    sys.exit(_("cannot read the profile value: {host} = {value!r} (\"up/down\" in positive Mbit/s, or \"off\")").format(host=host, value=value))
 
 
 def cmd_use(a):
@@ -401,8 +407,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "specify a host ({names})": "機器を指定する ({names})",
     "unknown host: {host} (one of {names})": "知らない機器: {host} ({names} のどれか)",
     "write \"name device=up/down …\": {line}": "\"名前 機器=上り/下り …\" の形で書く: {line}",
-    "cannot read the profile value: {host} = {value!r} (\"up/down\" or \"off\")":
-        "プロファイルの値を読めない: {host} = {value!r} (\"上り/下り\" か \"off\")",
+    "cannot read the profile value: {host} = {value!r} (\"up/down\" in positive Mbit/s, or \"off\")":
+        "プロファイルの値を読めない: {host} = {value!r} (Mbit/s の正の数で \"上り/下り\"、または \"off\")",
     "unknown profile: {profile} (available: {names})": "知らないプロファイル: {profile} (あるもの: {names})",
     "the profile has unknown hosts: {names}": "プロファイルに知らない機器がある: {names}",
     "values as positional arguments are no longer accepted ({given}).\n"
@@ -414,7 +420,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "give --up and --down together (with only one, the other would silently stay at the default)":
         "--up と --down は一緒に渡す (片方だけだと、もう片方が黙って既定値のままになる)",
     "usage: netcap set <host|all> --up N --down N": "使い方: netcap set <host|all> --up N --down N",
-    "--up / --down must be numbers in Mbit/s: {values}": "--up / --down は Mbit/s の数値で渡す: {values}",
+    "--up / --down must be positive numbers in Mbit/s: {values}": "--up / --down は Mbit/s の正の数で渡す: {values}",
+    "to undo: netcap off {host}": "戻すには: netcap off {host}",
     DOWN_NOTE: "* 下りは on のときに記録した値。macOS の dnctl は pipe 2 の帯域を表示できないため (パイプ自体は確認済み)",
     # argparse's own words
     "usage: ": "使い方: ",
@@ -486,10 +493,14 @@ def main():
         if a.cmd == "set" and a.up is None:
             sys.exit(_("usage: netcap set <host|all> --up N --down N"))
         args = [a.up, a.down] if a.up is not None else []
-        bad = [v for v in args if not re.fullmatch(r"[0-9]+(\.[0-9]+)?", v)]
+        bad = [v for v in args if not is_mbit(v)]
         if bad:
-            sys.exit(_("--up / --down must be numbers in Mbit/s: {values}").format(values=" ".join(bad)))
-        return apply_and_read(resolve(a.host), a.cmd, args, a.json, a.raw)
+            sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
+        rc = apply_and_read(resolve(a.host), a.cmd, args, a.json, a.raw)
+        if a.cmd == "on" and not a.json:
+            # The way back is printed right where it is needed, in case the cap makes it hard to look up
+            print(_("to undo: netcap off {host}").format(host=a.host))
+        return rc
 
     if a.cmd == "off":
         return apply_and_read(resolve(a.host), "off", [], a.json, a.raw)
