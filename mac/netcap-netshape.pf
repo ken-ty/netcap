@@ -1,9 +1,9 @@
-# netcap-netshape — この Mac のインターネット宛て通信を dummynet の pipe に通す
-# pipe 1 = 上り, pipe 2 = 下り (帯域は netcap-netshape が dnctl で設定する)
+# netcap-netshape — route this Mac's internet-bound traffic through dummynet pipes
+# pipe 1 = upload, pipe 2 = download (bandwidth is set by netcap-netshape via dnctl)
 #
-# プライベート IP・CGNAT 帯 (100.64/10)・ループバック・リンクローカル・マルチキャスト宛は素通し。
-# ICMP と DNS (53) も素通し — ping で遅延を監視しているとき、自分の shaper の
-# 待ち行列を測ってしまわないように。
+# Traffic to private IPs, CGNAT (100.64/10), loopback, link-local and multicast passes through.
+# ICMP and DNS (53) also pass through — so that monitoring latency with ping does not
+# end up measuring our own shaper's queue.
 table <netcap_local> const { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 224.0.0.0/4 }
 
 dummynet out quick proto { tcp udp } from any to ! <netcap_local> port != 53 pipe 1

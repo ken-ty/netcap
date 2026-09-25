@@ -1,29 +1,29 @@
 #!/bin/bash
-# netcap-netshape — この Mac 自身の WAN 向け通信に上限をかける (pf + dummynet)
+# netcap-netshape — cap this Mac's own WAN-bound traffic (pf + dummynet)
 #
-#   netcap-netshape on [UP_MBIT DOWN_MBIT]  上限をかける (LaunchDaemon が起動時に呼ぶ)
-#                                           引数を付けると今回だけその値。既定は変えない
-#   netcap-netshape off                     上限を外す
-#   netcap-netshape status                  いまの状態。1 行目は実物 (dnctl / pfctl) から導く
-#   netcap-netshape set UP_MBIT DOWN_MBIT   既定を書き換える (再起動後も効く)。
-#                                           いま上限がかかっていれば、その値で張り直す
-#   netcap-netshape get                     既定と起動時の挙動を 1 行で
+#   netcap-netshape on [UP_MBIT DOWN_MBIT]  apply the cap (the LaunchDaemon calls this at boot)
+#                                           with arguments, use them this time only; default unchanged
+#   netcap-netshape off                     lift the cap
+#   netcap-netshape status                  current state. Line 1 is derived from the real thing (dnctl / pfctl)
+#   netcap-netshape set UP_MBIT DOWN_MBIT   rewrite the default (persists across reboot).
+#                                           if a cap is in effect, reapply it with these values
+#   netcap-netshape get                     default and boot behavior, on one line
 #
-# 既定値は /etc/netcap-netshape.conf に置く (set が書く):
+# Defaults live in /etc/netcap-netshape.conf (written by set):
 #   UP_MBIT=1
 #   DOWN_MBIT=1
 #
-# 触るのは自分の持ち物だけ:
-#   pf      アンカー com.apple/netcap-netshape の中だけ。main ruleset (/etc/pf.conf) は読み込まない。
-#           macOS は起動時に /etc/pf.conf を読み、そこに dummynet-anchor "com.apple/*" がある
-#   dnctl   pipe 1 (上り) と pipe 2 (下り) だけ。flush はしない
+# Touch only what we own:
+#   pf      only inside anchor com.apple/netcap-netshape. Never loads the main ruleset (/etc/pf.conf).
+#           macOS loads /etc/pf.conf at boot, and it has dummynet-anchor "com.apple/*"
+#   dnctl   only pipe 1 (upload) and pipe 2 (download). Never flush
 #
-# root で動くので、本体・設定・アンカーはすべて root だけが書ける場所に置く (mac/install.sh が検査する)。
-# 設定は source せず、key=value を数値として読むだけにする。
+# Runs as root, so the shaper, config and anchor all live where only root can write (mac/install.sh checks).
+# The config is never sourced; key=value is only read as numbers.
 set -eu
 
-UP_MBIT=1   # 上り。4G に落ちた夜は WAN 全体で 10Mbps も出ない (2026-09-20 実測)
-DOWN_MBIT=1 # 下り。5〜10Mbit/s の DL だけで WAN 遅延が 500〜1600ms になった
+UP_MBIT=1   # upload. On nights it falls back to 4G, the whole WAN stays under 10Mbps (measured 2026-09-20)
+DOWN_MBIT=1 # download. A 5-10Mbit/s download alone pushed WAN latency to 500-1600ms
 
 CONF=/etc/netcap-netshape.conf
 ANCHOR=com.apple/netcap-netshape
@@ -31,17 +31,17 @@ ANCHOR_FILE=/etc/pf.anchors/netcap-netshape
 PIPE_UP=1
 PIPE_DOWN=2
 TOKEN=/var/run/netcap-netshape.token
-APPLIED=/var/run/netcap-netshape.applied # on で適用した値 "UP DOWN" (下りの表示にだけ使う)
-PLIST=/Library/LaunchDaemons/netcap-netshape.plist # あれば起動時に on
+APPLIED=/var/run/netcap-netshape.applied # values applied by on, "UP DOWN" (used only to display download)
+PLIST=/Library/LaunchDaemons/netcap-netshape.plist # if present, on at boot
 
 [ "$(id -u)" = 0 ] || {
-  echo "root で実行してください (sudo)" >&2
+  echo "run as root (sudo)" >&2
   exit 1
 }
 
 is_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
 
-# 設定を読む。知らない行と数値でない値は無視する (source すると root でシェルが走る)
+# Read the config. Ignore unknown lines and non-numeric values (sourcing would run a shell as root)
 if [ -f "$CONF" ]; then
   while IFS='=' read -r key value; do
     is_number "${value:-}" || continue
@@ -52,12 +52,12 @@ if [ -f "$CONF" ]; then
   done <"$CONF"
 fi
 
-# main ruleset に com.apple/* の dummynet アンカーが無ければ、自分のルールは評価されない。
-# そのときは main を差し替えずに止まる (差し替えると他人のルールを消す)
+# Without a com.apple/* dummynet anchor in the main ruleset, our rules are never evaluated.
+# In that case stop without replacing main (replacing it would wipe others' rules)
 require_anchor_point() {
   pfctl -s dummynet 2>/dev/null | grep -q 'dummynet-anchor "com.apple/\*"' || {
-    echo "main ruleset に dummynet-anchor \"com.apple/*\" が無い。" \
-      "/etc/pf.conf 以外のルールが読み込まれている。確認してから sudo pfctl -f /etc/pf.conf" >&2
+    echo "main ruleset has no dummynet-anchor \"com.apple/*\"." \
+      "Rules other than /etc/pf.conf are loaded. Check, then sudo pfctl -f /etc/pf.conf" >&2
     exit 3
   }
 }
@@ -75,7 +75,7 @@ on() {
   dnctl -q pipe "$PIPE_UP" config bw "${UP_MBIT}Mbit/s" queue 20
   dnctl -q pipe "$PIPE_DOWN" config bw "${DOWN_MBIT}Mbit/s" queue 50
   pfctl -q -a "$ANCHOR" -f "$ANCHOR_FILE"
-  # pf の有効化は参照カウント。自分の token を持ち、off で自分の分だけ返す
+  # pf enabling is reference-counted. Hold our own token and release only ours on off
   if [ ! -s "$TOKEN" ]; then
     pfctl -E 2>&1 | sed -n 's/.*Token *: *\([0-9]*\).*/\1/p' >"$TOKEN"
   fi
@@ -94,10 +94,10 @@ off() {
   echo "netshape OFF"
 }
 
-# pipe 1 の帯域を Mbit/s で返す。無ければ空。
+# Print pipe 1's bandwidth in Mbit/s. Empty if absent.
 #   00001:   1.000 Mbit/s    0 ms   20 sl. ...   /   00001: unlimited ...
-# macOS の dnctl は 2 本目以降の pipe の見出し行を出さない (`pipe 2 show` は空、
-# `-s list` は segfault。2026-09-21 MBP で実測)。だから読めるのは pipe 1 だけ。
+# macOS dnctl omits the header line for every pipe after the first (`pipe 2 show` is empty,
+# `-s list` segfaults; measured on MBP 2026-09-21). So only pipe 1 is readable.
 pipe1_mbit() {
   dnctl list 2>/dev/null | awk '
     $1 == "00001:" {
@@ -110,8 +110,8 @@ pipe1_mbit() {
     }'
 }
 
-# pipe の本数。見出し行は出ないが pipe ごとの "mask:" 行は出るので、それを数える。
-# dnctl は全体しか見せないので、他の道具 (Network Link Conditioner など) の pipe も数えてしまう
+# Number of pipes. Headers are missing but each pipe prints a "mask:" line, so count those.
+# dnctl only shows everything, so pipes from other tools (Network Link Conditioner etc.) are counted too
 pipe_count() {
   dnctl list 2>/dev/null | grep -c "^ *mask:" || true
 }
@@ -120,9 +120,9 @@ anchor_rules() {
   pfctl -a "$ANCHOR" -s dummynet 2>/dev/null | grep -c "pipe" || true
 }
 
-# 既定を書き換える。書きかけを読ませないよう mktemp 経由で置き換える。
-# いま上限がかかっていれば、その値で張り直す (tailscale set と同じで、
-# 「設定を変える」が「いまの状態を壊す」ことにならないようにする)
+# Rewrite the default. Replace via mktemp so a half-written file is never read.
+# If a cap is in effect, reapply it with the new values (like tailscale set,
+# so that "changing a setting" does not mean "breaking the current state")
 set_default() {
   [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
     echo "usage: $0 set UP_MBIT DOWN_MBIT" >&2
@@ -131,7 +131,7 @@ set_default() {
   local tmp
   tmp=$(mktemp)
   cat >"$tmp" <<EOF
-# netcap-netshape の既定値。netcap-netshape set が書く
+# netcap-netshape defaults. Written by netcap-netshape set
 UP_MBIT=$1
 DOWN_MBIT=$2
 EOF
@@ -141,13 +141,13 @@ EOF
   DOWN_MBIT=$2
   if [ "$(anchor_rules)" -ge 2 ]; then
     on "$1" "$2" >/dev/null
-    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (適用中だったので張り直した)"
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (reapplied, since a cap was in effect)"
   else
-    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (次の on / 再起動から効く)"
+    echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (takes effect at the next on / reboot)"
   fi
 }
 
-# 設定を返す。実物ではなく「再起動したらどうなるか」の側
+# Print the settings: not the live state, but what happens after a reboot
 get() {
   local boot=off
   [ -f "$PLIST" ] && boot=on
@@ -159,7 +159,7 @@ status() {
   rules=$(anchor_rules)
   pipes=$(pipe_count)
   up=$(pipe1_mbit)
-  # 下りは pipe 2 の実在だけ dnctl で確かめ、値は on で書いた記録から読む (表示バグの回避)
+  # For download, dnctl only confirms pipe 2 exists; the value comes from what on recorded (works around the display bug)
   down=""; down_src=none
   if [ "$pipes" -ge 2 ] && [ -s "$APPLIED" ]; then
     down=$(awk '{print $2}' "$APPLIED")
@@ -170,11 +170,11 @@ status() {
   elif [ "$rules" -eq 0 ] && [ -z "$up" ]; then
     state=off
   else
-    state=partial # ルールと pipe が食い違っている。on か off を打ち直す
+    state=partial # rules and pipes disagree. Run on or off again
   fi
   echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules}"
   pfctl -s info 2>/dev/null | head -1
-  echo "--- pipes (dnctl は pipe 1 の見出しだけ出す。mask: の行数が pipe の本数)"
+  echo "--- pipes (dnctl shows only pipe 1's header; the mask: line count is the pipe count)"
   dnctl list 2>/dev/null || echo "(none)"
   echo "--- rules (anchor ${ANCHOR})"
   pfctl -a "$ANCHOR" -s dummynet 2>/dev/null | grep -v "^$" || echo "(no dummynet rules)"
