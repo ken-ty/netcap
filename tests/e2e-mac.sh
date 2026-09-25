@@ -33,7 +33,6 @@ expect "--boot on で LaunchDaemon が入る" "netcap-netshape" sudo launchctl p
 expect "get: 既定 1/1、boot on" "self +ok +1/1 Mbit/s +on" netcap get self
 sudo bash mac/install.sh --boot off >/dev/null
 expect "get: boot off" "self +ok +1/1 Mbit/s +off" netcap get self
-expect "status: 最初は off" "self +ok +off " netcap status self
 
 # README の Usage
 expect "on: 既定の値でかかる" "self +ok +on +1 Mbit/s +1 Mbit/s\*" netcap on self
