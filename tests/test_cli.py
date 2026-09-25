@@ -27,6 +27,16 @@ FAKE_SSH = textwrap.dedent("""\
     host, cmd = sys.argv[-2], sys.argv[-1]
     with open(os.environ["FAKE_SSH_LOG"], "a") as f:
         f.write(f"{host} {cmd}\\n")
+    # What netcap install asks a new device (h-new, a Mac). authorized_keys lives under FAKE_REMOTE_HOME
+    if cmd == "uname -s":
+        print("Darwin"); sys.exit(0)
+    if cmd.startswith("mktemp -d"):
+        print("/tmp/netcap.abc123"); sys.exit(0)
+    if cmd == "sh -s":
+        import subprocess
+        sys.exit(subprocess.run(["sh", "-s"], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
+    if "sudo bash" in cmd:
+        sys.exit(0)
     ok = "netshape state={s} up_mbit={u} down_mbit={u} down_src=applied pipes=2 rules=2"
     if host == "h-off":
         print(ok.format(s="off", u="-"))
@@ -57,6 +67,9 @@ class CLI(unittest.TestCase):
         ssh = self.tmp / "bin" / "ssh"
         ssh.write_text(FAKE_SSH)
         ssh.chmod(0o755)
+        scp = self.tmp / "bin" / "scp"
+        scp.write_text("#!/bin/sh\necho \"scp $*\" >> \"$FAKE_SSH_LOG\"\n")
+        scp.chmod(0o755)
         self.log = self.tmp / "ssh.log"
         self.log.touch()
         self.conf = self.tmp / "conf"
@@ -175,6 +188,71 @@ class CLI(unittest.TestCase):
         p = subprocess.run([sys.executable, str(copy / "netcap"), "--version"], capture_output=True, text=True,
                            env={**self.env, "GIT_CEILING_DIRECTORIES": str(self.tmp)})
         self.assertEqual(p.stdout.strip(), "netcap unknown")
+
+    def install_env(self):
+        (self.tmp / "home").mkdir(exist_ok=True)
+        (self.tmp / "remote").mkdir(exist_ok=True)
+        return {**self.env, "HOME": str(self.tmp / "home"), "FAKE_REMOTE_HOME": str(self.tmp / "remote")}
+
+    def remote_keys(self):
+        return (self.tmp / "remote" / ".ssh" / "authorized_keys").read_text().splitlines()
+
+    # README: Quick Start. install copies the device side, runs its installer, pins the netcap key, and adds hosts
+    def test_install_remote(self):
+        env = self.install_env()
+        p = self.netcap("install", "box", "--ssh", "h-new", env=env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("box      mac   h-new", (self.conf / "hosts").read_text())
+        self.assertTrue((self.tmp / "home" / ".ssh" / "netcap").exists())
+        log = self.log.read_text()
+        self.assertIn("scp -q -r", log)
+        self.assertIn("sudo bash /tmp/netcap.abc123/mac/install.sh --boot off", log)
+        pub = (self.tmp / "home" / ".ssh" / "netcap.pub").read_text().strip()
+        want = f"restrict,command=\"/Library/PrivilegedHelperTools/netcap-agent --allow 'status get check on off set'\" {pub}"
+        self.assertEqual(self.remote_keys(), [want])
+        # Running it again (an update) neither duplicates the key nor the hosts line
+        self.assertEqual(self.netcap("install", "box", env=env).returncode, 0)
+        self.assertEqual(self.remote_keys(), [want])
+        self.assertEqual((self.conf / "hosts").read_text().count("box"), 1)
+        # uninstall takes both back
+        self.assertEqual(self.netcap("uninstall", "box", env=env).returncode, 0)
+        self.assertIn("/mac/uninstall.sh", self.log.read_text())
+        self.assertEqual(self.remote_keys(), [])
+        self.assertNotIn("box", (self.conf / "hosts").read_text())
+
+    def test_install_keeps_other_keys(self):
+        env = self.install_env()
+        (self.tmp / "remote" / ".ssh").mkdir()
+        (self.tmp / "remote" / ".ssh" / "authorized_keys").write_text("ssh-ed25519 AAAAmine me@laptop")  # no newline at the end
+        self.assertEqual(self.netcap("install", "box", "--ssh", "h-new", env=env).returncode, 0)
+        keys = self.remote_keys()
+        self.assertEqual(keys[0], "ssh-ed25519 AAAAmine me@laptop")
+        self.assertEqual(len(keys), 2)
+        self.netcap("uninstall", "box", env=env)
+        self.assertEqual(self.remote_keys(), ["ssh-ed25519 AAAAmine me@laptop"])
+
+    def test_install_name_taken(self):
+        self.hosts("off")
+        p = self.netcap("install", "off", "--ssh", "h-new", env=self.install_env())
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("netcap rename off", p.stderr)
+
+    # README: the name can be changed later
+    def test_rename(self):
+        self.hosts("off", "on", profiles="p  off=1/1  on=off  # off=2/2 stays in the comment\n")
+        self.assertEqual(self.netcap("rename", "off", "zz").returncode, 0)
+        self.assertEqual((self.conf / "hosts").read_text().split()[:3], ["zz", "mac", "h-off"])
+        self.assertEqual((self.conf / "profiles").read_text(), "p  zz=1/1  on=off  # off=2/2 stays in the comment\n")
+        self.assertNotEqual(self.netcap("rename", "zz", "on").returncode, 0)
+        self.assertNotEqual(self.netcap("rename", "zz", "all").returncode, 0)
+
+    def test_uninstall_config_only(self):
+        self.hosts("off", "on", profiles="p  off=1/1\nq  off=off  on=off\n")
+        p = self.netcap("uninstall", "off", "--config-only")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertNotIn("off", (self.conf / "hosts").read_text())
+        self.assertEqual((self.conf / "profiles").read_text(), "q  on=off\n")
+        self.assertEqual(self.log.read_text(), "")
 
     # CONTRIBUTING.md: Language. Messages for people follow LC_ALL, LC_MESSAGES, LANG in that order
     def test_japanese_messages(self):

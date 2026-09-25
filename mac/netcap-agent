@@ -25,6 +25,9 @@ case "$(uname)" in
 esac
 CHECK=/usr/local/bin/netcap-check
 VERBS="status get check on off set"
+# netcap install writes the CLI's version here, so get can report which agent is installed
+VERSION="@VERSION@"
+case "$VERSION" in @*) VERSION=unknown ;; esac
 
 deny() {
   echo "netcap-agent: $*" >&2
@@ -63,4 +66,10 @@ fi
 for a in "$@"; do
   [[ "$a" =~ ^[0-9]+([.][0-9]+)?$ ]] || deny "arguments must be numbers: $a"
 done
+if [ "$verb" = get ]; then
+  # Add the agent's version to the key=value line
+  out=$(sudo -n "$NETSHAPE" get) || { rc=$?; printf '%s\n' "$out"; exit $rc; }
+  printf '%s\n' "$out" | sed "1s/\$/ agent=$VERSION/"
+  exit 0
+fi
 exec sudo -n "$NETSHAPE" "$verb" "$@"
