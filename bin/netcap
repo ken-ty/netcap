@@ -418,7 +418,8 @@ def stage():
     for d in ("mac", "linux", "win"):
         shutil.copytree(ROOT / d, tmp / d)
     for agent in (tmp / "mac" / "netcap-agent", tmp / "win" / "netcap-agent.ps1"):
-        agent.write_bytes(agent.read_bytes().replace(b"@VERSION@", version().encode()))
+        # Spelled in two parts: the formula replaces every quoted placeholder in this file at install time
+        agent.write_bytes(agent.read_bytes().replace(b"@" b"VERSION@", version().encode()))
     return tmp
 
 
