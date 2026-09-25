@@ -92,6 +92,8 @@ netcap profiles                             list profiles
 netcap --version
 ```
 
+Help and error messages follow your locale (`LANG`); Japanese is available. `LC_ALL=C netcap -h` shows English.
+
 ## Documentation
 
 - [docs/host-setup.md](docs/host-setup.md) — device setup and ssh permissions

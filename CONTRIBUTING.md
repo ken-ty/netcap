@@ -38,6 +38,16 @@ Other languages are translations of the English docs.
 - Translations may lag behind. Change the English version first; a translation can follow in a later PR.
   Commands, versions, and paths are the exception: tests check that they match, so update them in the same PR
 
+CLI messages for people (help and errors) can be translated too, in the same spirit:
+
+- Write the message in English and pass it through `_()` in `bin/netcap`. Translations live in the
+  `JA` table in the same file, keyed by the English text. A message with no translation is printed in English
+- The language comes from `LC_ALL`, `LC_MESSAGES`, then `LANG`, as POSIX tools do. `LC_ALL=C` gives English
+- Never translate what a machine reads: `--json`, the `key=value` line from devices, and the values in the
+  table (`ok`, `no-sudo`, `on`, …). The column headers stay in English too, because the docs explain the table by them
+- A test checks that every translation still has its English message and the same placeholders.
+  When changing a message, update or remove its translation in the same PR
+
 ## Release
 
 1. Push an annotated tag `vX.Y.Z` on main
