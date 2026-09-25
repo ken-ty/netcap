@@ -10,7 +10,7 @@ One entry per line; everything after `#` is a comment. Templates are in [example
 ```text
 # name   OS   route
 laptop   mac  -
-server   mac  server-netcap
+server   mac  server
 gamepc   win  gamepc
 ```
 
@@ -18,7 +18,7 @@ gamepc   win  gamepc
 | --- | --- |
 | name | The name you pass to `netcap status <name>`. `all` is reserved |
 | OS | One of `mac` (pf + dummynet), `linux` (tc), `win` (NetQosPolicy) |
-| route | A Host name from `~/.ssh/config`. `-` for the machine running netcap itself |
+| route | Your usual ssh destination (a Host from `~/.ssh/config`). `-` for the machine running netcap itself. `netcap install` writes this line |
 
 ## profiles
 

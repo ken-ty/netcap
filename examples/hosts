@@ -3,7 +3,7 @@
 #   OS     one of mac (pf + dummynet), linux (tc), win (NetQosPolicy)
 #   route  a Host name from ~/.ssh/config, or - for the machine running netcap itself
 #
-# Install netshape on each device first (mac/install.sh or linux/install.sh).
+# netcap install adds lines here; you can also write them by hand.
 laptop   mac  -
-server   mac  server-netcap
+server   mac  server
 gamepc   win  gamepc
