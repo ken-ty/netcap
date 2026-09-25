@@ -12,7 +12,7 @@
 ```text
 # 名前    OS   経路
 laptop   mac  -
-server   mac  server-netcap
+server   mac  server
 gamepc   win  gamepc
 ```
 
@@ -20,7 +20,7 @@ gamepc   win  gamepc
 | --- | --- |
 | 名前 | `netcap status <名前>` で指す名前。`all` は使えない |
 | OS | `mac` (pf + dummynet)、`linux` (tc)、`win` (NetQosPolicy) のどれか |
-| 経路 | `~/.ssh/config` の Host 名。netcap を叩くこの機械自身なら `-` |
+| 経路 | ふだんの ssh の宛先 (`~/.ssh/config` の Host)。netcap を叩くこの機械自身なら `-`。`netcap install` がこの行を書く |
 
 ## profiles
 

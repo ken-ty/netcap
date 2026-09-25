@@ -7,6 +7,22 @@
 CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を検査して本体に渡す。
 最短の手順は [README](../README.ja.md#quick-start) にある。
 
+## `netcap install` がやること
+
+`netcap install` (この端末) と `netcap install --ssh DEST` (別の端末) は下のすべてをやる。このページの残りは、
+中身の説明と、手で入れるときのためにある。
+
+1. OS を判定する (`uname`、Windows なら PowerShell)
+2. `mac/`、`linux/`、`win/` を向こうの一時ディレクトリへ送る。agent には CLI の版を書き込む
+3. インストーラを流す: `sudo bash …/install.sh --boot off` (向こうの sudo パスワード)、Windows なら `install.ps1`
+   (ssh のユーザーが管理者であること)。終わったら一時ディレクトリを消す
+4. 手元に `~/.ssh/netcap` が無ければ作り、向こうに forced command の行
+   ([下](#許可は操作される側が決める)) を足す。鍵がもうあれば足さない
+5. `hosts` に端末を足す。名前を 1 回聞く
+
+更新は `netcap install <名前>` をもう一度流す。`netcap get` の `agent` 列に各端末の版が出る。
+`netcap uninstall <名前>` で全部を戻す (`--config-only` はもう無い端末の登録だけ消す)。
+
 ## スクリプトの在り処
 
 リポジトリの `mac/`、`linux/`、`win/`。brew で入れたなら `$(brew --prefix)/opt/netcap/libexec/` の下。
@@ -85,8 +101,8 @@ mac との違いは 2 つ。下りは絞れない (表では `unsupported`)。`o
 
 ## 許可は操作される側が決める
 
-**どの動詞を許すかは、操作される端末の `authorized_keys` が決める。** netcap 専用の鍵を作り、
-端末側でその鍵を forced command に固定する。
+**どの動詞を許すかは、操作される端末の `authorized_keys` が決める。** netcap install は netcap 専用の鍵を作り、
+端末側でその鍵を forced command に固定する。手でやるなら:
 
 ```bash
 # 操作する側 (1 回だけ)
@@ -107,19 +123,16 @@ restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status ge
 restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<この機械>
 ```
 
-操作する側の `~/.ssh/config` に、その鍵を使う Host を切り、`hosts` の経路に書く。
-
-```text
-Host server-netcap
-  HostName server.example.ts.net
-  User admin
-  IdentityFile ~/.ssh/netcap
-  IdentitiesOnly yes
-```
+`hosts` の経路には、ふだん使っている ssh の Host を書く。netcap は `~/.ssh/netcap` を最初に差し出すので、上の行がある端末では
+agent しか動かず、無い端末では自分の鍵に戻る。このとき接続の共有も切る (`ControlPath=none`)。自分のログインで張った
+`ControlMaster` の接続に相乗りすると、forced command を素通りするため。
 
 - `--allow` に並べた動詞しか通らない。読むだけにしたい端末は `'status get check'` にする
 - `restrict` でシェル・pty・転送を切る。agent は引数を空白で区切るだけで、シェルとして解釈しない
 - Windows には sudoers に当たる二段目が無く、forced command が唯一の関門になる
+- Windows の sshd は、`administrators_authorized_keys` が UTF-16 (Windows PowerShell 5 の `>>` が書く形) だったり、
+  SYSTEM と Administrators 以外が書けたりすると、黙って無視する。UTF-8 で書き、新しく作ったファイルには
+  `icacls <ファイル> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"` をかける
 
 ## 表の読み方
 
@@ -143,6 +156,11 @@ Host server-netcap
 | `off` | かかっていない |
 | `partial` | pf のルールと dnctl の pipe が食い違っている (mac)。`on` か `off` を打ち直せば揃う |
 | `?` | reach が `ok` でないので読めていない |
+
+### agent — agent の版 (`get` のみ)
+
+`netcap install` が書き込む。この列より前に入れた agent は `-`、clone から手で入れたものは `unknown`。
+CLI と違っていたら `netcap install <名前>` を流す。
 
 ### note — うまくいかなかった理由
 

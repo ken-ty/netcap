@@ -5,6 +5,22 @@ English · [日本語](host-setup.ja.md)
 The CLI calls the agent on each device over ssh; the agent checks the verb and arguments and hands them to the shaper.
 The shortest path is in the [README](../README.md#quick-start).
 
+## What `netcap install` does
+
+`netcap install` (this machine) and `netcap install --ssh DEST` (another device) do everything below, so the rest of this
+page is for reference and for setting a device up by hand.
+
+1. Tell the OS (`uname`, or PowerShell for Windows)
+2. Copy `mac/`, `linux/`, or `win/` to a temporary directory there, with the CLI's version written into the agent
+3. Run the installer: `sudo bash …/install.sh --boot off` (the device's sudo password), or `install.ps1` on Windows
+   (the ssh user must be an Administrator). Then remove the temporary directory
+4. Create `~/.ssh/netcap` on this machine if missing, and add its forced-command line on the device
+   ([below](#the-capped-device-decides-what-is-allowed)) unless the key is already there
+5. Add the device to `hosts`, asking for its name once
+
+To update a device, run `netcap install <name>` again. The `agent` column of `netcap get` shows each device's version.
+`netcap uninstall <name>` reverses all of it (`--config-only` just forgets a device that is gone).
+
 ## Where the scripts are
 
 `mac/`, `linux/`, and `win/` in this repository. If you installed with brew, under `$(brew --prefix)/opt/netcap/libexec/`.
@@ -83,8 +99,8 @@ Two differences from mac: download cannot be capped (shown as `unsupported` in t
 
 ## The capped device decides what is allowed
 
-**Which verbs are allowed is decided by the `authorized_keys` of the device being controlled.** Create a key just for netcap,
-and on the device pin that key to a forced command.
+**Which verbs are allowed is decided by the `authorized_keys` of the device being controlled.** netcap install creates a key
+just for netcap and pins it to a forced command on the device. By hand:
 
 ```bash
 # on the controlling machine (once)
@@ -105,19 +121,16 @@ On a controlled Windows device, for an administrator's key, add to `C:\ProgramDa
 restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<this-machine>
 ```
 
-In `~/.ssh/config` on the controlling machine, define a Host that uses that key, and put it in the route column of `hosts`.
-
-```text
-Host server-netcap
-  HostName server.example.ts.net
-  User admin
-  IdentityFile ~/.ssh/netcap
-  IdentitiesOnly yes
-```
+Put your usual ssh Host in the route column of `hosts`. netcap offers `~/.ssh/netcap` first, so a device that has the line
+above only runs the agent, and one without it falls back to your own keys. It also turns off connection sharing
+(`ControlPath=none`) for this: a shared `ControlMaster` connection from your own login would skip the forced command.
 
 - Only the verbs listed in `--allow` get through. For a read-only device, use `'status get check'`
 - `restrict` disables the shell, pty, and forwarding. The agent only splits arguments on whitespace and never interprets them as a shell
 - Windows has no second gate like sudoers, so the forced command is the only gate
+- Windows' sshd silently ignores `administrators_authorized_keys` if it is UTF-16 (what `>>` writes in Windows PowerShell 5)
+  or writable by anyone but SYSTEM and Administrators. Write UTF-8, and give a new file
+  `icacls <file> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"`
 
 ## Reading the table
 
@@ -141,6 +154,11 @@ Host server-netcap
 | `off` | No cap |
 | `partial` | pf rules and dnctl pipes disagree (mac). Running `on` or `off` again brings them back in line |
 | `?` | Not read, because reach is not `ok` |
+
+### agent — the agent's version (`get` only)
+
+Written in by `netcap install`. `-` for an agent installed before this column existed; `unknown` for one installed by hand from a clone.
+If it differs from the CLI, run `netcap install <name>`.
 
 ### note — why it did not work
 
