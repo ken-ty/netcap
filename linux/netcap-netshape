@@ -10,6 +10,7 @@
 # 既定の経路のインターフェースの root qdisc を自分の HTB (ca9:) に差し替える。下りは ingress を
 # ifb-netcap に折り返し、そこの HTB で絞る。素通しの宛先と ICMP・DNS は絞らないクラス (:20) へ。
 # 受信側の qdisc (ingress / clsact) が既にあれば、そこに自分のフィルタ (prio 4930) を 1 本足すだけにする。
+# 他の道具のフィルタが受信側にあれば止まる (先に判定を確定させるフィルタがあると、下りが黙って絞れない)。
 # off は自分の qdisc・フィルタ・ifb-netcap を消すだけ。root qdisc は消せばカーネルの既定に戻る。
 #
 # root で動くので、本体と設定は root だけが書ける場所に置く (linux/install.sh が検査する)。
@@ -61,6 +62,15 @@ require_free() {
     echo "$1 の root qdisc を他の道具が使っている: $root" >&2
     exit 3
   fi
+  local p others
+  for p in ffff: ffff:fff2; do
+    others=$(tc filter show dev "$1" parent "$p" 2>/dev/null | grep "^filter " | grep -v " pref 4930 " || true)
+    if [ -n "$others" ]; then
+      echo "$1 の受信側を他の道具が使っている (tc filter show dev $1 parent $p):" >&2
+      echo "$others" >&2
+      exit 3
+    fi
+  done
 }
 
 # shape <dev> <Mbit/s> <src|dst> <DNS の match>

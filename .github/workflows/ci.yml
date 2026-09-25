@@ -25,6 +25,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
+      # ランナーは受信側に自前の eBPF フィルタを置いている。netcap は受信側を他の道具と分け合わないので外す
+      - if: runner.os == 'Linux'
+        run: sudo tc qdisc del dev "$(ip route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')" clsact
       - run: python -m unittest -v tests/test_e2e.py
         env:
           NETCAP_E2E: "1"
