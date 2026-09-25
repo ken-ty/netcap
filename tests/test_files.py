@@ -83,6 +83,11 @@ class HostSetup(unittest.TestCase):
 class Release(unittest.TestCase):
     """CONTRIBUTING.md Release: the Formula tag matches the version in the curl / zip examples of the docs"""
 
+    def test_formula_replaces_only_the_version(self):
+        """The formula's inreplace hits every quoted placeholder in bin/netcap; only VERSION may have one"""
+        target = re.search(r"inreplace libexec/\"bin/netcap\", '([^']+)'", read("Formula/netcap.rb")).group(1)
+        self.assertEqual(read("bin/netcap").count(target), 1)
+
     def test_versions_match(self):
         tag = re.search(r'tag:\s+"v([\d.]+)"', read("Formula/netcap.rb")).group(1)
         for md in with_translations("docs/host-setup.md"):
