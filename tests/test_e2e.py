@@ -5,6 +5,8 @@ It rewrites the machine's settings and needs sudo (Administrator on Windows), so
 
   NETCAP_E2E=1 python3 -m unittest -v tests/test_e2e.py
 """
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -146,6 +148,16 @@ class E2E(unittest.TestCase):
         p = agent("--allow", "on", env={**os.environ, "SSH_ORIGINAL_COMMAND": "on $(id) 1"})
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("netcap-agent: arguments must be numbers", p.stderr)
+
+    # The forced command receives exactly what the CLI sends over ssh (on Windows, a quoted path)
+    def test_22_forced_command_accepts_the_cli(self):
+        spec = importlib.util.spec_from_loader("netcap", importlib.machinery.SourceFileLoader("netcap", str(ROOT / "bin" / "netcap")))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.HOSTS["dev"] = {"os": OS, "ssh": "dev"}
+        p = agent("--allow", "status", env={**os.environ, "SSH_ORIGINAL_COMMAND": mod.build_cmd("dev", "status", [])[-1]})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(p.stdout.startswith("netshape "), p.stdout)
 
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
