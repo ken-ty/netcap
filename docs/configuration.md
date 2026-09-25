@@ -1,11 +1,7 @@
 # 設定ファイル
 
-どの端末を管理するか (`hosts`) と、まとめて動かす組 (`profiles`) は `~/.config/netcap/` に置く。
-`$NETCAP_CONFIG_DIR` があればそこを、無ければ `$XDG_CONFIG_HOME/netcap` を読む。
-
-コードの中 (brew なら Cellar) に置かないのは、編集できず、`brew upgrade` のたびに消えるため。
-
-どちらも 1 行 1 件のテキストで、`#` から後はコメント。雛形は [examples/](../examples/) にある。
+`~/.config/netcap/` に `hosts` と `profiles` を置く (`$NETCAP_CONFIG_DIR` か `$XDG_CONFIG_HOME/netcap` でも可)。
+1 行 1 件で、`#` から後はコメント。雛形は [examples/](../examples/)。
 
 ## hosts
 
@@ -31,6 +27,4 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-- 値は `上り/下り` (Mbit/s) か `off`
-- `netcap use <名前>` で揃える。**書かなかった端末は触らない** (上の `quiet` は `gamepc` をそのままにする)
-- `netcap profiles` の表示はこのファイルと同じ形
+値は `上り/下り` (Mbit/s) か `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。
