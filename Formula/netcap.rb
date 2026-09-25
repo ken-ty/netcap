@@ -3,8 +3,8 @@ class Netcap < Formula
   desc "Cap the internet bandwidth of devices on your network from one device"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
-      tag:      "v0.6.0",
-      revision: "8291374258eef4b53f3214a4fb075b7763b21faf"
+      tag:      "v0.7.0",
+      revision: "d88c2bffa69905a3e180cd27c72867649bd142f6"
   head "https://github.com/ken-ty/netcap.git", branch: "main"
 
   license "MIT"
@@ -23,17 +23,18 @@ class Netcap < Formula
 
   def caveats
     <<~EOS
-      Define your devices and profiles in ~/.config/netcap/ (examples are in #{opt_libexec}/examples):
-        mkdir -p ~/.config/netcap && cp #{opt_libexec}/examples/* ~/.config/netcap/
-
-      brew installs only the CLI. netshape and netcap-agent on each device need root, so install them separately:
-        sudo bash #{opt_libexec}/mac/install.sh --boot off     # macOS
-        sudo bash #{opt_libexec}/linux/install.sh --boot off   # Linux
+      Set up this machine (asks for your password once, and for a name; Enter gives "me"):
+        netcap install
+      Then try it, and undo it:
+        netcap on me --up 2 --down 2
+        netcap off me
+      Add another device you can ssh into:
+        netcap install --ssh <host>
     EOS
   end
 
   test do
-    assert_match "usage: netcap", shell_output("#{bin}/netcap --help")
+    assert_match "usage: netcap", shell_output("LC_ALL=C #{bin}/netcap --help")
     assert_equal "netcap #{version}", shell_output("#{bin}/netcap --version").strip
   end
 end
