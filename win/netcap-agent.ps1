@@ -32,9 +32,10 @@ if ($words.Count -ge 1 -and $words[0] -eq '--allow') {
   if (-not $orig) { Deny "call with a command (allowed verbs: $($allowed -join ' '))" }
   # The requested command is only split on whitespace. Quotes and expressions are not interpreted
   $words = @($orig -split '\s+' | Where-Object { $_ })
-  # netcap sends "powershell … -File …\netcap-agent.ps1 <verb> …". Drop everything up to the agent
+  # netcap sends "powershell … -File '…\netcap-agent.ps1' <verb> …" (the path is quoted, since it has
+  # backslashes). Drop everything up to the agent
   for ($i = 0; $i -lt $words.Count; $i++) {
-    if ($words[$i] -match 'netcap-agent\.ps1$') { $words = @($words | Select-Object -Skip ($i + 1)); break }
+    if ($words[$i] -match "netcap-agent\.ps1'?$") { $words = @($words | Select-Object -Skip ($i + 1)); break }
   }
 }
 
