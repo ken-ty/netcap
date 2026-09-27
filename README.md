@@ -13,7 +13,7 @@
   English · <a href="README.ja.md">日本語</a>
 </p>
 
-**Router-free QoS.** A CLI that throttles the internet bandwidth of every device on your network, from one device, with one command.
+**Router-free QoS.** A CLI that throttles the internet bandwidth of every computer on your network (macOS, Linux, Windows), from one of them, with one command.
 No router support needed (the one your ISP handed you is fine): each device enforces its own cap.
 
 <p align="center">
