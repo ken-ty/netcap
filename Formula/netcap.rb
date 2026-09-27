@@ -1,6 +1,6 @@
 # This repository is its own tap. See Quick Start in the README for installation.
 class Netcap < Formula
-  desc "Cap the internet bandwidth of devices on your network from one device"
+  desc "Host-based QoS: throttle the internet bandwidth of computers on your network"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
       tag:      "v0.7.1",

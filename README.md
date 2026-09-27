@@ -13,8 +13,8 @@
   English · <a href="README.ja.md">日本語</a>
 </p>
 
-A CLI that caps the internet bandwidth of every device on your network, from one device, with one command.
-Works where the router has no QoS: the cap is enforced on each device itself.
+**Host-based QoS — no QoS router needed.** A CLI that throttles the internet bandwidth of every computer on your network (macOS, Linux, Windows), from one of them, with one command.
+Each device enforces its own cap, so the router you already have (even the one your ISP handed you) is fine.
 
 <p align="center">
   <img src="docs/overview.svg" alt="netcap use game caps laptop and server, leaving the full line to gamepc" width="760">
@@ -23,6 +23,9 @@ Works where the router has no QoS: the cap is enforced on each device itself.
 - Only internet traffic is capped. Traffic between devices on the same LAN is left alone
 - ping (ICMP) and DNS are never capped, so latency measurements stay honest
 - Commands reach each device over ssh; what is allowed is decided by that device's `authorized_keys`
+- Unlike router QoS, it does not prioritize traffic. It caps the devices you choose, so the rest of the line stays free
+- The same verbs on every OS, instead of pf + dummynet on macOS, `tc` on Linux, and NetQosPolicy on Windows
+- Nothing keeps running on the devices: `netcap install` leaves small scripts that run only when called over ssh
 
 ## Quick Start
 

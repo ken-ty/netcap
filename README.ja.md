@@ -15,8 +15,8 @@
 
 > この文書は [README.md](README.md) の翻訳です。英語版と食い違うときは英語版が正です。
 
-同じ回線を使う複数の端末の WAN 向け帯域を、1 台の端末から 1 コマンドで絞る / 戻す CLI。
-ルーターで帯域を制御できない回線でも、端末の側で上限をかけられる。
+**ホストベースの QoS。QoS 対応ルーターは要らない。** 同じ回線を使う複数の端末の WAN 向け帯域を、1 台の端末から 1 コマンドで絞る (throttle) / 戻す CLI。
+各端末が自分で上限をかけるので、ルーターは今あるもの (プロバイダー支給のものでも) で構わない。
 
 <p align="center">
   <img src="docs/overview.svg" alt="netcap use game で laptop と server を絞り、gamepc には回線を丸ごと残す" width="760">
@@ -25,6 +25,9 @@
 - 絞るのはインターネットとの通信だけ。同じ LAN の機器どうしの通信は絞らない
 - 例外として、インターネット宛てでも ping (ICMP) と DNS は絞らない。遅延の測定を歪めないため
 - 端末へは ssh で頼み、許可は操作される側の `authorized_keys` が決める
+- ルーターの QoS と違い、通信に優先度は付けない。選んだ端末に上限をかけて、回線の残りを空けておく
+- macOS の pf + dummynet、Linux の `tc`、Windows の NetQosPolicy を、どの OS でも同じ動詞で扱う
+- 端末に常駐するものは無い。`netcap install` が置くのは、ssh で呼ばれたときだけ動く小さなスクリプト
 
 ## Quick Start
 
