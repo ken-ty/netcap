@@ -13,8 +13,8 @@
   English · <a href="README.ja.md">日本語</a>
 </p>
 
-**Router-free QoS.** A CLI that throttles the internet bandwidth of every computer on your network (macOS, Linux, Windows), from one of them, with one command.
-No router support needed (the one your ISP handed you is fine): each device enforces its own cap.
+**Host-based QoS — no QoS router needed.** A CLI that throttles the internet bandwidth of every computer on your network (macOS, Linux, Windows), from one of them, with one command.
+Each device enforces its own cap, so the router you already have (even the one your ISP handed you) is fine.
 
 <p align="center">
   <img src="docs/overview.svg" alt="netcap use game caps laptop and server, leaving the full line to gamepc" width="760">
