@@ -100,6 +100,8 @@ netcap use none      # 全部外す
 | 操作する側 (CLI) | ✅ | ✅ | ✅ |
 | 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上りのみ (NetQosPolicy) |
 
+機能ごとの一覧は [docs/platforms.ja.md](docs/platforms.ja.md)。
+
 ## ユースケース
 
 - **遅延を守る** — ゲームやビデオ会議の間、他の端末の大きなダウンロードで回線が詰まらないようにする
@@ -135,6 +137,7 @@ netcap --version
 - [docs/host-setup.ja.md](docs/host-setup.ja.md) — 端末側のセットアップと許可
 - [docs/configuration.ja.md](docs/configuration.ja.md) — 設定ファイルの書式
 - [docs/operations.ja.md](docs/operations.ja.md) — 再起動・電源断・管理する側が複数のとき
+- [docs/platforms.ja.md](docs/platforms.ja.md) — OS ごとの対応状況
 - [docs/design.ja.md](docs/design.ja.md) — 設計判断と実測
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 開発とリリース
 
