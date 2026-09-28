@@ -13,8 +13,8 @@
   English · <a href="README.ja.md">日本語</a>
 </p>
 
-A CLI that caps the internet bandwidth of every device on your network, from one device, with one command.
-Works where the router has no QoS: the cap is enforced on each device itself.
+**Host-based QoS — no QoS router needed.** A CLI that throttles the internet bandwidth of every computer on your network (macOS, Linux, Windows), from one of them, with one command.
+Each device enforces its own cap, so the router you already have (even the one your ISP handed you) is fine.
 
 <p align="center">
   <img src="docs/overview.svg" alt="netcap use game caps laptop and server, leaving the full line to gamepc" width="760">
@@ -23,45 +23,73 @@ Works where the router has no QoS: the cap is enforced on each device itself.
 - Only internet traffic is capped. Traffic between devices on the same LAN is left alone
 - ping (ICMP) and DNS are never capped, so latency measurements stay honest
 - Commands reach each device over ssh; what is allowed is decided by that device's `authorized_keys`
+- Unlike router QoS, it does not prioritize traffic. It caps the devices you choose, so the rest of the line stays free
+- The same verbs on every OS, instead of pf + dummynet on macOS, `tc` on Linux, and NetQosPolicy on Windows
+- Nothing keeps running on the devices: `netcap install` leaves small scripts that run only when called over ssh
 
 ## Quick Start
 
-1. Install the CLI on the machine you control from (needs only Python 3; on Windows, see [docs/host-setup.md](docs/host-setup.md))
+### 1. Install
 
-   ```bash
-   brew tap ken-ty/netcap https://github.com/ken-ty/netcap
-   brew install netcap
-   ```
+```bash
+brew tap ken-ty/netcap https://github.com/ken-ty/netcap
+brew install netcap
+netcap install          # sets up this machine; asks for a name (Enter gives "me")
+```
 
-2. Install the agent on each device to be capped, as root / Administrator (Windows: see [docs/host-setup.md](docs/host-setup.md))
+`netcap install` asks for your password once (sudo; on Windows, run it as Administrator). Needs only Python 3.
+Without brew, see [docs/host-setup.md](docs/host-setup.md).
 
-   ```bash
-   sudo bash mac/install.sh --boot off     # macOS
-   sudo bash linux/install.sh --boot off   # Linux
-   ```
+### 2. Try it on your own line
 
-3. Describe your devices and profiles in `~/.config/netcap/` (templates in [examples/](examples/))
+```bash
+netcap on me --up 2 --down 2    # cap this machine to 2 Mbit/s up and down
+netcap status                   # read the cap actually in effect
+netcap off me                   # remove it
+```
 
-   ```text
-   # hosts — name  OS  ssh Host (- for this machine)
-   laptop   mac  -
-   gamepc   win  gamepc
+> **If you get stuck: `netcap off me` removes the cap.** It runs locally, so it works even when the line is too thin to load anything.
+> If netcap itself does not run, call the device side directly:
+>
+> ```bash
+> sudo /Library/PrivilegedHelperTools/netcap-netshape off          # macOS
+> sudo /usr/libexec/netcap/netcap-netshape off                      # Linux
+> ```
+>
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netshape.ps1 off   # Windows, as Administrator
+> ```
+>
+> A reboot also clears the cap on macOS and Linux. Windows keeps it across reboots.
 
-   # profiles — name  device=up/down (Mbit/s) or off
-   game    laptop=2/2  gamepc=off
-   none    laptop=off  gamepc=off
-   ```
+### 3. Manage other devices
 
-4. Use it
+Anything you can `ssh` into can be added. Pass its ssh destination (a Host from `~/.ssh/config` works):
 
-   ```bash
-   netcap use game      # apply a profile to all devices
-   netcap status all    # read the cap actually in effect on each device
-   netcap use none      # remove all caps
-   ```
+```bash
+netcap install --ssh gamepc     # installs the agent there; asks for a name (Enter gives "gamepc")
+netcap status all
+netcap on gamepc --up 5 --down 5
+```
 
-For pinning the ssh key to a forced command, see [docs/host-setup.md](docs/host-setup.md#the-capped-device-decides-what-is-allowed);
-for the file format, see [docs/configuration.md](docs/configuration.md).
+It copies the device side over, runs its installer (the device's sudo password, or an Administrator account on Windows),
+and registers a netcap-only ssh key that can run nothing but netcap's verbs there.
+
+To move several devices at once, write recipes (profiles) in `~/.config/netcap/profiles`:
+
+```text
+# name  device=up/down (Mbit/s) or off
+game    me=2/2  gamepc=off
+none    me=off  gamepc=off
+```
+
+```bash
+netcap use game      # apply a recipe to its devices
+netcap use none      # remove all caps
+```
+
+Rename a device with `netcap rename me laptop`; remove one with `netcap uninstall gamepc`.
+For the file format, see [docs/configuration.md](docs/configuration.md); for what install sets up on a device, [docs/host-setup.md](docs/host-setup.md).
 
 ## Supported platforms
 
@@ -89,8 +117,14 @@ netcap set    <host|all> --up N --down N    change the default
 netcap check  <host|all> [--json]           measure (curl up/down + ping)
 netcap use    <profile>                     apply a profile
 netcap profiles                             list profiles
+netcap install [name] [--ssh DEST]          install the agent on a device and register it
+netcap uninstall <name>                     remove the agent and the registration
+netcap rename <old> <new>                   rename a device
 netcap --version
 ```
+
+Values are Mbit/s and may be decimals. `0` is an error (nothing changes); to lift a cap, use `off`.
+What happens on reboots, power loss, and with more than one controller: [docs/operations.md](docs/operations.md).
 
 Help and error messages follow your locale (`LANG`); Japanese is available. `LC_ALL=C netcap -h` shows English.
 
@@ -98,6 +132,7 @@ Help and error messages follow your locale (`LANG`); Japanese is available. `LC_
 
 - [docs/host-setup.md](docs/host-setup.md) — device setup and ssh permissions
 - [docs/configuration.md](docs/configuration.md) — config file format
+- [docs/operations.md](docs/operations.md) — reboots, power loss, more than one controller
 - [docs/design.md](docs/design.md) — design decisions and measurements
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development and releases
 

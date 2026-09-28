@@ -10,7 +10,7 @@ One entry per line; everything after `#` is a comment. Templates are in [example
 ```text
 # name   OS   route
 laptop   mac  -
-server   mac  server-netcap
+server   mac  server
 gamepc   win  gamepc
 ```
 
@@ -18,7 +18,7 @@ gamepc   win  gamepc
 | --- | --- |
 | name | The name you pass to `netcap status <name>`. `all` is reserved |
 | OS | One of `mac` (pf + dummynet), `linux` (tc), `win` (NetQosPolicy) |
-| route | A Host name from `~/.ssh/config`. `-` for the machine running netcap itself |
+| route | Your usual ssh destination (a Host from `~/.ssh/config`). `-` for the machine running netcap itself. `netcap install` writes this line |
 
 ## profiles
 
@@ -29,4 +29,4 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-A value is `up/down` (Mbit/s) or `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).
+A value is `up/down` in Mbit/s or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).

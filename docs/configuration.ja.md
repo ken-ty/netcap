@@ -12,7 +12,7 @@
 ```text
 # 名前    OS   経路
 laptop   mac  -
-server   mac  server-netcap
+server   mac  server
 gamepc   win  gamepc
 ```
 
@@ -20,7 +20,7 @@ gamepc   win  gamepc
 | --- | --- |
 | 名前 | `netcap status <名前>` で指す名前。`all` は使えない |
 | OS | `mac` (pf + dummynet)、`linux` (tc)、`win` (NetQosPolicy) のどれか |
-| 経路 | `~/.ssh/config` の Host 名。netcap を叩くこの機械自身なら `-` |
+| 経路 | ふだんの ssh の宛先 (`~/.ssh/config` の Host)。netcap を叩くこの機械自身なら `-`。`netcap install` がこの行を書く |
 
 ## profiles
 
@@ -31,4 +31,4 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-値は `上り/下り` (Mbit/s) か `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。
+値は Mbit/s の `上り/下り` か `off`。小数も使える (`0.5/2`)。`0` はエラーで、netcap は受け付けず何も変えない (macOS の dummynet は 0 を無制限と読むので、「遮断」の意味にはできない)。上限を外すなら `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。

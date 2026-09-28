@@ -17,6 +17,9 @@ $ErrorActionPreference = 'Stop'
 
 $Dir = 'C:\ProgramData\netcap'
 $Verbs = 'status', 'get', 'check', 'on', 'off', 'set'
+# netcap install writes the CLI's version here, so get can report which agent is installed
+$Version = '@VERSION@'
+if ($Version.StartsWith('@')) { $Version = 'unknown' }
 
 function Deny([string]$m) {
   [Console]::Error.WriteLine("netcap-agent: $m")
@@ -32,10 +35,10 @@ if ($words.Count -ge 1 -and $words[0] -eq '--allow') {
   if (-not $orig) { Deny "call with a command (allowed verbs: $($allowed -join ' '))" }
   # The requested command is only split on whitespace. Quotes and expressions are not interpreted
   $words = @($orig -split '\s+' | Where-Object { $_ })
-  # netcap sends "powershell … -File '…\netcap-agent.ps1' <verb> …" (the path is quoted, since it has
-  # backslashes). Drop everything up to the agent
+  # netcap sends "powershell … -File …\netcap-agent.ps1 <verb> …". Drop everything up to the agent
   for ($i = 0; $i -lt $words.Count; $i++) {
-    if ($words[$i] -match "netcap-agent\.ps1'?$") { $words = @($words | Select-Object -Skip ($i + 1)); break }
+    # netcap quotes the path ('C:\…\netcap-agent.ps1'), so compare without the quotes
+    if ($words[$i].Trim("'", '"') -match 'netcap-agent\.ps1$') { $words = @($words | Select-Object -Skip ($i + 1)); break }
   }
 }
 
@@ -55,6 +58,18 @@ if ($verb -eq 'check') {
 }
 
 # Only on / set take numbers. The other verbs take no arguments
-foreach ($a in $rest) { if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" } }
+foreach ($a in $rest) {
+  if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" }
+  # 0 is refused on every OS, as the CLI does
+  if ($a -notmatch '[1-9]') { Deny "arguments must be greater than 0: $a" }
+}
+if ($verb -eq 'get') {
+  # Add the agent's version to the key=value line
+  $out = @(& (Join-Path $Dir 'netshape.ps1') get)
+  $rc = $LASTEXITCODE
+  if ($out.Count -gt 0) { $out[0] = "$($out[0]) agent=$Version" }
+  $out
+  exit $(if ($null -eq $rc) { 0 } else { $rc })
+}
 & (Join-Path $Dir 'netshape.ps1') $verb @rest
 exit $LASTEXITCODE
