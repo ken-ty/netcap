@@ -34,6 +34,7 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | この機械の `install` / `uninstall` / `rename` | ✅ | ✅ | ✅ |
 | `--ssh` で他の端末へ `install` / `uninstall` | ✅ | ❓ | ❓ |
+| `export` / `import` | ✅ | ✅ | ✅ |
 | brew で入れる | ✅ | ❓ (Homebrew on Linux。未確認) | ❌ (curl か zip。[host-setup.ja.md](host-setup.ja.md#スクリプトの在り処) を参照) |
 | 日本語ロケールでヘルプとエラーが日本語 | ✅ | ✅ | ⚠️ `LANG` か `LC_ALL` を設定しない限り英語 |
 

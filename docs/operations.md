@@ -37,8 +37,9 @@ Each controller has its own settings and its own key:
 - **Profiles are per controller.** Copy `profiles` if you want the same recipes, and adjust the names
 - **Each controller registers its own key** on each device. The device keeps one agent and one `authorized_keys` line per controller
 
-To add a controller, install the CLI there and run `netcap install` from it: `netcap install` for itself,
-`netcap install --ssh <dest>` for each device. The device's installer runs again, which is harmless, with two things to keep in mind:
+To add a controller, install the CLI there, bring the settings over with `netcap export` / `netcap import`
+([configuration.md](configuration.md#export-and-import)), and run `netcap install` from it: `netcap install` for itself,
+`netcap install <name>` for each imported device. The device's installer runs again, which is harmless, with two things to keep in mind:
 
 - **Use the same ssh user on a device from every controller.** The device's sudoers allows only the user who ran the
   installer last (macOS / Linux). A controller that logs in as another user gets `no-sudo`

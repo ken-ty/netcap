@@ -30,3 +30,23 @@ none    laptop=off  server=off  gamepc=off
 ```
 
 A value is `up/down` in Mbit/s or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).
+
+## Export and import
+
+`netcap export` prints this machine's hosts and profiles as JSON; `netcap import` reads them back.
+Use it for a backup, or to set up another controller ([operations.md](operations.md#more-than-one-controller)).
+
+```bash
+netcap export > netcap.json
+netcap import netcap.json            # on the same or another machine; - reads stdin
+netcap import netcap.json --replace  # overwrite existing hosts and profiles (keeps hosts.bak and profiles.bak)
+```
+
+- **Nothing secret is exported.** No keys (`~/.ssh/netcap` stays where it is) and no ssh settings: a route stays a Host name,
+  resolved by the importing machine's own `~/.ssh/config`. Caps and defaults are not exported either; they live on the devices
+- **This machine (route `-`) is not taken over elsewhere.** Imported on another machine, it would point at that machine,
+  so it is skipped (and removed from profiles) with a message. Add it back with `netcap install <name> --ssh <dest>`
+- **An export is checked before anything is written**: names, OS, routes, and profile values. A route that starts with `-`
+  is refused, because ssh would read it as an option (`-oProxyCommand=…` runs a command). hosts is checked the same way
+- Comments in hosts and profiles are not kept
+- On a new controller, run `netcap install <name>` for each device to register that machine's own key

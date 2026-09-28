@@ -254,6 +254,95 @@ class CLI(unittest.TestCase):
         self.assertEqual((self.conf / "profiles").read_text(), "q  on=off\n")
         self.assertEqual(self.log.read_text(), "")
 
+    # docs/configuration.md: Export and import
+    def export(self, **edit):
+        p = self.netcap("export")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        data = json.loads(p.stdout)
+        data.update(edit)
+        f = self.tmp / "export.json"
+        f.write_text(json.dumps(data))
+        return data, f
+
+    def import_into(self, f, *args):
+        other = self.tmp / "other"
+        other.mkdir(exist_ok=True)
+        return self.netcap("import", str(f), *args, env={**self.env, "NETCAP_CONFIG_DIR": str(other)}), other
+
+    def test_export_import_round_trip(self):
+        self.hosts("off", "on", profiles="p  off=1/1  on=off\nq  on=0.5/2\n")
+        (self.conf / "hosts").write_text((self.conf / "hosts").read_text() + "me mac -\n")
+        data, f = self.export()
+        self.assertEqual(data["hosts"][2], {"name": "me", "os": "mac", "route": None})
+        self.assertEqual(data["profiles"], {"p": {"off": "1/1", "on": "off"}, "q": {"on": "0.5/2"}})
+        p, other = self.import_into(f)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        again = json.loads(self.netcap("export", env={**self.env, "NETCAP_CONFIG_DIR": str(other)}).stdout)
+        self.assertEqual((again["hosts"], again["profiles"]), (data["hosts"], data["profiles"]))
+
+    def test_export_has_no_keys(self):
+        self.hosts("off")
+        env = self.install_env()
+        (self.tmp / "home" / ".ssh").mkdir()
+        (self.tmp / "home" / ".ssh" / "netcap").write_text("-----BEGIN OPENSSH PRIVATE KEY-----\nsecret\n")
+        out = self.netcap("export", env=env).stdout
+        self.assertNotIn("PRIVATE", out)
+        self.assertNotIn("secret", out)
+        self.assertEqual(set(json.loads(out)), {"netcap", "exported_from", "hosts", "profiles"})
+
+    # "This machine" (route -) of another machine is not taken over as this machine
+    def test_import_skips_the_exporting_machine(self):
+        self.hosts("off", profiles="p  me=1/1  off=off\nq  me=off\n")
+        (self.conf / "hosts").write_text((self.conf / "hosts").read_text() + "me mac -\n")
+        data, f = self.export(exported_from="somewhere-else")
+        p, other = self.import_into(f)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("skipped me", p.stdout)
+        self.assertEqual([l.split()[0] for l in (other / "hosts").read_text().splitlines() if not l.startswith("#")], ["off"])
+        self.assertEqual([l for l in (other / "profiles").read_text().splitlines() if not l.startswith("#")], ["p  off=off"])
+
+    def test_import_refuses_what_it_cannot_trust(self):
+        self.hosts("off", profiles="p  off=1/1\n")
+        data, f = self.export()
+        bad = {
+            "option as route": {"hosts": [{"name": "x", "os": "mac", "route": "-oProxyCommand=touch /tmp/pwned"}]},
+            "space in route": {"hosts": [{"name": "x", "os": "mac", "route": "a b"}]},
+            "bad os": {"hosts": [{"name": "x", "os": "dos", "route": "x"}]},
+            "bad name": {"hosts": [{"name": "a b", "os": "mac", "route": "x"}]},
+            "zero": {"profiles": {"p": {"off": "0/1"}}},
+            "unknown device": {"profiles": {"p": {"nope": "off"}}},
+            "not an export": {"hosts": "x"},
+        }
+        for why, edit in bad.items():
+            with self.subTest(why=why):
+                f.write_text(json.dumps({**data, **edit}))
+                p, other = self.import_into(f)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("cannot import", p.stderr)
+                self.assertFalse((other / "hosts").exists())
+
+    def test_hosts_refuses_an_option_as_route(self):
+        (self.conf / "hosts").write_text("x mac -oProxyCommand=sh\n")
+        p = self.netcap("status", "x")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("must not start with -", p.stderr)
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_import_keeps_existing_config_unless_replace(self):
+        self.hosts("off", profiles="p  off=1/1\n")
+        data, f = self.export()
+        other = self.tmp / "other"
+        other.mkdir()
+        (other / "hosts").write_text("mine mac -\n")
+        p, _ = self.import_into(f)
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("--replace", p.stderr)
+        self.assertEqual((other / "hosts").read_text(), "mine mac -\n")
+        p, _ = self.import_into(f, "--replace")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((other / "hosts.bak").read_text(), "mine mac -\n")
+        self.assertIn("off", (other / "hosts").read_text())
+
     # CONTRIBUTING.md: Language. Messages for people follow LC_ALL, LC_MESSAGES, LANG in that order
     def test_japanese_messages(self):
         self.hosts("off")

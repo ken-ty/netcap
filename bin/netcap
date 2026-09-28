@@ -12,6 +12,8 @@
   netcap install [name] [--ssh DEST]          install the agent on a device and register it
   netcap uninstall <name>                     remove the agent and the registration
   netcap rename <old> <new>                   rename a device in hosts and profiles
+  netcap export                               print hosts and profiles as JSON (no keys)
+  netcap import <file|->                      read them back, on this or another machine
   netcap --version                            version (also -v)
 
 The command layout is borrowed from tailscale. status (real state) and get (settings) are separate
@@ -191,12 +193,19 @@ def load_hosts():
             sys.exit(f"{path}:{n}: " + _("write 3 words, \"name mac|linux|win route\" (all is not allowed as a name): {line}")
                      .format(line=' '.join(words)))
         name, os_, ssh = words
+        if not ROUTE_RE.fullmatch(ssh):
+            sys.exit(f"{path}:{n}: " + _("cannot use {route!r} as a route (a Host name or user@host; it must not start with -)")
+                     .format(route=ssh))
         if name in HOSTS:
             sys.exit(f"{path}:{n}: " + _("{name} appears twice").format(name=name))
         HOSTS[name] = {"os": os_, "ssh": None if ssh == "-" else ssh}
         ORDER.append(name)
     if not HOSTS:
         sys.exit(_("{path} has no devices").format(path=CONFIG_DIR / "hosts"))
+
+
+# What ssh accepts as a destination, minus anything it would read as an option ("-oProxyCommand=…" runs a command)
+ROUTE_RE = re.compile(r"-|[A-Za-z0-9_.@:%\[\]][A-Za-z0-9_.@:%\[\]-]*")
 
 
 def host_names():
@@ -641,6 +650,114 @@ def cmd_rename(a):
     return 0
 
 
+# --- export / import -----------------------------------------------------------------------------
+# The settings of this controller as JSON: hosts and profiles. Nothing secret goes in: no keys, and routes stay
+# ssh Host names, resolved by the importing machine's own ~/.ssh/config. The caps and defaults live on the devices.
+
+
+def this_machine():
+    """A short host name. macOS adds or drops .local depending on the network, so compare only the first label"""
+    return socket.gethostname().split(".")[0]
+
+
+def cmd_export(a):
+    load_hosts()
+    profiles = load_profiles() if (CONFIG_DIR / "profiles").exists() else {}
+    print(json.dumps({
+        "netcap": version(),
+        "exported_from": this_machine(),
+        "hosts": [{"name": n, "os": HOSTS[n]["os"], "route": HOSTS[n]["ssh"]} for n in ORDER],
+        "profiles": profiles,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
+
+def import_error(msg):
+    sys.exit(_("cannot import: {msg}").format(msg=msg))
+
+
+def check_import(data):
+    """Check everything before writing anything. The file may come from someone else, so trust nothing in it."""
+    if not isinstance(data, dict) or not isinstance(data.get("hosts"), list):
+        import_error(_("not a netcap export (no hosts list)"))
+    hosts = []
+    for h in data["hosts"]:
+        if not isinstance(h, dict):
+            import_error(_("a hosts entry is not an object"))
+        name, os_, route = h.get("name"), h.get("os"), h.get("route")
+        if not isinstance(name, str) or not NAME_RE.fullmatch(name) or name == "all":
+            import_error(_("bad device name: {value!r}").format(value=name))
+        if name in (x[0] for x in hosts):
+            import_error(_("{name} appears twice").format(name=name))
+        if os_ not in ("mac", "linux", "win"):
+            import_error(_("bad OS for {name}: {value!r}").format(name=name, value=os_))
+        if route is not None and (not isinstance(route, str) or route == "-" or not ROUTE_RE.fullmatch(route)):
+            import_error(_("bad route for {name}: {value!r}").format(name=name, value=route))
+        hosts.append((name, os_, route))
+    profiles = data.get("profiles", {})
+    if not isinstance(profiles, dict):
+        import_error(_("profiles is not an object"))
+    names = {h[0] for h in hosts}
+    for pname, plan in profiles.items():
+        if not NAME_RE.fullmatch(pname) or not isinstance(plan, dict) or not plan:
+            import_error(_("bad profile: {value!r}").format(value=pname))
+        for host, value in plan.items():
+            if host not in names:
+                import_error(_("profile {profile} has an unknown device: {name}").format(profile=pname, name=host))
+            ok = isinstance(value, str) and (value in ("on", "off") or (
+                value.count("/") == 1 and all(is_mbit(v) for v in value.split("/"))))
+            if not ok:
+                import_error(_("bad value in profile {profile}: {name}={value!r}").format(profile=pname, name=host, value=value))
+    return hosts, profiles
+
+
+def cmd_import(a):
+    try:
+        text = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8")
+        data = json.loads(text)
+    except (OSError, ValueError) as e:
+        import_error(str(e))
+    hosts, profiles = check_import(data)
+    # "this machine" (route -) means the exporting machine. Elsewhere it would silently point at the wrong one
+    here = data.get("exported_from") == this_machine()
+    skipped = [h[0] for h in hosts if h[2] is None and not here]
+    hosts = [h for h in hosts if h[0] not in skipped]
+    if not hosts:
+        import_error(_("no devices left to import"))
+    dropped = []
+    for pname in list(profiles):
+        plan = {h: v for h, v in profiles[pname].items() if h not in skipped}
+        if plan != profiles[pname]:
+            dropped.append(pname)
+        if plan:
+            profiles[pname] = plan
+        else:
+            del profiles[pname]
+    paths = [CONFIG_DIR / "hosts", CONFIG_DIR / "profiles"]
+    existing = [p for p in paths if p.exists() and p.read_text(encoding="utf-8").strip()]
+    if existing and not a.replace:
+        sys.exit(_("{paths} already exist. To overwrite them (a .bak copy is kept): netcap import {file} --replace")
+                 .format(paths=", ".join(map(str, existing)), file=a.file))
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    for p in existing:
+        shutil.copy2(p, p.with_name(p.name + ".bak"))
+        say(_("kept the old {path} as {bak}").format(path=p, bak=p.name + ".bak"))
+    head = f"# written by netcap import from {data.get('exported_from', '?')}\n"
+    paths[0].write_text(head + "".join(f"{n:<8} {o:<5} {r or '-'}\n" for n, o, r in hosts), encoding="utf-8")
+    paths[1].write_text(head + "".join(f"{p}  " + "  ".join(f"{h}={v}" for h, v in plan.items()) + "\n"
+                                       for p, plan in profiles.items()), encoding="utf-8")
+    say(_("imported {hosts} devices and {profiles} profiles into {dir}")
+        .format(hosts=len(hosts), profiles=len(profiles), dir=CONFIG_DIR))
+    if skipped:
+        say(_("skipped {names}: it was the exporting machine itself. To manage it from here: netcap install <name> --ssh <dest>")
+            .format(names=", ".join(skipped)))
+    if dropped:
+        say(_("removed the skipped devices from profiles: {profiles}").format(profiles=", ".join(dropped)))
+    if not here:
+        say(_("to register this machine's netcap key on each device: netcap install <name>"))
+    return 0
+
+
 # Translations of the messages above, keyed by the English text. English is the source of truth:
 # change the English first; a key left behind here is caught by the tests, a missing one falls back to English
 JA = {
@@ -657,6 +774,8 @@ JA = {
   netcap install [name] [--ssh DEST]          機器に agent を入れて登録する
   netcap uninstall <name>                     agent と登録を外す
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
+  netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
+  netcap import <file|->                      それを読み戻す (この機械でも別の機械でも)
   netcap --version                            バージョン (-v でも可)
 
 コマンドの形は tailscale に倣っている。status (実際の状態) と get (設定) は別のコマンドで、
@@ -755,6 +874,32 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "\nThe agent differs from this CLI ({version}) on: {hosts}. Update with: netcap install <name>":
         "\nagent の版がこの CLI ({version}) と違う機器: {hosts}。更新するには: netcap install <名前>",
     "Name for this device in netcap (Enter for {default}): ": "netcap でのこの機器の名前 (Enter で {default}): ",
+    "to register this machine's netcap key on each device: netcap install <name>":
+        "この機械の netcap の鍵を各機器に登録するには: netcap install <名前>",
+    "not a netcap export (no hosts list)": "netcap export の出力ではない (hosts の一覧が無い)",
+    "profiles is not an object": "profiles がオブジェクトではない",
+    "no devices left to import": "取り込める機器が残っていない",
+    "print hosts and profiles as JSON (no keys)": "hosts と profiles を JSON で出す (鍵は含まない)",
+    "read hosts and profiles from an export": "export した hosts と profiles を読み込む",
+    "a file from netcap export, or - for stdin": "netcap export で出したファイル。- なら標準入力",
+    "overwrite existing hosts and profiles (keeps .bak copies)": "今ある hosts と profiles を上書きする (.bak に残す)",
+    "cannot import: {msg}": "取り込めない: {msg}",
+    "a hosts entry is not an object": "hosts の項目がオブジェクトではない",
+    "imported {hosts} devices and {profiles} profiles into {dir}": "{dir} に機器 {hosts} 台とプロファイル {profiles} 個を取り込んだ",
+    "{paths} already exist. To overwrite them (a .bak copy is kept): netcap import {file} --replace":
+        "{paths} がもうある。上書きするなら (.bak に残す): netcap import {file} --replace",
+    "kept the old {path} as {bak}": "元の {path} を {bak} に残した",
+    "skipped {names}: it was the exporting machine itself. To manage it from here: netcap install <name> --ssh <dest>":
+        "{names} は取り込まなかった: export した機械自身だったため。ここから管理するなら: netcap install <名前> --ssh <宛先>",
+    "removed the skipped devices from profiles: {profiles}": "取り込まなかった機器をプロファイルから外した: {profiles}",
+    "bad device name: {value!r}": "機器名が不正: {value!r}",
+    "bad OS for {name}: {value!r}": "{name} の OS が不正: {value!r}",
+    "bad route for {name}: {value!r}": "{name} の経路が不正: {value!r}",
+    "bad profile: {value!r}": "プロファイルが不正: {value!r}",
+    "cannot use {route!r} as a route (a Host name or user@host; it must not start with -)":
+        "{route!r} は経路に使えない (Host 名か user@host。- で始めてはいけない)",
+    "profile {profile} has an unknown device: {name}": "プロファイル {profile} に知らない機器がある: {name}",
+    "bad value in profile {profile}: {name}={value!r}": "プロファイル {profile} の値が不正: {name}={value!r}",
     # argparse's own words
     "usage: ": "使い方: ",
     "positional arguments": "位置引数",
@@ -818,10 +963,16 @@ def main():
     p = sub.add_parser("rename", help=_("rename a device in hosts and profiles"))
     p.add_argument("old")
     p.add_argument("new")
+    sub.add_parser("export", help=_("print hosts and profiles as JSON (no keys)"))
+    p = sub.add_parser("import", help=_("read hosts and profiles from an export"))
+    p.add_argument("file", help=_("a file from netcap export, or - for stdin"))
+    p.add_argument("--replace", action="store_true", help=_("overwrite existing hosts and profiles (keeps .bak copies)"))
 
     a = ap.parse_args()
-    if a.cmd in ("install", "uninstall", "rename"):
-        return {"install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename}[a.cmd](a)
+    commands = {"install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
+                "export": cmd_export, "import": cmd_import}
+    if a.cmd in commands:
+        return commands[a.cmd](a)
     load_hosts()
 
     if a.cmd in ("on", "set"):

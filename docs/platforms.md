@@ -32,6 +32,7 @@ come from reading the rules (only IPv4 ranges are exempt), not from a measuremen
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | `install` / `uninstall` / `rename` for this machine | ✅ | ✅ | ✅ |
 | `install` / `uninstall` with `--ssh` to other devices | ✅ | ❓ | ❓ |
+| `export` / `import` | ✅ | ✅ | ✅ |
 | Install with brew | ✅ | ❓ (Homebrew on Linux, not tested) | ❌ (curl or zip, see [host-setup.md](host-setup.md#where-the-scripts-are)) |
 | Help and errors in Japanese under a Japanese locale | ✅ | ✅ | ⚠️ English unless `LANG` / `LC_ALL` is set |
 

@@ -33,8 +33,8 @@ LOCAL = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 
 
-def sh(*cmd, env=None):
-    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+def sh(*cmd, env=None, input=None):
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, input=input)
 
 
 def install(boot="off", src=ROOT):
@@ -141,6 +141,17 @@ class E2E(unittest.TestCase):
         self.assertCap("on", "2", "3")
         self.netcap("use", "none")
         self.assertCap("off")
+
+    # docs/configuration.md: Export and import (on this machine, "self" is kept)
+    def test_15_export_import(self):
+        out = self.netcap("export")
+        other = Path(tempfile.mkdtemp())
+        p = sh(sys.executable, str(ROOT / "bin" / "netcap"), "import", "-", env={**self.env, "NETCAP_CONFIG_DIR": str(other)},
+               input=out)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        again = json.loads(sh(sys.executable, str(ROOT / "bin" / "netcap"), "export",
+                              env={**self.env, "NETCAP_CONFIG_DIR": str(other)}).stdout)
+        self.assertEqual((again["hosts"], again["profiles"]), (json.loads(out)["hosts"], json.loads(out)["profiles"]))
 
     # --- permissions: docs/host-setup.md ---
     def test_20_forced_command_denies(self):

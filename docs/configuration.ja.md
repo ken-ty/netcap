@@ -32,3 +32,23 @@ none    laptop=off  server=off  gamepc=off
 ```
 
 値は Mbit/s の `上り/下り` か `off`。小数も使える (`0.5/2`)。`0` はエラーで、netcap は受け付けず何も変えない (macOS の dummynet は 0 を無制限と読むので、「遮断」の意味にはできない)。上限を外すなら `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。
+
+## 書き出しと取り込み
+
+`netcap export` はこの機械の hosts と profiles を JSON で出し、`netcap import` がそれを読み戻す。
+バックアップや、管理する側を増やすとき ([operations.ja.md](operations.ja.md#管理する側が複数)) に使う。
+
+```bash
+netcap export > netcap.json
+netcap import netcap.json            # 同じ機械でも別の機械でも。- なら標準入力
+netcap import netcap.json --replace  # 今ある hosts と profiles を上書きする (hosts.bak と profiles.bak に残す)
+```
+
+- **秘密は書き出さない。** 鍵 (`~/.ssh/netcap` は置いたまま) も ssh の設定も入らない。経路は Host 名のままで、
+  取り込んだ機械の `~/.ssh/config` が解決する。上限や既定値も入らない。それらは端末の側にある
+- **この機械 (経路 `-`) は別の機械に引き継がない。** 別の機械で取り込むとその機械自身を指してしまうので、
+  取り込まずに (profiles からも外して) そう伝える。戻すなら `netcap install <名前> --ssh <宛先>`
+- **書き込む前に全部を検査する。** 名前、OS、経路、プロファイルの値。`-` で始まる経路は、ssh がオプションとして読む
+  (`-oProxyCommand=…` はコマンドを実行する) ので受け付けない。hosts を読むときも同じ検査をする
+- hosts と profiles のコメントは引き継がない
+- 新しい管理する側では、端末ごとに `netcap install <名前>` を流して、その機械自身の鍵を登録する
