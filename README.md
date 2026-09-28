@@ -122,6 +122,8 @@ netcap profiles                             list profiles
 netcap install [name] [--ssh DEST]          install the agent on a device and register it
 netcap uninstall <name>                     remove the agent and the registration
 netcap rename <old> <new>                   rename a device
+netcap export                               print hosts and profiles as JSON (no keys)
+netcap import <file|->                      read them back (--replace to overwrite)
 netcap --version
 ```
 

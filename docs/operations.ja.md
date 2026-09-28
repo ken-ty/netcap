@@ -39,8 +39,9 @@ CLI が入っていればどの機械も管理する側になれて、同じ端�
 - **profiles も管理する側ごと。** 同じレシピを使うなら `profiles` をコピーして、名前を合わせる
 - **鍵は管理する側ごとに登録する。** 端末に agent は 1 つで、`authorized_keys` の行が管理する側の数だけ並ぶ
 
-管理する側を増やすには、その機械に CLI を入れ、そこから `netcap install` を流す。自分自身は `netcap install`、
-各端末は `netcap install --ssh <宛先>`。端末のインストーラがもう一度流れるが害は無い。気をつけるのは 2 つ:
+管理する側を増やすには、その機械に CLI を入れ、`netcap export` / `netcap import` で設定を持ってきて
+([configuration.ja.md](configuration.ja.md#書き出しと取り込み))、そこから `netcap install` を流す。自分自身は `netcap install`、
+取り込んだ各端末は `netcap install <名前>`。端末のインストーラがもう一度流れるが害は無い。気をつけるのは 2 つ:
 
 - **1 つの端末には、どの管理する側からも同じ ssh ユーザーで入る。** 端末の sudoers は、最後にインストーラを流した
   ユーザーだけを許す (macOS / Linux)。別のユーザーで入る管理する側は `no-sudo` になる
