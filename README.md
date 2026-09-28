@@ -98,6 +98,8 @@ For the file format, see [docs/configuration.md](docs/configuration.md); for wha
 | Controller (CLI) | ✅ | ✅ | ✅ |
 | Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload only (NetQosPolicy) |
 
+Feature by feature: [docs/platforms.md](docs/platforms.md).
+
 ## Use cases
 
 - **Protect latency** — keep other devices' big downloads from choking games or video calls
@@ -133,6 +135,7 @@ Help and error messages follow your locale (`LANG`); Japanese is available. `LC_
 - [docs/host-setup.md](docs/host-setup.md) — device setup and ssh permissions
 - [docs/configuration.md](docs/configuration.md) — config file format
 - [docs/operations.md](docs/operations.md) — reboots, power loss, more than one controller
+- [docs/platforms.md](docs/platforms.md) — what each OS supports
 - [docs/design.md](docs/design.md) — design decisions and measurements
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development and releases
 
