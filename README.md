@@ -134,6 +134,8 @@ Help and error messages follow your locale (`LANG`); Japanese is available. `LC_
 
 ## Documentation
 
+- [docs/why.md](docs/why.md) — compared with router QoS and other tools: when to choose netcap
+- [docs/vision.md](docs/vision.md) — what netcap is for, where it is going, and what it will not do
 - [docs/host-setup.md](docs/host-setup.md) — device setup and ssh permissions
 - [docs/configuration.md](docs/configuration.md) — config file format
 - [docs/operations.md](docs/operations.md) — reboots, power loss, more than one controller
