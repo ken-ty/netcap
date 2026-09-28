@@ -58,7 +58,11 @@ if ($verb -eq 'check') {
 }
 
 # Only on / set take numbers. The other verbs take no arguments
-foreach ($a in $rest) { if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" } }
+foreach ($a in $rest) {
+  if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" }
+  # 0 is refused on every OS, as the CLI does
+  if ($a -notmatch '[1-9]') { Deny "arguments must be greater than 0: $a" }
+}
 if ($verb -eq 'get') {
   # Add the agent's version to the key=value line
   $out = @(& (Join-Path $Dir 'netshape.ps1') get)

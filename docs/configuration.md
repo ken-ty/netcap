@@ -29,4 +29,4 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-A value is `up/down` (positive Mbit/s; 0 is refused, since dummynet on macOS reads it as unlimited) or `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).
+A value is `up/down` in Mbit/s or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).
