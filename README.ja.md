@@ -125,12 +125,16 @@ netcap rename <old> <new>                   端末の名前を変える
 netcap --version
 ```
 
+値は Mbit/s で、小数も使える。`0` はエラー (何も変わらない)。上限を外すなら `off`。
+再起動・電源断・管理する側が複数あるときの挙動は [docs/operations.ja.md](docs/operations.ja.md)。
+
 ヘルプとエラーはロケール (`LANG`) に従い、日本語でも出る。英語で見たいときは `LC_ALL=C netcap -h`。
 
 ## ドキュメント
 
 - [docs/host-setup.ja.md](docs/host-setup.ja.md) — 端末側のセットアップと許可
 - [docs/configuration.ja.md](docs/configuration.ja.md) — 設定ファイルの書式
+- [docs/operations.ja.md](docs/operations.ja.md) — 再起動・電源断・管理する側が複数のとき
 - [docs/design.ja.md](docs/design.ja.md) — 設計判断と実測
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 開発とリリース
 

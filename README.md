@@ -123,12 +123,16 @@ netcap rename <old> <new>                   rename a device
 netcap --version
 ```
 
+Values are Mbit/s and may be decimals. `0` is an error (nothing changes); to lift a cap, use `off`.
+What happens on reboots, power loss, and with more than one controller: [docs/operations.md](docs/operations.md).
+
 Help and error messages follow your locale (`LANG`); Japanese is available. `LC_ALL=C netcap -h` shows English.
 
 ## Documentation
 
 - [docs/host-setup.md](docs/host-setup.md) — device setup and ssh permissions
 - [docs/configuration.md](docs/configuration.md) — config file format
+- [docs/operations.md](docs/operations.md) — reboots, power loss, more than one controller
 - [docs/design.md](docs/design.md) — design decisions and measurements
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development and releases
 

@@ -151,6 +151,12 @@ class E2E(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("netcap-agent: arguments must be numbers", p.stderr)
 
+    # docs/configuration.md: 0 is an error and changes nothing, also for a controller that skips the CLI's check
+    def test_22_zero_is_refused(self):
+        p = agent("--allow", "on", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} on 0 1"})
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("netcap-agent: arguments must be greater than 0", p.stderr)
+
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
         self.netcap("on", "self")
