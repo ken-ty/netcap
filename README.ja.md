@@ -136,6 +136,8 @@ netcap --version
 
 ## ドキュメント
 
+- [docs/why.ja.md](docs/why.ja.md) — ルーターの QoS や他のツールとの比較。netcap を選ぶとき
+- [docs/vision.ja.md](docs/vision.ja.md) — netcap が何のためにあり、どこへ向かい、何をしないか
 - [docs/host-setup.ja.md](docs/host-setup.ja.md) — 端末側のセットアップと許可
 - [docs/configuration.ja.md](docs/configuration.ja.md) — 設定ファイルの書式
 - [docs/operations.ja.md](docs/operations.ja.md) — 再起動・電源断・管理する側が複数のとき

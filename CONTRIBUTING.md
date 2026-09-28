@@ -14,6 +14,15 @@
 | `tests/` | Tests that follow the behavior promised by the README and docs |
 | `.github/workflows/ci.yml` | CI. E2E runs on a macOS / Linux / Windows matrix |
 
+## Direction
+
+[docs/vision.md](docs/vision.md) is the yardstick for changes. A change should move netcap toward it:
+
+- Work on a gap starts from its issue (label [`vision-gap`](https://github.com/ken-ty/netcap/labels/vision-gap)).
+  The PR that closes it updates the "Ideal and current" table
+- A proposal that falls under the non-goals is declined, however useful it is on its own
+- Changing the job, the principles, or the non-goals is a decision of its own: open an issue before the PR
+
 ## Tests
 
 ```bash
