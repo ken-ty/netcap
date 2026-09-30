@@ -14,6 +14,7 @@
   netcap rename <old> <new>                   rename a device in hosts and profiles
   netcap export                               print hosts and profiles as JSON (no keys)
   netcap import <file|->                      read them back, on this or another machine
+  netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
   netcap --version                            version (also -v)
 
 The command layout is borrowed from tailscale. status (real state) and get (settings) are separate
@@ -652,6 +653,94 @@ def cmd_rename(a):
     return 0
 
 
+# --- doctor --------------------------------------------------------------------------------------
+# A netcap key line without its forced command lets whoever holds the key run anything on that device: an elevated
+# shell on Windows, where no sudoers stands behind it. netcap install writes the line correctly; doctor finds one
+# written by hand. It reads the file over the user's own login, since the netcap key only reaches the agent.
+
+KEYS_FILE = {"mac": "~/.ssh/authorized_keys", "linux": "~/.ssh/authorized_keys",
+             "win": r"C:\ProgramData\ssh\administrators_authorized_keys"}
+
+
+def key_state(text, blob):
+    """This controller's key in an authorized_keys file: "ok" (restrict and a forced command for the agent),
+    "unrestricted" (there without them), or "missing"."""
+    state = "missing"
+    for line in text.splitlines():
+        words = line.split()
+        if blob not in words:
+            continue
+        opts = " ".join(words[:max(words.index(blob) - 1, 0)])  # everything before the key type
+        if not (re.search(r"(^|,)restrict(,|$)", opts) and re.search(r'(^|,)command="[^"]*netcap-agent', opts)):
+            return "unrestricted"  # sshd may take this line, so one bad line is enough
+        state = "ok"
+    return state
+
+
+def read_keys(host):
+    h = HOSTS[host]
+    if h["os"] == "win":
+        return powershell(h["ssh"], WIN_KEYS + "if (Test-Path $f) { [IO.File]::ReadAllText($f) }")
+    return ssh_plain(h["ssh"], "cat ~/.ssh/authorized_keys 2>/dev/null || true")
+
+
+def doctor_note(r):
+    if r["reach"] == "-":
+        return _("this machine: netcap runs the agent directly, no key")
+    if r["reach"] != "ok":
+        return note(r)
+    return "" if r["key"] == "ok" else r["file"]
+
+
+DOCTOR_COLS = [
+    ("host", 7, lambda r: r["host"]),
+    ("reach", 12, lambda r: r["reach"]),
+    ("key", 13, lambda r: r["key"]),
+    ("note", 0, doctor_note),
+]
+
+
+def cmd_doctor(a):
+    load_hosts()
+    pub_path = KEY.with_suffix(".pub")
+    if not pub_path.exists():
+        sys.exit(_("no netcap key on this machine yet ({key}). Register a device first: netcap install <name>")
+                 .format(key=pub_path))
+    pub = pub_path.read_text().strip()
+    blob = pub.split()[1]
+
+    def one(host):
+        h = HOSTS[host]
+        if h["ssh"] is None:
+            return {"host": host, "reach": "-", "key": "-", "raw": ""}
+        p = read_keys(host)
+        r = {"host": host, "file": KEYS_FILE[h["os"]], "raw": p.err}
+        if p.returncode == 255:
+            r.update(reach="unreachable", key="?")
+        elif p.returncode != 0:
+            r.update(reach="error", key="?")
+        else:
+            r.update(reach="ok", key=key_state(p.out, blob))
+        return r
+
+    hosts = resolve(a.host, default_all=True)
+    with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
+        rows = list(ex.map(one, hosts))
+    if a.json:
+        print(json.dumps(rows, ensure_ascii=False, indent=2))
+    else:
+        print_table(rows, DOCTOR_COLS)
+        for r in rows:
+            if r["key"] == "unrestricted":
+                print("\n" + _("WARNING: {host}: the netcap key in {file} has no forced command, so whoever holds {key} "
+                               "can run anything there (as Administrator on Windows). Replace its line with:")
+                      .format(host=r["host"], file=r["file"], key=KEY))
+                print("  " + key_line(HOSTS[r["host"]]["os"], pub))
+            elif r["key"] == "missing":
+                print("\n" + _("{host}: the netcap key is not registered there. Run: netcap install {host}").format(host=r["host"]))
+    return 0 if all(r["key"] in ("ok", "-") for r in rows) else 1
+
+
 # --- export / import -----------------------------------------------------------------------------
 # The settings of this controller as JSON: hosts and profiles. Nothing secret goes in: no keys, and routes stay
 # ssh Host names, resolved by the importing machine's own ~/.ssh/config. The caps and defaults live on the devices.
@@ -778,6 +867,7 @@ JA = {
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
   netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
   netcap import <file|->                      それを読み戻す (この機械でも別の機械でも)
+  netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
   netcap --version                            バージョン (-v でも可)
 
 コマンドの形は tailscale に倣っている。status (実際の状態) と get (設定) は別のコマンドで、
@@ -902,6 +992,16 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "{route!r} は経路に使えない (Host 名か user@host。- で始めてはいけない)",
     "profile {profile} has an unknown device: {name}": "プロファイル {profile} に知らない機器がある: {name}",
     "bad value in profile {profile}: {name}={value!r}": "プロファイル {profile} の値が不正: {name}={value!r}",
+    "check that each device's netcap key is pinned to its forced command": "各端末の netcap の鍵が forced command に固定されているか確かめる",
+    "this machine: netcap runs the agent directly, no key": "この機器: agent を直接動かすので鍵は使わない",
+    "no netcap key on this machine yet ({key}). Register a device first: netcap install <name>":
+        "この機械にはまだ netcap の鍵が無い ({key})。先に端末を登録する: netcap install <名前>",
+    "WARNING: {host}: the netcap key in {file} has no forced command, so whoever holds {key} "
+    "can run anything there (as Administrator on Windows). Replace its line with:":
+        "警告: {host}: {file} にある netcap の鍵に forced command が無い。{key} を持つ者はそこで何でも実行できる "
+        "(Windows では管理者として)。その行を次に置き換える:",
+    "{host}: the netcap key is not registered there. Run: netcap install {host}":
+        "{host}: netcap の鍵が登録されていない。実行する: netcap install {host}",
     # argparse's own words
     "usage: ": "使い方: ",
     "positional arguments": "位置引数",
@@ -969,10 +1069,12 @@ def main():
     p = sub.add_parser("import", help=_("read hosts and profiles from an export"))
     p.add_argument("file", help=_("a file from netcap export, or - for stdin"))
     p.add_argument("--replace", action="store_true", help=_("overwrite existing hosts and profiles (keeps .bak copies)"))
+    p = sub.add_parser("doctor", help=_("check that each device's netcap key is pinned to its forced command"))
+    add_target(p, optional=True)
 
     a = ap.parse_args()
     commands = {"install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
-                "export": cmd_export, "import": cmd_import}
+                "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor}
     if a.cmd in commands:
         return commands[a.cmd](a)
     load_hosts()

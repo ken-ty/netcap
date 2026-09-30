@@ -131,6 +131,8 @@ would skip the forced command too.
 - Only the verbs listed in `--allow` get through. For a read-only device, use `'status get check'`
 - `restrict` disables the shell, pty, and forwarding. The agent only splits arguments on whitespace and never interprets them as a shell
 - Windows has no second gate like sudoers, so the forced command is the only gate
+- `netcap doctor` reads each device's file and warns about a line for this machine's key that lacks `restrict` or the
+  forced command (`unrestricted`), printing the line to put in its place. It exits non-zero unless every device is `ok`
 - Windows' sshd silently ignores `administrators_authorized_keys` if it is UTF-16 (what `>>` writes in Windows PowerShell 5)
   or writable by anyone but SYSTEM and Administrators. Write UTF-8, and give a new file
   `icacls <file> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"`

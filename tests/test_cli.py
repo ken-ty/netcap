@@ -37,6 +37,17 @@ FAKE_SSH = textwrap.dedent("""\
         sys.exit(subprocess.run(["sh", "-s"], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
     if "sudo bash" in cmd:
         sys.exit(0)
+    # What netcap doctor reads: the device's keys file, served from FAKE_REMOTE_HOME
+    if host != "h-unreachable" and cmd.startswith("cat ~/.ssh/authorized_keys"):
+        import subprocess
+        sys.exit(subprocess.run(["sh", "-c", cmd], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
+    if "-EncodedCommand" in cmd:
+        import base64
+        if "administrators_authorized_keys" in base64.b64decode(cmd.split()[-1]).decode("utf-16-le"):
+            f = os.path.join(os.environ["FAKE_REMOTE_HOME"], "administrators_authorized_keys")
+            if os.path.exists(f):
+                print(open(f).read(), end="")
+            sys.exit(0)
     ok = "netshape state={s} up_mbit={u} down_mbit={u} down_src=applied pipes=2 rules=2"
     if host == "h-off":
         print(ok.format(s="off", u="-"))
@@ -249,6 +260,76 @@ class CLI(unittest.TestCase):
         p = self.netcap("install", "off", "--ssh", "h-new", env=self.install_env())
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("netcap rename off", p.stderr)
+
+    # docs/host-setup.md: netcap doctor finds a netcap key line without its forced command
+    PUB = "ssh-ed25519 AAAAnetcap netcap@test"
+
+    def doctor_env(self, hosts):
+        env = self.install_env()
+        (self.tmp / "home" / ".ssh").mkdir(exist_ok=True)
+        (self.tmp / "home" / ".ssh" / "netcap.pub").write_text(self.PUB + "\n")
+        (self.tmp / "remote" / ".ssh").mkdir(exist_ok=True)
+        (self.conf / "hosts").write_text(hosts)
+        return env
+
+    def test_key_state(self):
+        mod = load_netcap()
+        # Whatever install writes passes, on every OS
+        for os_ in ("mac", "linux", "win"):
+            with self.subTest(os=os_):
+                self.assertEqual(mod.key_state(mod.key_line(os_, self.PUB), "AAAAnetcap"), "ok")
+        good = mod.key_line("mac", self.PUB)
+        cases = {
+            "ssh-ed25519 AAAAmine me@laptop\n" + good: "ok",
+            self.PUB: "unrestricted",  # added by hand, no options
+            "restrict " + self.PUB: "unrestricted",  # restrict alone still runs any command
+            'command="/Library/PrivilegedHelperTools/netcap-agent" ' + self.PUB: "unrestricted",  # no restrict
+            'restrict,command="/bin/sh" ' + self.PUB: "unrestricted",  # not the agent
+            good + "\n" + self.PUB: "unrestricted",  # one bad line is enough
+            "ssh-ed25519 AAAAmine me@laptop": "missing",
+            "": "missing",
+        }
+        for text, want in cases.items():
+            with self.subTest(text=text[:60]):
+                self.assertEqual(mod.key_state(text, "AAAAnetcap"), want)
+
+    def test_doctor(self):
+        env = self.doctor_env("me mac -\nbox mac h-box\n")
+        keys = self.tmp / "remote" / ".ssh" / "authorized_keys"
+        good = load_netcap().key_line("mac", self.PUB)
+        keys.write_text("ssh-ed25519 AAAAmine me@laptop\n" + good + "\n")
+        p = self.netcap("doctor", env=env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r"(?m)^box\s+ok\s+ok\s*$")
+        self.assertRegex(p.stdout, r"(?m)^me\s+-\s+-\s+this machine")
+        # A line added by hand without the forced command
+        keys.write_text(self.PUB + "\n")
+        p = self.netcap("doctor", "box", env=env)
+        self.assertEqual(p.returncode, 1)
+        self.assertRegex(p.stdout, r"(?m)^box\s+ok\s+unrestricted\s+~/.ssh/authorized_keys$")
+        self.assertIn("WARNING: box", p.stdout)
+        self.assertIn("\n  " + good + "\n", p.stdout)
+        # Not registered
+        keys.write_text("ssh-ed25519 AAAAmine me@laptop\n")
+        p = self.netcap("doctor", "box", env=env)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("Run: netcap install box", p.stdout)
+        self.assertEqual(json.loads(self.netcap("doctor", "box", "--json", env=env).stdout)[0]["key"], "missing")
+
+    def test_doctor_windows_and_unreachable(self):
+        env = self.doctor_env("gpc win h-gpc\ndown mac h-unreachable\n")
+        (self.tmp / "remote" / "administrators_authorized_keys").write_text(
+            load_netcap().key_line("win", self.PUB) + "\r\n")
+        p = self.netcap("doctor", env=env)
+        self.assertEqual(p.returncode, 1)  # one device could not be checked
+        self.assertRegex(p.stdout, r"(?m)^gpc\s+ok\s+ok\s*$")
+        self.assertRegex(p.stdout, r"(?m)^down\s+unreachable\s+\?\s")
+
+    def test_doctor_without_a_key(self):
+        self.hosts("off")
+        p = self.netcap("doctor", env=self.install_env())
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("netcap install", p.stderr)
 
     # README: the name can be changed later
     def test_rename(self):
