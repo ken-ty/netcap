@@ -43,6 +43,8 @@ pipe 番号は機械全体で共有なので、pipe 1 / 2 を使う Network Link
 
 - 既定の経路のインターフェースの root qdisc を自分の HTB (handle `ca9:`) に差し替え、`off` で消して既定に戻す。
   他の道具が root に qdisc を置いていれば、差し替えずに止まる
+- 既定の経路が無ければ、`on` は諦める前に最大 3 秒待つ。Ubuntu 24.04 の systemd-networkd は起動後最初の `on` で
+  落ちることがあり、再起動する間だけ DHCP の経路が消える ([#42](https://github.com/ken-ty/netcap/issues/42))
 - 下りは受信を `ifb-netcap` に折り返して、そこの HTB で絞る。受信側に他の道具のフィルタがあれば止まる
   (先に判定を確定させるフィルタがあると、下りが黙って絞れない)
 - 素通しの宛先と ICMP・DNS は、絞らないクラスへ振り分ける

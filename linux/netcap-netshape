@@ -97,8 +97,14 @@ on() {
     UP_MBIT=$1
     DOWN_MBIT=$2
   fi
+  # The default route can be gone for a moment: systemd-networkd (Ubuntu 24.04) crashes on the first on
+  # after boot and drops the DHCP routes while it restarts (#42). Wait up to 3 seconds for it
   local dev
-  dev=$(wan_dev)
+  for _ in $(seq 30); do
+    dev=$(wan_dev)
+    [ -z "$dev" ] || break
+    sleep 0.1
+  done
   [ -n "$dev" ] || { echo "no default route (ip route get 1.1.1.1)" >&2; exit 3; }
   require_free "$dev"
   off >/dev/null
