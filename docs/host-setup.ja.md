@@ -130,6 +130,8 @@ agent しか動かず、無い端末では自分の鍵に戻る。このとき�
 - `--allow` に並べた動詞しか通らない。読むだけにしたい端末は `'status get check'` にする
 - `restrict` でシェル・pty・転送を切る。agent は引数を空白で区切るだけで、シェルとして解釈しない
 - Windows には sudoers に当たる二段目が無く、forced command が唯一の関門になる
+- `netcap doctor` は各端末のファイルを読み、この機械の鍵の行に `restrict` か forced command が欠けていれば警告する
+  (`unrestricted`)。置き換える行も表示する。全端末が `ok` でなければ 0 以外で終わる
 - Windows の sshd は、`administrators_authorized_keys` が UTF-16 (Windows PowerShell 5 の `>>` が書く形) だったり、
   SYSTEM と Administrators 以外が書けたりすると、黙って無視する。UTF-8 で書き、新しく作ったファイルには
   `icacls <ファイル> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"` をかける

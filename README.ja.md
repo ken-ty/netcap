@@ -126,6 +126,7 @@ netcap uninstall <name>                     agent と登録を外す
 netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
 netcap import <file|->                      それを読み戻す (--replace で上書き)
+netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
 netcap --version
 ```
 
