@@ -118,6 +118,19 @@ class CLI(unittest.TestCase):
         os.environ.update(PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log))
         self.assertEqual(mod.run("slow", "status")["reach"], "timeout")
 
+    # docs/host-setup.md: with the netcap key, it is the only key offered, so ssh-agent's keys cannot skip the forced command
+    def test_only_the_netcap_key_is_offered(self):
+        mod = load_netcap()
+        mod.HOSTS["box"] = {"os": "mac", "ssh": "h-box"}
+        mod.KEY = self.tmp / "netcap"
+        self.assertNotIn("IdentitiesOnly=yes", mod.build_cmd("box", "status", []))  # no key yet: the user's own keys
+        mod.KEY.write_text("key")
+        cmd = mod.build_cmd("box", "status", [])
+        i = cmd.index("-i")
+        self.assertEqual(cmd[i + 1], str(mod.KEY))
+        self.assertIn("IdentitiesOnly=yes", cmd[:cmd.index("h-box")])
+        self.assertIn("ControlPath=none", cmd[:cmd.index("h-box")])
+
     # docs/host-setup.md: Reading the table, cap and note
     def test_cap_and_note(self):
         self.hosts("off", "on", "partial", "error")

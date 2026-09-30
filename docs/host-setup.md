@@ -121,9 +121,12 @@ On a controlled Windows device, for an administrator's key, add to `C:\ProgramDa
 restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<this-machine>
 ```
 
-Put your usual ssh Host in the route column of `hosts`. netcap offers `~/.ssh/netcap` first, so a device that has the line
-above only runs the agent, and one without it falls back to your own keys. It also turns off connection sharing
-(`ControlPath=none`) for this: a shared `ControlMaster` connection from your own login would skip the forced command.
+Put your usual ssh Host in the route column of `hosts`. Once `~/.ssh/netcap` exists, netcap offers only that key
+(`IdentitiesOnly=yes`), so a device that has the line above runs nothing but the agent. Without it, ssh would offer the keys
+in ssh-agent first, and a device that also trusts your own key would take that one and skip the forced command.
+So a device must have the netcap key: for one you added to `hosts` by hand, run `netcap install <name>`.
+netcap also turns off connection sharing (`ControlPath=none`): a shared `ControlMaster` connection from your own login
+would skip the forced command too.
 
 - Only the verbs listed in `--allow` get through. For a read-only device, use `'status get check'`
 - `restrict` disables the shell, pty, and forwarding. The agent only splits arguments on whitespace and never interprets them as a shell
