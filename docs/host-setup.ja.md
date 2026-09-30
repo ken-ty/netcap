@@ -123,9 +123,12 @@ restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status ge
 restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<この機械>
 ```
 
-`hosts` の経路には、ふだん使っている ssh の Host を書く。netcap は `~/.ssh/netcap` を最初に差し出すので、上の行がある端末では
-agent しか動かず、無い端末では自分の鍵に戻る。このとき接続の共有も切る (`ControlPath=none`)。自分のログインで張った
-`ControlMaster` の接続に相乗りすると、forced command を素通りするため。
+`hosts` の経路には、ふだん使っている ssh の Host を書く。`~/.ssh/netcap` があれば netcap はその鍵だけを差し出す
+(`IdentitiesOnly=yes`) ので、上の行がある端末では agent しか動かない。これが無いと ssh は ssh-agent の鍵を先に差し出し、
+自分の鍵も信頼している端末はそちらを受け入れて forced command を素通りする。
+そのため端末には netcap の鍵が要る。`hosts` に手で足した端末には `netcap install <名前>` を実行する。
+接続の共有も切る (`ControlPath=none`)。自分のログインで張った `ControlMaster` の接続に相乗りしても、
+forced command を素通りするため。
 
 - `--allow` に並べた動詞しか通らない。読むだけにしたい端末は `'status get check'` にする
 - `restrict` でシェル・pty・転送を切る。agent は引数を空白で区切るだけで、シェルとして解釈しない

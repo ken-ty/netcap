@@ -65,7 +65,7 @@ LINUX_AGENT = "/usr/libexec/netcap/netcap-agent"
 WIN_AGENT = r"C:\ProgramData\netcap\netcap-agent.ps1"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=5"]
 # The key netcap install registers on devices, pinned there to the agent (forced command).
-# It is offered first; a device without it falls back to the keys of the user's own ssh config
+# Once it exists, it is the only key offered (IdentitiesOnly=yes), so a device needs it registered
 KEY = Path.home() / ".ssh" / "netcap"
 VERBS = "status get check on off set"
 # check does not return until the transfer ends. Capped at 1 Mbit/s, 1MB takes almost 10 seconds
@@ -98,9 +98,11 @@ def build_cmd(host, action, args):
     if h["ssh"] is None:
         return remote
     # OpenSSH on Windows splits the arguments too, so this form works there as well
+    # IdentitiesOnly=yes: otherwise ssh offers the keys in ssh-agent first, and a device that also trusts the
+    # user's own key takes that one and skips the forced command (measured with OpenSSH 10.3, issue #38).
     # ControlPath=none: a shared connection (ControlMaster) from the user's own login would carry the request
     # past the netcap key and its forced command
-    key = ["-i", str(KEY), "-o", "ControlPath=none"] if KEY.exists() else []
+    key = ["-i", str(KEY), "-o", "IdentitiesOnly=yes", "-o", "ControlPath=none"] if KEY.exists() else []
     return ["ssh", *SSH_OPTS, *key, h["ssh"], " ".join(shlex.quote(a) for a in remote)]
 
 
