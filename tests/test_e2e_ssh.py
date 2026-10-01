@@ -10,6 +10,7 @@ The Host must accept your own key (BatchMode). The test installs netcap there wi
 needed, and removes netcap from the device and the key from its authorized_keys at the end.
 Do not point it at a device you manage with that key.
 """
+import base64
 import json
 import os
 import subprocess
@@ -105,11 +106,21 @@ class OverSsh(unittest.TestCase):
         self.assertCap("off")
 
     def test_99_uninstall(self):
-        self.netcap("uninstall", "dev")
+        os_ = self.os_()
+        # Output goes to the terminal, as in setUpClass: sudo on the device may ask for a password
+        p = subprocess.run([sys.executable, str(ROOT / "bin" / "netcap"), "uninstall", "dev"], env=self.env)
+        self.assertEqual(p.returncode, 0)
         self.assertNotIn("dev", (self.conf / "hosts").read_text().split())
-        # The device no longer accepts the netcap key
-        p = netcap_key_ssh("status")
-        self.assertEqual(p.returncode, 255, p.stdout + p.stderr)
+        # The netcap key is gone from the device. Read the file with your own key: a request with the netcap key
+        # proves nothing, since ssh falls back to an IdentityFile from ~/.ssh/config once that key is refused
+        if os_ == "win":
+            script = r"Get-Content -Raw (Join-Path $env:ProgramData 'ssh\administrators_authorized_keys')"
+            cmd = "powershell -NoProfile -EncodedCommand " + base64.b64encode(script.encode("utf-16-le")).decode()
+        else:
+            cmd = "cat ~/.ssh/authorized_keys 2>/dev/null || true"
+        keys = sh("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", DEST, cmd)
+        self.assertEqual(keys.returncode, 0, keys.stderr)
+        self.assertNotIn(KEY.with_suffix(".pub").read_text().split()[1], keys.stdout)
 
 
 if __name__ == "__main__":
