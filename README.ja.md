@@ -35,11 +35,13 @@
 
 ```bash
 brew tap ken-ty/netcap https://github.com/ken-ty/netcap
+brew trust ken-ty/netcap   # Homebrew 7 以降は信頼した tap の formula しか読まない
 brew install netcap
 netcap install          # この端末を使える状態にする。名前を聞かれる (Enter で "me")
 ```
 
 `netcap install` はパスワードを 1 回聞く (sudo。Windows は管理者として実行する)。要るのは Python 3 だけ。
+Homebrew 7 より前には `brew trust` が無く、要りもしない。その行は飛ばす。
 brew を使わないときは [docs/host-setup.ja.md](docs/host-setup.ja.md) を見る。
 
 ### 2. 自分の回線で試す

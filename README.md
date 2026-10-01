@@ -33,11 +33,13 @@ Each device enforces its own cap, so the router you already have (even the one y
 
 ```bash
 brew tap ken-ty/netcap https://github.com/ken-ty/netcap
+brew trust ken-ty/netcap   # Homebrew 7 and later load formulae only from trusted taps
 brew install netcap
 netcap install          # sets up this machine; asks for a name (Enter gives "me")
 ```
 
 `netcap install` asks for your password once (sudo; on Windows, run it as Administrator). Needs only Python 3.
+Homebrew before 7 has no `brew trust` and needs none: skip that line.
 Without brew, see [docs/host-setup.md](docs/host-setup.md).
 
 ### 2. Try it on your own line

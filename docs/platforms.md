@@ -33,7 +33,7 @@ come from reading the rules (only IPv4 ranges are exempt), not from a measuremen
 | `install` / `uninstall` / `rename` for this machine | ✅ | ✅ | ✅ |
 | `install` / `uninstall` with `--ssh` to other devices | ✅ | ✅ | ✅ |
 | `export` / `import` | ✅ | ✅ | ✅ |
-| Install with brew | ✅ | ❓ (Homebrew on Linux, not tested) | ❌ (curl or zip, see [host-setup.md](host-setup.md#where-the-scripts-are)) |
+| Install with brew | ✅ | ✅ (Homebrew on Linux) | ❌ (curl or zip, see [host-setup.md](host-setup.md#where-the-scripts-are)) |
 | Help and errors in Japanese under a Japanese locale | ✅ | ✅ | ⚠️ English unless `LANG` / `LC_ALL` is set |
 
 The CLI needs only Python 3 and the OpenSSH client.
