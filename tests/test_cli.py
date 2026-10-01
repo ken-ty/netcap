@@ -15,6 +15,7 @@ import sys
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +26,9 @@ FAKE_SSH = textwrap.dedent("""\
     #!/usr/bin/env python3
     import os, sys, time
     host, cmd = sys.argv[-2], sys.argv[-1]
+    if "-EncodedCommand" in cmd:  # log and match the PowerShell script, not its base64
+        import base64
+        cmd = "powershell " + base64.b64decode(cmd.split()[-1]).decode("utf-16-le")
     with open(os.environ["FAKE_SSH_LOG"], "a") as f:
         f.write(f"{host} {cmd}\\n")
     # What netcap install asks a new device (h-new, a Mac). authorized_keys lives under FAKE_REMOTE_HOME
@@ -41,9 +45,10 @@ FAKE_SSH = textwrap.dedent("""\
     if host != "h-unreachable" and cmd.startswith("cat ~/.ssh/authorized_keys"):
         import subprocess
         sys.exit(subprocess.run(["sh", "-c", cmd], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
-    if "-EncodedCommand" in cmd:
-        import base64
-        if "administrators_authorized_keys" in base64.b64decode(cmd.split()[-1]).decode("utf-16-le"):
+    if cmd.startswith("powershell "):
+        if "NewGuid" in cmd:
+            print("C:\\\\Temp\\\\netcap-1"); sys.exit(0)
+        if "administrators_authorized_keys" in cmd:
             f = os.path.join(os.environ["FAKE_REMOTE_HOME"], "administrators_authorized_keys")
             if os.path.exists(f):
                 print(open(f).read(), end="")
@@ -79,7 +84,8 @@ class CLI(unittest.TestCase):
         ssh.write_text(FAKE_SSH)
         ssh.chmod(0o755)
         scp = self.tmp / "bin" / "scp"
-        scp.write_text("#!/bin/sh\necho \"scp $*\" >> \"$FAKE_SSH_LOG\"\n")
+        # Copying to h-scpfail fails
+        scp.write_text("#!/bin/sh\necho \"scp $*\" >> \"$FAKE_SSH_LOG\"\ncase \"$*\" in *h-scpfail:*) exit 1;; esac\n")
         scp.chmod(0o755)
         self.log = self.tmp / "ssh.log"
         self.log.touch()
@@ -243,6 +249,18 @@ class CLI(unittest.TestCase):
         self.assertIn("/mac/uninstall.sh", self.log.read_text())
         self.assertEqual(self.remote_keys(), [])
         self.assertNotIn("box", (self.conf / "hosts").read_text())
+
+    # A failed copy still removes the temporary directory made on the device
+    def test_failed_copy_removes_the_device_temp_dir(self):
+        mod = load_netcap()
+        for os_, script, rm in (("mac", "install.sh", "rm -rf /tmp/netcap.abc123"),
+                                ("win", "install.ps1", "Remove-Item -Recurse -Force 'C:\\Temp\\netcap-1'")):
+            with self.subTest(os=os_), mock.patch.dict(os.environ, PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log)):
+                self.log.write_text("")
+                self.assertNotEqual(mod.run_device_script("h-scpfail", os_, script), 0)
+                log = self.log.read_text()
+                self.assertIn("scp -q -r", log)
+                self.assertIn(rm, log)
 
     def test_install_keeps_other_keys(self):
         env = self.install_env()
