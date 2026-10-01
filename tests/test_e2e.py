@@ -181,6 +181,17 @@ class E2E(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertTrue(p.stdout.startswith("netshape "), p.stdout)
 
+    # Windows' sshd runs the forced command through cmd.exe unless DefaultShell is set, and cmd.exe does not group
+    # '…': the agent gets --allow 'status get' as two words with the quotes on them (#57)
+    @unittest.skipUnless(OS == "win", "only cmd.exe leaves the quotes to the agent")
+    def test_24_allow_split_by_cmd(self):
+        p = agent("--allow", "'status", "get'", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} status"})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(p.stdout.startswith("netshape "), p.stdout)
+        p = agent("--allow", "'status", "get'", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} on"})
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("netcap-agent: not allowed for this key: on", p.stderr)
+
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
         self.netcap("on", "self")

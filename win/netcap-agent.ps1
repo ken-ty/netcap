@@ -29,8 +29,11 @@ function Deny([string]$m) {
 $words = @($args)
 $allowed = $Verbs
 if ($words.Count -ge 1 -and $words[0] -eq '--allow') {
-  if ($words.Count -ne 2) { Deny "usage: netcap-agent.ps1 --allow '<verb> …'" }
-  $allowed = @($words[1] -split '\s+' | Where-Object { $_ })
+  if ($words.Count -lt 2) { Deny "usage: netcap-agent.ps1 --allow '<verb> …'" }
+  # sshd runs this line through its default shell. PowerShell passes '<verb> …' as one word, but cmd.exe (the default
+  # unless DefaultShell is set) does not group '…', so the verbs arrive as several words with the quotes on them (#57)
+  $allowed = @((($words | Select-Object -Skip 1) -join ' ') -split '\s+' |
+               ForEach-Object { $_.Trim("'", '"') } | Where-Object { $_ })
   $orig = $env:SSH_ORIGINAL_COMMAND
   if (-not $orig) { Deny "call with a command (allowed verbs: $($allowed -join ' '))" }
   # The requested command is only split on whitespace. Quotes and expressions are not interpreted
