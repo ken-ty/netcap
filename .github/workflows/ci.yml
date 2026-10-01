@@ -100,3 +100,26 @@ jobs:
         env:
           NETCAP_E2E_SSH: netcap-dev
           PYTHONUTF8: "1"
+
+  # docs/platforms.md: install with brew on Linux. The runner image has Homebrew in /home/linuxbrew, off the PATH.
+  # The formula builds the released tag, not this commit: this checks that the formula and the release work on Linux
+  brew-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          git checkout -q -B ci  # brew tap clones this checkout, which is a detached HEAD
+          brew tap ken-ty/netcap "$GITHUB_WORKSPACE"
+          brew install netcap
+          brew test netcap
+          netcap --version
+          # The device side comes from libexec: the Linux installer runs, and the agent answers
+          export NETCAP_CONFIG_DIR="$(mktemp -d)"
+          netcap install me --boot off
+          netcap get me
+          netcap uninstall me
