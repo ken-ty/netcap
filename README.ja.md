@@ -143,6 +143,7 @@ netcap --version
 - [docs/configuration.ja.md](docs/configuration.ja.md) — 設定ファイルの書式
 - [docs/operations.ja.md](docs/operations.ja.md) — 再起動・電源断・管理する側が複数のとき
 - [docs/platforms.ja.md](docs/platforms.ja.md) — OS ごとの対応状況
+- [docs/compatibility.ja.md](docs/compatibility.ja.md) — CLI の各リリースがどの版の agent と動くか
 - [docs/design.ja.md](docs/design.ja.md) — 設計判断と実測
 - [SECURITY.ja.md](SECURITY.ja.md) — 脅威モデルと脆弱性の報告先
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 開発とリリース
