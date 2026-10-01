@@ -453,6 +453,10 @@ def stage():
     tmp = Path(tempfile.mkdtemp(prefix="netcap-"))
     for d in ("mac", "linux", "win"):
         shutil.copytree(ROOT / d, tmp / d)
+    # bash, pf, and sudoers on the device read \r as part of the line. A git clone on Windows has CRLF (#64)
+    for f in [*(tmp / "mac").rglob("*"), *(tmp / "linux").rglob("*")]:
+        if f.is_file():
+            f.write_bytes(f.read_bytes().replace(b"\r\n", b"\n"))
     for agent in (tmp / "mac" / "netcap-agent", tmp / "win" / "netcap-agent.ps1"):
         # Spelled in two parts: the formula replaces every quoted placeholder in this file at install time
         agent.write_bytes(agent.read_bytes().replace(b"@" b"VERSION@", version().encode()))

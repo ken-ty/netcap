@@ -1,0 +1,4 @@
+# The device side for macOS and Linux runs under bash, pf, and sudo, which do not take CRLF.
+# A git clone on Windows would otherwise convert these to CRLF (core.autocrlf=true). stage() also converts (#64)
+mac/** text eol=lf
+linux/** text eol=lf
