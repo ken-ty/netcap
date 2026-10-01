@@ -3,8 +3,8 @@ class Netcap < Formula
   desc "Host-based QoS: throttle the internet bandwidth of computers on your network"
   homepage "https://github.com/ken-ty/netcap"
   url "https://github.com/ken-ty/netcap.git",
-      tag:      "v0.8.0",
-      revision: "68a69987209db486fbabe8bed003291daaf10236"
+      tag:      "v0.9.0",
+      revision: "36bb5e1b55eea0dc3fb21e73def59cd77d1f6cf0"
   head "https://github.com/ken-ty/netcap.git", branch: "main"
 
   license "MIT"
