@@ -114,7 +114,9 @@ jobs:
       - run: |
           eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
           git checkout -q -B ci  # brew tap clones this checkout, which is a detached HEAD
+          # README: Quick Start
           brew tap ken-ty/netcap "$GITHUB_WORKSPACE"
+          brew trust ken-ty/netcap
           brew install netcap
           brew test netcap
           netcap --version
