@@ -326,5 +326,77 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
         install("off")  # tearDownClass removes it again
 
 
+# docs/design.md: Destinations that pass through, measured instead of read from the rules. The runners have no IPv6 to
+# the internet, so two network namespaces joined by a veth pair stand in for this machine and the line: documentation
+# prefixes play the internet (198.51.100.0/24, 2001:db8::/64). The shaper runs from the repository inside the first one
+LAB = {"dev": "netcap-lab-dev", "net": "netcap-lab-net"}
+LAB_ADDRS = {  # kind: (address of this machine, address across the line)
+    "ipv4 lan": ("192.168.233.1/24", "192.168.233.2"),
+    "ipv4 internet": ("198.51.100.1/24", "198.51.100.2"),
+    "ipv6 ula": ("fd00:ca9::1/64", "fd00:ca9::2"),
+    "ipv6 internet": ("2001:db8::1/64", "2001:db8::2"),
+}
+# What passes today (#28 tracks IPv6): on Linux only IPv4 is classified, so all IPv6 is capped
+PASSES = {
+    "ipv4 lan": {"tcp": "pass", "udp53": "pass", "ping": "pass"},
+    "ipv4 internet": {"tcp": "capped", "udp53": "pass", "ping": "pass"},
+    "ipv6 ula": {"tcp": "capped", "udp53": "capped", "ping": "capped"},
+    "ipv6 internet": {"tcp": "capped", "udp53": "capped", "ping": "capped"},
+}
+
+
+@unittest.skipUnless(os.environ.get("NETCAP_E2E") and OS == "linux", "only with NETCAP_E2E=1, on Linux (network namespaces)")
+class PassThrough(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        dev, net = LAB["dev"], LAB["net"]
+        cls.ns(None, "ip", "netns", "add", dev)
+        cls.ns(None, "ip", "netns", "add", net)
+        cls.ns(None, "ip", "link", "add", "lab0", "netns", dev, "type", "veth", "peer", "name", "lab1", "netns", net)
+        for ns, link, me in ((dev, "lab0", 0), (net, "lab1", 1)):
+            for addr, peer in LAB_ADDRS.values():
+                mine = addr if me == 0 else peer + addr[addr.index("/"):]
+                cls.ns(ns, "ip", "addr", "add", mine, "dev", link, *(["nodad"] if ":" in mine else []))
+            cls.ns(ns, "ip", "link", "set", "lo", "up")
+            cls.ns(ns, "ip", "link", "set", link, "up")
+        cls.ns(dev, "ip", "route", "add", "default", "via", LAB_ADDRS["ipv4 internet"][1])
+        cls.server = subprocess.Popen(["sudo", "ip", "netns", "exec", net, sys.executable, str(ROOT / "tests" / "lab_echo.py"),
+                                       "serve"], stdout=subprocess.PIPE, text=True)
+        assert cls.server.stdout.readline().strip() == "ready"
+
+    @classmethod
+    def tearDownClass(cls):
+        sh("sudo", "ip", "netns", "exec", LAB["dev"], "bash", str(ROOT / "linux" / "netcap-netshape"), "off")
+        sh("sudo", "pkill", "-f", "lab_echo.py serve")
+        for ns in LAB.values():
+            sh("sudo", "ip", "netns", "del", ns)
+
+    @staticmethod
+    def ns(ns, *cmd):
+        p = sh("sudo", *(["ip", "netns", "exec", ns] if ns else []), *cmd)
+        assert p.returncode == 0, f"{' '.join(cmd)}: {p.stdout}{p.stderr}"
+        return p.stdout
+
+    def measure(self, kind, addr):
+        """pass or capped, from how long the traffic took (lab_echo.py; ping with 30 kB echoes)"""
+        if kind == "ping":
+            out = self.ns(LAB["dev"], "ping", "-c", "3", "-i", "0.3", "-s", "30000", addr)
+            ms = float(re.search(r"= [\d.]+/([\d.]+)/", out).group(1))  # avg: about 500 ms each way at 1 Mbit/s
+            return ms, "pass" if ms < 50 else "capped" if ms > 200 else "?"
+        sec = float(self.ns(LAB["dev"], sys.executable, str(ROOT / "tests" / "lab_echo.py"), kind, addr))
+        return sec, "pass" if sec < 0.3 else "capped" if sec > 0.6 else "?"
+
+    def test_what_passes_through(self):
+        self.ns(LAB["dev"], "bash", str(ROOT / "linux" / "netcap-netshape"), "on", "1", "1")
+        got, raw = {}, {}
+        for name, (_, addr) in LAB_ADDRS.items():
+            got[name] = {}
+            for kind in ("tcp", "udp53", "ping"):
+                value, got[name][kind] = self.measure(kind, addr)
+                raw[f"{name} {kind}"] = value
+        print("\n" + "\n".join(f"  {k}: {v:.3f}" for k, v in raw.items()))
+        self.assertEqual(got, PASSES)
+
+
 if __name__ == "__main__":
     unittest.main()
