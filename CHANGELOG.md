@@ -8,11 +8,14 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-01
+
 ### Added
 
 - `-v` (`--verbose`) prints what the table leaves out, one block per device after the table, and the whole output
   of a device that failed. `-vv` also prints the raw output of every device. `netcap doctor -v` also shows the
   options on the netcap key's line, and this controller's version, config directory, and key. Its `--json` gains `options` (#54)
+- This CHANGELOG (#53)
 
 ### Changed
 
@@ -132,7 +135,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - The `netcap` CLI, with verbs shaped after tailscale's, and the macOS shaper (pf + dummynet)
 
-[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/ken-ty/netcap/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/ken-ty/netcap/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ken-ty/netcap/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/ken-ty/netcap/compare/v0.7.1...v0.8.0
