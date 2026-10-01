@@ -537,6 +537,27 @@ class CLI(unittest.TestCase):
                 self.assertEqual(placeholders(ja), placeholders(en))
 
 
+class Stage(unittest.TestCase):
+    # A git clone on Windows has CRLF (core.autocrlf=true), and bash on the device reads "set -eu\r" (#64)
+    def test_macos_and_linux_files_go_out_with_lf(self):
+        mod = load_netcap()
+        src = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, src)
+        for d in ("mac", "linux", "win"):
+            shutil.copytree(ROOT / d, src / d)
+        for f in src.rglob("*"):
+            if f.is_file():
+                f.write_bytes(f.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        with mock.patch.object(mod, "ROOT", src), mock.patch.object(mod, "version", lambda: "9.9.9"):
+            out = mod.stage()
+        self.addCleanup(shutil.rmtree, out)
+        for d in ("mac", "linux"):
+            for f in (out / d).rglob("*"):
+                if f.is_file():
+                    self.assertNotIn(b"\r", f.read_bytes(), f)
+        self.assertIn(b"9.9.9", (out / "mac" / "netcap-agent").read_bytes())
+
+
 def load_netcap():
     spec = importlib.util.spec_from_loader("netcap", importlib.machinery.SourceFileLoader("netcap", str(NETCAP)))
     mod = importlib.util.module_from_spec(spec)
