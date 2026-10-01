@@ -19,13 +19,13 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | LAN と VPN (IPv4 のプライベート、100.64/10) は素通し | ✅ | ✅ | ✅ |
 | DNS は素通し | ✅ | ✅ | ✅ |
 | ICMP (ping) は素通し | ✅ | ✅ | ✅ (実測。IPv4) |
-| IPv6 | ⚠️ LAN 宛ても絞る。ICMPv6 と DNS は素通し | ⚠️ IPv6 はすべて絞る (LAN、ICMPv6、DNS も) | ⚠️ LAN 宛ても絞る。DNS は素通し |
+| IPv6 (LAN・ICMPv6・DNS は素通し) | ✅ (ルールから) | ✅ (実測) | ⚠️ LAN と DNS は素通し (ルールから)。ICMPv6 は ❓ |
 | 関門 | forced command + 動詞ごとの sudoers | forced command + 動詞ごとの sudoers | forced command のみ |
 | この機械に `netcap install` | ✅ (sudo) | ✅ (sudo) | ✅ (管理者として) |
 | 管理する側から `netcap install --ssh` | ✅ | ✅ | ✅ (ssh のユーザーが管理者であること) |
 
-素通しにする範囲は [design.ja.md](design.ja.md#素通しにする宛先) にある。macOS と Windows の IPv6 の行は、ルールを読んだ結果
-(素通しにする範囲が IPv4 だけ) で、実測ではない。
+素通しにする範囲は [design.ja.md](design.ja.md#素通しにする宛先) にある。IPv6 の行は、Linux は CI で実測し、
+macOS と Windows はルールを読んだ結果で、実測ではない。
 
 ## 管理する側 (CLI) として
 

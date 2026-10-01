@@ -9,7 +9,7 @@
 #
 # Replace the root qdisc of the default route's interface with our HTB (ca9:). For download, redirect
 # ingress to ifb-netcap and cap with the HTB there. Pass-through destinations, ICMP and DNS go to the
-# uncapped class (:20). If an ingress qdisc (ingress / clsact) already exists, only add our one filter
+# uncapped class (:20), for IPv4 (prio 1) and IPv6 (prio 2). If an ingress qdisc (ingress / clsact) already exists, only add our one filter
 # (prio 4930) to it. Stop if another tool has filters on ingress (a filter that settles the verdict
 # first would silently leave download uncapped).
 # off removes only our qdisc, filter and ifb-netcap. Deleting the root qdisc restores the kernel default.
@@ -28,7 +28,7 @@ IFB=ifb-netcap
 H=ca9
 # docs/design.md: Destinations that pass through
 LOCAL="10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4"
-# ponytail: only IPv4 is classified. IPv6 is capped regardless of destination. Add a protocol ipv6 filter if needed
+LOCAL6="fc00::/7 ::1/128 fe80::/10 ff00::/8"
 
 [ "$(id -u)" = 0 ] || {
   echo "run as root (sudo)" >&2
@@ -74,7 +74,7 @@ require_free() {
   done
 }
 
-# shape <dev> <Mbit/s> <src|dst> <DNS match>
+# shape <dev> <Mbit/s> <src|dst> <DNS match> <IPv6 DNS match>
 shape() {
   local dev=$1 rate=$2 dir=$3 n
   tc qdisc replace dev "$dev" root handle "$H:" htb default 10
@@ -86,6 +86,13 @@ shape() {
   # shellcheck disable=SC2086
   tc filter add dev "$dev" parent "$H:" protocol ip prio 1 u32 match $4 flowid "$H:20"
   tc filter add dev "$dev" parent "$H:" protocol ip prio 1 u32 match ip protocol 1 0xff flowid "$H:20" # ICMP
+  # IPv6 in a prio of its own: tc refuses filters of another protocol in the same prio (EINVAL)
+  for n in $LOCAL6; do
+    tc filter add dev "$dev" parent "$H:" protocol ipv6 prio 2 u32 match ip6 "$dir" "$n" flowid "$H:20"
+  done
+  # shellcheck disable=SC2086
+  tc filter add dev "$dev" parent "$H:" protocol ipv6 prio 2 u32 match $5 flowid "$H:20"
+  tc filter add dev "$dev" parent "$H:" protocol ipv6 prio 2 u32 match ip6 protocol 58 0xff flowid "$H:20" # ICMPv6
 }
 
 on() {
@@ -108,7 +115,7 @@ on() {
   [ -n "$dev" ] || { echo "no default route (ip route get 1.1.1.1)" >&2; exit 3; }
   require_free "$dev"
   off >/dev/null
-  shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff"
+  shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff" "ip6 dport 53 0xffff"
   modprobe ifb numifbs=0 2>/dev/null || true
   ip link add "$IFB" type ifb
   ip link set "$IFB" up
@@ -123,7 +130,7 @@ on() {
   echo "$dev $parent $created" >"$DEV_FILE"
   tc filter add dev "$dev" parent "$parent" protocol all prio 4930 u32 match u32 0 0 \
     action mirred egress redirect dev "$IFB"
-  shape "$IFB" "$DOWN_MBIT" src "ip sport 53 0xffff"
+  shape "$IFB" "$DOWN_MBIT" src "ip sport 53 0xffff" "ip6 sport 53 0xffff"
   echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s dev=${dev}"
 }
 

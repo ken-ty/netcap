@@ -17,13 +17,13 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
 | ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
-| IPv6 | ⚠️ capped toward the LAN too; ICMPv6 and DNS pass | ⚠️ all IPv6 is capped, LAN, ICMPv6, and DNS included | ⚠️ capped toward the LAN too; DNS passes |
+| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (from the rules) | ✅ (measured) | ⚠️ LAN and DNS pass (from the rules); ICMPv6 ❓ |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
 | `netcap install --ssh` from a controller | ✅ | ✅ | ✅ (the ssh user must be an Administrator) |
 
-The exempt ranges are in [design.md](design.md#destinations-that-pass-through). The IPv6 rows for macOS and Windows
-come from reading the rules (only IPv4 ranges are exempt), not from a measurement.
+The exempt ranges are in [design.md](design.md#destinations-that-pass-through). The IPv6 row for Linux is measured in CI;
+for macOS and Windows it comes from reading the rules, not from a measurement.
 
 ## As a controller (the CLI)
 

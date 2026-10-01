@@ -31,7 +31,8 @@ INSTALLED = {"mac": ["/Library/PrivilegedHelperTools/netcap-netshape", "/Library
                        "/etc/systemd/system/netcap-netshape.service"],
              "win": [r"C:\ProgramData\netcap"]}.get(OS)
 # docs/design.md: Destinations that pass through
-LOCAL = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4"]
+LOCAL = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4",
+         "fc00::/7", "::1/128", "fe80::/10", "ff00::/8"]
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 
 
@@ -336,12 +337,12 @@ LAB_ADDRS = {  # kind: (address of this machine, address across the line)
     "ipv6 ula": ("fd00:ca9::1/64", "fd00:ca9::2"),
     "ipv6 internet": ("2001:db8::1/64", "2001:db8::2"),
 }
-# What passes today (#28 tracks IPv6): on Linux only IPv4 is classified, so all IPv6 is capped
+# Only internet traffic is capped, and DNS and ping pass even toward the internet, over IPv4 and IPv6 alike (#28)
 PASSES = {
     "ipv4 lan": {"tcp": "pass", "udp53": "pass", "ping": "pass"},
     "ipv4 internet": {"tcp": "capped", "udp53": "pass", "ping": "pass"},
-    "ipv6 ula": {"tcp": "capped", "udp53": "capped", "ping": "capped"},
-    "ipv6 internet": {"tcp": "capped", "udp53": "capped", "ping": "capped"},
+    "ipv6 ula": {"tcp": "pass", "udp53": "pass", "ping": "pass"},
+    "ipv6 internet": {"tcp": "capped", "udp53": "pass", "ping": "pass"},
 }
 
 
