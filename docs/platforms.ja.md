@@ -18,7 +18,7 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | `check` (上り下りの測定 + ping) | ✅ | ✅ | ✅ |
 | LAN と VPN (IPv4 のプライベート、100.64/10) は素通し | ✅ | ✅ | ✅ |
 | DNS は素通し | ✅ | ✅ | ✅ |
-| ICMP (ping) は素通し | ✅ | ✅ | ❓ |
+| ICMP (ping) は素通し | ✅ | ✅ | ✅ (実測。IPv4) |
 | IPv6 | ⚠️ LAN 宛ても絞る。ICMPv6 と DNS は素通し | ⚠️ IPv6 はすべて絞る (LAN、ICMPv6、DNS も) | ⚠️ LAN 宛ても絞る。DNS は素通し |
 | 関門 | forced command + 動詞ごとの sudoers | forced command + 動詞ごとの sudoers | forced command のみ |
 | この機械に `netcap install` | ✅ (sudo) | ✅ (sudo) | ✅ (管理者として) |

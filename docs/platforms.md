@@ -16,7 +16,7 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | `check` (measure up / down + ping) | ✅ | ✅ | ✅ |
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
-| ICMP (ping) passes through | ✅ | ✅ | ❓ |
+| ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
 | IPv6 | ⚠️ capped toward the LAN too; ICMPv6 and DNS pass | ⚠️ all IPv6 is capped, LAN, ICMPv6, and DNS included | ⚠️ capped toward the LAN too; DNS passes |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
