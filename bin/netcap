@@ -137,7 +137,7 @@ def run(host, action, args=()):
         res["reach"] = "no-sudo"  # sudoers is not installed
     elif p.returncode != 0 and any(l.startswith("netcap-agent: ") for l in out.splitlines()):
         # The device does not allow this verb (forced command). The agent exits with 77, but on
-        # Windows the default ssh shell (PowerShell) rounds non-zero to 1, so do not look at the value
+        # Windows PowerShell as the ssh shell rounds non-zero to 1, so do not look at the value
         res["reach"] = "denied"
     elif p.returncode == 127 or (WIN_AGENT in out and ("does not exist" in out or "存在しません" in out)):
         res["reach"] = "no-agent"  # netcap-agent is not installed on the device (存在しません is what Japanese Windows says)

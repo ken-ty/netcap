@@ -8,6 +8,11 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Fixed
+
+- On a Windows device whose sshd uses its default shell (`cmd.exe`), every request was denied: `cmd.exe` split the
+  verbs after `--allow` in the netcap key's line. Run `netcap install <name>` to update the agent there (#59)
+
 ## [0.10.0] - 2026-10-01
 
 ### Added
