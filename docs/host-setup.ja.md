@@ -21,6 +21,7 @@ CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を�
 5. `hosts` に端末を足す。名前を 1 回聞く
 
 更新は `netcap install <名前>` をもう一度流す。`netcap get` の `agent` 列に各端末の版が出る。
+CLI の各リリースがどの版の agent と動くかは [compatibility.ja.md](compatibility.ja.md) にある。
 `netcap uninstall <名前>` で全部を戻す (`--config-only` はもう無い端末の登録だけ消す)。
 
 ## スクリプトの在り処

@@ -141,6 +141,7 @@ Help and error messages follow your locale (`LANG`); Japanese is available. `LC_
 - [docs/configuration.md](docs/configuration.md) — config file format
 - [docs/operations.md](docs/operations.md) — reboots, power loss, more than one controller
 - [docs/platforms.md](docs/platforms.md) — what each OS supports
+- [docs/compatibility.md](docs/compatibility.md) — which agent versions each CLI release works with
 - [docs/design.md](docs/design.md) — design decisions and measurements
 - [SECURITY.md](SECURITY.md) — threat model and how to report a vulnerability
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development and releases

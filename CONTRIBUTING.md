@@ -59,8 +59,11 @@ CLI messages for people (help and errors) can be translated too, in the same spi
 
 ## Release
 
-1. Push an annotated tag `vX.Y.Z` on main
-2. Point `tag` and `revision` in `Formula/netcap.rb` at that tag
-3. Update the version in the curl and zip examples in [docs/host-setup.md](docs/host-setup.md) and its translations
+1. Decide the oldest agent the new CLI works with ([docs/compatibility.md](docs/compatibility.md) lists what raises it).
+   If it goes up, say so in the tag message
+2. Push an annotated tag `vX.Y.Z` on main
+3. Point `tag` and `revision` in `Formula/netcap.rb` at that tag
+4. Update the version in the curl and zip examples in [docs/host-setup.md](docs/host-setup.md) and its translations
+5. Add a row for the version to [docs/compatibility.md](docs/compatibility.md) and its translations
 
 The tag is the source of truth for the version. The formula fills `@VERSION@` in `bin/netcap`; a clone uses `git describe`.

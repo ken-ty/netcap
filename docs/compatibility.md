@@ -1,0 +1,30 @@
+# Compatibility
+
+English · [日本語](compatibility.ja.md)
+
+The CLI on the controller and the agent on each device come from the same release but are updated separately:
+`netcap install <name>` writes the CLI's version into the agent, one device at a time. This page records which agents
+each CLI release works with.
+
+## The rule
+
+- Before 1.0, a minor release (0.x.0) may need a newer agent. A patch release (0.x.y) does not
+- When a release needs a newer agent, it raises the minimum in the table below and says so in its tag message.
+  Update each device with `netcap install <name>`
+- The `agent` column of `netcap get` shows each device's version, and `netcap get` points out agents that differ from the CLI
+
+Raise the minimum when a release changes any of these:
+
+- The verbs the agent accepts, their arguments, or the `key=value` line it prints
+- The forced-command line in the device's keys file ([host-setup.md](host-setup.md#the-capped-device-decides-what-is-allowed)):
+  a line written by an older CLI may not allow a new verb
+- What the installer puts on the device, and where ([host-setup.md](host-setup.md#where-the-scripts-are))
+
+## Oldest agent each CLI works with
+
+| CLI | Oldest agent | Notes |
+| --- | --- | --- |
+| 0.9.1 | 0.9.0 | The device side is unchanged since 0.9.0 |
+
+Releases before 0.9.1 did not record this. A device with an agent older than 0.9.0 should be updated with
+`netcap install <name>`.
