@@ -125,7 +125,8 @@ netcap rename <old> <new>                   rename a device
 netcap export                               print hosts and profiles as JSON (no keys)
 netcap import <file|->                      read them back (--replace to overwrite)
 netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
-netcap --version
+netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
+netcap --version                            also -V
 ```
 
 Values are Mbit/s and may be decimals. `0` is an error (nothing changes); to lift a cap, use `off`.
