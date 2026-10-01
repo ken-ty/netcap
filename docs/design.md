@@ -13,7 +13,9 @@ Traffic that does not leave for the internet is never capped.
 | Loopback, link-local, multicast | 127/8, 169.254/16, 224/4 |
 
 ICMP and DNS (53) are not capped even toward the internet, so that pinging to monitor latency does not
-end up measuring the shaper's queue. Windows excludes only DNS explicitly; ICMP has not been verified there.
+end up measuring the shaper's queue. Windows excludes only DNS explicitly: NetQosPolicy cannot match ICMP. Measured on
+Windows 11 the way `test_36_icmp_passes_on_windows` in `tests/test_e2e.py` does, the throttling policy does not hold ICMP back either
+(IPv4 only, since GitHub's Windows runners cannot send ICMP to the internet).
 
 Only the inside of a VPN tunnel passes through via 100.64/10. The outer UDP that goes out to the internet is capped.
 
