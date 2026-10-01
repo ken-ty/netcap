@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Changed
+
+- Installing on a macOS or Linux device as another ssh user adds that user to its sudoers instead of replacing the
+  previous one, so each controller may log in as its own user. Update the CLI on every controller first: 0.10.0 and
+  earlier still replace the list. `uninstall.sh --user` removes one user (#68)
+
 ### Fixed
 
 - `netcap install --ssh` from a Windows controller running from a git clone failed on macOS and Linux devices:
