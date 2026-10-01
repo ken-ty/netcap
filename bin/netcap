@@ -517,20 +517,24 @@ def run_device_script(dest, os_, script, args=()):
         if os_ == "win":
             tmp = powershell(dest, "$d = Join-Path $env:TEMP ('netcap-' + [guid]::NewGuid()); "
                                    "New-Item -ItemType Directory $d | Out-Null; $d").out.splitlines()[-1]
+            rm = f"Remove-Item -Recurse -Force {ps_quote(tmp)}"
             scp = subprocess.run(["scp", "-q", "-r", str(src / "win"), f"{dest}:{tmp.replace(chr(92), '/')}/"])
             if scp.returncode != 0:
+                powershell(dest, rm)
                 return scp.returncode
             return powershell(dest, f"try {{ & (Join-Path {ps_quote(tmp)} 'win\\{script}') {' '.join(args)}; "
-                                    f"exit $LASTEXITCODE }} finally {{ Remove-Item -Recurse -Force {ps_quote(tmp)} }}",
+                                    f"exit $LASTEXITCODE }} finally {{ {rm} }}",
                               capture=False).returncode
         tmp = ssh_plain(dest, "mktemp -d /tmp/netcap.XXXXXX").out
         if not tmp.startswith("/tmp/netcap."):
             sys.exit(_("could not make a temporary directory on {dest}").format(dest=dest))
         # linux/install.sh also takes the agent and netcap-check from ../mac
+        rm = f"rm -rf {tmp}"
         scp = subprocess.run(["scp", "-q", "-r", str(src / "mac"), str(src / "linux"), f"{dest}:{tmp}/"])
         if scp.returncode != 0:
+            ssh_plain(dest, rm)
             return scp.returncode
-        cmd = f"sudo bash {tmp}/{os_}/{script} {' '.join(args)}; rc=$?; rm -rf {tmp}; exit $rc"
+        cmd = f"sudo bash {tmp}/{os_}/{script} {' '.join(args)}; rc=$?; {rm}; exit $rc"
         return ssh_plain(dest, cmd, tty=sys.stdin.isatty(), capture=False).returncode
     finally:
         shutil.rmtree(src, ignore_errors=True)
