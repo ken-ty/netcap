@@ -318,6 +318,38 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
             install("off")
             agent("off")
 
+    # docs/operations.md: More than one controller. Each controller may log in as its own user (#31)
+    @unittest.skipIf(OS == "win", "Windows has no sudoers: any Administrator works")
+    def test_50_more_than_one_user(self):
+        users = ["netcap-e2e-a", "netcap-e2e-b"]
+        for i, u in enumerate(users):
+            if OS == "mac":
+                for key, value in (("UniqueID", str(599 - i)), ("PrimaryGroupID", "20"), ("UserShell", "/bin/bash"),
+                                   ("NFSHomeDirectory", "/var/empty")):
+                    sh("sudo", "dscl", ".", "-create", f"/Users/{u}", key, value)
+            else:
+                sh("sudo", "useradd", "-M", "-s", "/bin/bash", u)
+        try:
+            for u in users:
+                p = sh("sudo", "env", f"NETCAP_USER={u}", "bash", str(ROOT / OS / "install.sh"), "--boot", "off")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn(f"sudoers for {', '.join(sorted([os.environ['USER'], *users]))}", p.stdout)
+            for u in users:  # each one reaches the shaper through sudoers
+                p = sh("sudo", "-u", u, AGENT, "status")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertTrue(p.stdout.startswith("netshape "), p.stdout)
+            # and nothing else
+            self.assertNotEqual(sh("sudo", "-u", users[0], "sudo", "-n", "/usr/bin/true").returncode, 0)
+            p = sh("sudo", "env", f"NETCAP_USER={users[0]}", "bash", str(ROOT / OS / "uninstall.sh"), "--user")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertNotEqual(sh("sudo", "-u", users[0], AGENT, "status").returncode, 0)
+            self.assertEqual(sh("sudo", "-u", users[1], AGENT, "status").returncode, 0)
+            self.assertEqual(self.row()["reach"], "ok")  # the one who installed first keeps it
+        finally:
+            for u in users:
+                sh("sudo", "env", f"NETCAP_USER={u}", "bash", str(ROOT / OS / "uninstall.sh"), "--user")
+                sh("sudo", "dscl", ".", "-delete", f"/Users/{u}") if OS == "mac" else sh("sudo", "userdel", u)
+
     def test_99_uninstall(self):
         self.netcap("uninstall", "self")
         for p in INSTALLED:

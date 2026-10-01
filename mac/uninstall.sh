@@ -1,6 +1,21 @@
 #!/bin/bash
 # sudo bash uninstall.sh — remove netshape entirely (also lifts the cap)
+#   sudo bash uninstall.sh --user — remove only the invoking user from sudoers; everything goes with the last user
 set -u
+if [ "${1:-}" = --user ]; then
+  user=${NETCAP_USER:-${SUDO_USER:-}}
+  tmp=$(mktemp)
+  bash "$(dirname "$0")/netcap-sudoers" "$(dirname "$0")/sudoers.d/netcap-netshape" /etc/sudoers.d/netcap-netshape \
+    remove "$user" >"$tmp" || exit 1
+  if [ -s "$tmp" ]; then
+    visudo -cf "$tmp" >/dev/null || { rm -f "$tmp"; exit 1; }
+    install -o root -g wheel -m 0440 "$tmp" /etc/sudoers.d/netcap-netshape
+    rm -f "$tmp"
+    echo "removed $user; kept for: $(sed -n 's/ ALL=(root) NOPASSWD: NETSHAPE$//p' /etc/sudoers.d/netcap-netshape | paste -sd, - | sed 's/,/, /g')"
+    exit 0
+  fi
+  rm -f "$tmp"  # nobody left: remove everything
+fi
 launchctl bootout system/netcap-netshape 2>/dev/null || true
 /Library/PrivilegedHelperTools/netcap-netshape off 2>/dev/null || true
 rm -f /Library/LaunchDaemons/netcap-netshape.plist /Library/PrivilegedHelperTools/netcap-netshape \

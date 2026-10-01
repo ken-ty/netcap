@@ -35,7 +35,7 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 | 戻せる | 絞りっぱなしにならない | 手元の `off` は回線不要、`on` の後に戻し方を表示、`boot` の既定は off。時間で外れる仕組みは無い | 中 · [#29](https://github.com/ken-ty/netcap/issues/29) |
 | 対応 OS | 3 OS で上りも下りも | Windows は上りのみ | 受け入れる: Windows の下りはドライバが要り、netcap の規模を超える |
 | 導入 | 端末 1 台に 1 コマンド | `netcap install` | 小 · [#32](https://github.com/ken-ty/netcap/issues/32) (未確認の経路) |
-| 管理する側が複数 | どの ssh ユーザーで入っても管理できる | export / import。sudoers は 1 ユーザーだけ | 小 · [#31](https://github.com/ken-ty/netcap/issues/31) |
+| 管理する側が複数 | どの ssh ユーザーで入っても管理できる | export / import。sudoers はインストールした各ユーザーを許す | 小 · [#31](https://github.com/ken-ty/netcap/issues/31) (uninstall がすべての管理する側の agent を外す) |
 | 端末が決める | forced command の後ろにもう一段の関門 | macOS / Linux は動詞ごとの sudoers。Windows は forced command のみ | 受け入れる: Windows には標準の二段目が無い |
 | 状態が見える | `status` が実物から読む | 達成。macOS の下りだけ `on` のとき記録した値 | 受け入れる: dnctl が値を出さない |
 | スケジュール | 夜だけ絞る、など | cron / launchd から `netcap use` を呼ぶ | なし: OS に任せる |
