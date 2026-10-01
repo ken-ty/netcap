@@ -114,12 +114,44 @@ class CLI(unittest.TestCase):
         for args in (["status", "off", "--json"], ["status", "all", "--json"], ["get", "off", "--json"],
                      ["on", "off", "--up", "1", "--down", "2"], ["off", "off"],
                      ["set", "off", "--up", "1", "--down", "2"], ["use", "p"], ["profiles"],
-                     ["--version"], ["-v"]):
+                     ["status", "off", "-v"], ["--version"], ["-V"]):
             with self.subTest(args=args):
                 p = self.netcap(*args)
                 self.assertNotIn("unrecognized arguments", p.stderr)
                 self.assertNotIn("invalid choice", p.stderr)
                 self.assertEqual(p.returncode, 0, p.stderr)
+
+    # README: -v adds what the table leaves out; -vv also the raw output from the device
+    def test_verbose(self):
+        (self.conf / "hosts").write_text("off mac h-off\nerr mac h-error\n")
+        (self.conf / "profiles").write_text("")
+        plain = self.netcap("status", "off").stdout
+        self.assertNotIn("=== off", plain)
+        for args in (["status", "off", "-v"], ["-v", "status", "off"], ["status", "off", "--verbose"]):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertTrue(p.stdout.startswith(plain), "the table comes first, unchanged")
+                self.assertIn("\n=== off\n", p.stdout)
+                self.assertRegex(p.stdout, r"(?m)^  route +h-off$")
+                self.assertRegex(p.stdout, r"(?m)^  pipes +2$")
+                self.assertNotIn("netshape state=", p.stdout)  # the raw output is -vv
+        for args in (["status", "off", "-vv"], ["-v", "status", "off", "-v"]):
+            with self.subTest(args=args):
+                self.assertIn("netshape state=off", self.netcap(*args).stdout)
+        # A device that failed shows its whole output at -v, not only the last line the note has
+        p = self.netcap("status", "err", "-v")
+        self.assertIn("line one", p.stdout)
+        self.assertNotIn("line one", self.netcap("status", "err").stdout)
+        # --json is the same with or without -v
+        self.assertEqual(self.netcap("status", "off", "--json", "-v").stdout, self.netcap("status", "off", "--json").stdout)
+
+    # -v is --verbose now; the version is -V, and --raw became -vv
+    def test_version_is_capital_v(self):
+        self.hosts("off")
+        self.assertRegex(self.netcap("-V").stdout, r"^netcap \S+\n$")
+        self.assertNotEqual(self.netcap("-v").returncode, 0)  # a command is required
+        self.assertIn("unrecognized arguments: --raw", self.netcap("status", "off", "--raw").stderr)
 
     # docs/host-setup.md: Reading the table, reach
     def test_reach(self):
@@ -329,6 +361,13 @@ class CLI(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertRegex(p.stdout, r"(?m)^box\s+ok\s+ok\s*$")
         self.assertRegex(p.stdout, r"(?m)^me\s+-\s+-\s+this machine")
+        # -v shows the file it read and the options on the netcap key's line, then this controller
+        p = self.netcap("doctor", "-v", env=env)
+        self.assertIn("\n=== box\n", p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^  file +~/.ssh/authorized_keys$")
+        self.assertIn(good.rsplit(" ", 3)[0], p.stdout)  # restrict,command="…"
+        self.assertIn("\n=== this controller\n", p.stdout)
+        self.assertRegex(p.stdout, r"(?m)^  config +" + re.escape(str(self.conf)) + "$")
         # A line added by hand without the forced command
         keys.write_text(self.PUB + "\n")
         p = self.netcap("doctor", "box", env=env)

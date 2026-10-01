@@ -15,7 +15,8 @@
   netcap export                               print hosts and profiles as JSON (no keys)
   netcap import <file|->                      read them back, on this or another machine
   netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
-  netcap --version                            version (also -v)
+  netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
+  netcap --version                            version (also -V)
 
 The command layout is borrowed from tailscale. status (real state) and get (settings) are separate
 commands, set changes only the persistent settings, and the flags of on are "the complete desired state
@@ -177,6 +178,9 @@ class VersionAction(argparse.Action):
         parser.exit()
 
 
+VERBOSE_HELP = "also show what the table leaves out; -vv also shows the raw output from the device"
+
+
 def config_lines(name):
     """Read CONFIG_DIR/name and yield (line number, words), skipping comments and blank lines."""
     path = CONFIG_DIR / name
@@ -287,18 +291,38 @@ CHECK_COLS = [
 ]
 
 
-def emit(rows, cols, as_json, raw=False, footnote=DOWN_NOTE):
+def print_block(title, fields):
+    print(f"\n=== {title}")
+    width = max(map(len, fields))
+    for k, v in fields.items():
+        for i, line in enumerate(v if isinstance(v, list) else [v]):
+            print(f"  {k if i == 0 else '':<{width}}  {line}")
+
+
+def print_details(rows, verbose):
+    """-v: what the table leaves out, one block per device. -vv adds the raw output.
+    The keys are what the device returned, the same as in --json, so they are not translated"""
+    for r in rows:
+        h = HOSTS.get(r["host"], {})
+        fields = {"route": h.get("ssh") or "-", "os": h.get("os", "?")}
+        fields.update((k, v if isinstance(v, list) else fmt(v)) for k, v in r.items() if k not in ("host", "raw"))
+        # A device that failed shows its whole output at -v: the note has only its last line
+        if r.get("raw") and (verbose >= 2 or r.get("reach") != "ok"):
+            fields["output"] = r["raw"].splitlines()
+        print_block(r["host"], fields)
+
+
+def emit(rows, cols, as_json, verbose=0, footnote=DOWN_NOTE):
     if as_json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
     else:
         print_table(rows, cols, footnote)
-        if raw:
-            for r in rows:
-                print(f"\n=== {r['host']}\n{r.get('raw', '')}")
+        if verbose:
+            print_details(rows, verbose)
     return 0 if all(r.get("reach") == "ok" for r in rows) else 1
 
 
-def apply_and_read(hosts, action, args, as_json, raw):
+def apply_and_read(hosts, action, args, as_json, verbose):
     """After changing the state, read back the real state instead of returning the requested values."""
     changed = fan_out(hosts, action, args)
     after = fan_out(hosts, "status")
@@ -309,7 +333,7 @@ def apply_and_read(hosts, action, args, as_json, raw):
             rows.append(s)
         else:
             rows.append(c)
-    return emit(rows, STATUS_COLS, as_json, raw)
+    return emit(rows, STATUS_COLS, as_json, verbose)
 
 
 def load_profiles():
@@ -360,7 +384,7 @@ def cmd_use(a):
     rows = fan_out(hosts, "status")
     if not a.json:
         print(f"profile: {a.profile}")
-    return emit(rows, STATUS_COLS, a.json, a.raw)
+    return emit(rows, STATUS_COLS, a.json, a.verbose)
 
 
 def cmd_profiles(a):
@@ -608,7 +632,7 @@ def cmd_install(a):
         HOSTS[name] = {"os": os_, "ssh": dest}
         ORDER.append(name)
         say(_("added {name} to {path}").format(name=name, path=path))
-    rc = emit([run(name, "get")], GET_COLS, a.json, a.raw)
+    rc = emit([run(name, "get")], GET_COLS, a.json, a.verbose)
     if not a.json:
         print(_("\nTry it:  netcap on {name} --up 2 --down 2\nUndo:    netcap off {name}").format(name=name))
     return rc
@@ -668,19 +692,25 @@ KEYS_FILE = {"mac": "~/.ssh/authorized_keys", "linux": "~/.ssh/authorized_keys",
              "win": r"C:\ProgramData\ssh\administrators_authorized_keys"}
 
 
+def key_options(text, blob):
+    """The options of each line in an authorized_keys file that holds this key: everything before the key type."""
+    out = []
+    for line in text.splitlines():
+        words = line.split()
+        if blob in words:
+            out.append(" ".join(words[:max(words.index(blob) - 1, 0)]))
+    return out
+
+
 def key_state(text, blob):
     """This controller's key in an authorized_keys file: "ok" (restrict and a forced command for the agent),
     "unrestricted" (there without them), or "missing"."""
-    state = "missing"
-    for line in text.splitlines():
-        words = line.split()
-        if blob not in words:
-            continue
-        opts = " ".join(words[:max(words.index(blob) - 1, 0)])  # everything before the key type
-        if not (re.search(r"(^|,)restrict(,|$)", opts) and re.search(r'(^|,)command="[^"]*netcap-agent', opts)):
-            return "unrestricted"  # sshd may take this line, so one bad line is enough
-        state = "ok"
-    return state
+    opts = key_options(text, blob)
+    if not opts:
+        return "missing"
+    # sshd may take any of these lines, so one bad line is enough
+    ok = all(re.search(r"(^|,)restrict(,|$)", o) and re.search(r'(^|,)command="[^"]*netcap-agent', o) for o in opts)
+    return "ok" if ok else "unrestricted"
 
 
 def read_keys(host):
@@ -726,7 +756,7 @@ def cmd_doctor(a):
         elif p.returncode != 0:
             r.update(reach="error", key="?")
         else:
-            r.update(reach="ok", key=key_state(p.out, blob))
+            r.update(reach="ok", key=key_state(p.out, blob), options=key_options(p.out, blob))
         return r
 
     hosts = resolve(a.host, default_all=True)
@@ -736,6 +766,9 @@ def cmd_doctor(a):
         print(json.dumps(rows, ensure_ascii=False, indent=2))
     else:
         print_table(rows, DOCTOR_COLS)
+        if a.verbose:
+            print_details(rows, a.verbose)
+            print_block(_("this controller"), {"version": version(), "config": str(CONFIG_DIR), "key": str(KEY)})
         for r in rows:
             if r["key"] == "unrestricted":
                 print("\n" + _("WARNING: {host}: the netcap key in {file} has no forced command, so whoever holds {key} "
@@ -874,7 +907,8 @@ JA = {
   netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
   netcap import <file|->                      それを読み戻す (この機械でも別の機械でも)
   netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
-  netcap --version                            バージョン (-v でも可)
+  netcap <command> -v                         表に出ない項目も表示する (-vv: 生の出力も)
+  netcap --version                            バージョン (-V でも可)
 
 コマンドの形は tailscale に倣っている。status (実際の状態) と get (設定) は別のコマンドで、
 set は永続する設定だけを変え、on のフラグは「今回の望む状態のすべて」を表す。動詞だけは倣っていない。
@@ -895,7 +929,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
 """,
     "print the version and exit": "バージョンを表示して終了する",
     "print in machine-readable form": "機械が読める形で出力する",
-    "also print the raw output from the device": "機器の生の出力も表示する",
+    VERBOSE_HELP: "表に出ない項目も表示する。-vv で機器の生の出力も表示する",
+    "this controller": "管理する側 (この機械)",
     "a name from hosts, or all": "hosts にある名前、または all",
     "read the real state (pf pipes / QoS policy)": "実際の状態を読む (pf のパイプ / QoS ポリシー)",
     "read the settings (default, boot behavior)": "設定を読む (既定値、起動時の挙動)",
@@ -1026,14 +1061,16 @@ def main():
     argparse._ = _  # argparse's own words (usage:, options:, errors) go through the same table
     ap = argparse.ArgumentParser(prog="netcap", description=_(__doc__),
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("-v", "--version", action=VersionAction)
+    ap.add_argument("-V", "--version", action=VersionAction)
     ap.add_argument("--json", action="store_true", help=_("print in machine-readable form"))
-    ap.add_argument("--raw", action="store_true", help=_("also print the raw output from the device"))
+    ap.add_argument("-v", "--verbose", action="count", default=0, help=_(VERBOSE_HELP))
     # Also accept these after the subcommand, so the README form (netcap status all --json) works.
     # Without SUPPRESS, the subcommand's default False would overwrite a --json given before it
     out = argparse.ArgumentParser(add_help=False)
     out.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=_("print in machine-readable form"))
-    out.add_argument("--raw", action="store_true", default=argparse.SUPPRESS, help=_("also print the raw output from the device"))
+    # A count would start over in the subcommand, so -v before and after it are added up below
+    out.add_argument("-v", "--verbose", action="count", dest="verbose_after", default=argparse.SUPPRESS,
+                     help=_(VERBOSE_HELP))
     sub = ap.add_subparsers(dest="cmd", required=True)
     _add = sub.add_parser
     sub.add_parser = lambda *a, **k: _add(*a, parents=[out], **k)
@@ -1079,6 +1116,7 @@ def main():
     add_target(p, optional=True)
 
     a = ap.parse_args()
+    a.verbose += getattr(a, "verbose_after", 0)
     commands = {"install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
                 "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor}
     if a.cmd in commands:
@@ -1102,21 +1140,21 @@ def main():
         bad = [v for v in args if not is_mbit(v)]
         if bad:
             sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
-        rc = apply_and_read(resolve(a.host), a.cmd, args, a.json, a.raw)
+        rc = apply_and_read(resolve(a.host), a.cmd, args, a.json, a.verbose)
         if a.cmd == "on" and not a.json:
             # The way back is printed right where it is needed, in case the cap makes it hard to look up
             print(_("to undo: netcap off {host}").format(host=a.host))
         return rc
 
     if a.cmd == "off":
-        return apply_and_read(resolve(a.host), "off", [], a.json, a.raw)
+        return apply_and_read(resolve(a.host), "off", [], a.json, a.verbose)
 
     if a.cmd == "status":
-        return emit(fan_out(resolve(a.host, default_all=True), "status"), STATUS_COLS, a.json, a.raw)
+        return emit(fan_out(resolve(a.host, default_all=True), "status"), STATUS_COLS, a.json, a.verbose)
 
     if a.cmd == "get":
         rows = fan_out(resolve(a.host, default_all=True), "get")
-        rc = emit(rows, GET_COLS, a.json, a.raw)
+        rc = emit(rows, GET_COLS, a.json, a.verbose)
         # Point out agents that differ from this CLI (only for a release CLI; a clone's version has a git suffix)
         old = [r["host"] for r in rows if r.get("reach") == "ok" and r.get("agent") != version()]
         if old and not a.json and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version()):
@@ -1127,7 +1165,7 @@ def main():
     if a.cmd == "check":
         args = ["--bytes", a.bytes] if a.bytes else []
         return emit(fan_out(resolve(a.host, default_all=True), "check", args),
-                    CHECK_COLS, a.json, a.raw, footnote=None)
+                    CHECK_COLS, a.json, a.verbose, footnote=None)
 
     if a.cmd == "use":
         return cmd_use(a)

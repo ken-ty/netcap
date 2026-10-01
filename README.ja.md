@@ -127,7 +127,8 @@ netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
 netcap import <file|->                      それを読み戻す (--replace で上書き)
 netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
-netcap --version
+netcap <command> -v                         表に出ない項目も表示する (-vv: 機器の生の出力も)
+netcap --version                            -V でも可
 ```
 
 値は Mbit/s で、小数も使える。`0` はエラー (何も変わらない)。上限を外すなら `off`。

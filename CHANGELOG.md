@@ -8,6 +8,20 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Added
+
+- `-v` (`--verbose`) prints what the table leaves out, one block per device after the table, and the whole output
+  of a device that failed. `-vv` also prints the raw output of every device. `netcap doctor -v` also shows the
+  options on the netcap key's line, and this controller's version, config directory, and key. Its `--json` gains `options` (#54)
+
+### Changed
+
+- **Breaking** `-v` means `--verbose`, as in ssh, curl, and flutter. The version is `-V` or `--version` (#54)
+
+### Removed
+
+- **Breaking** `--raw`. Use `-vv` (#54)
+
 ## [0.9.1] - 2026-10-01
 
 ### Added
