@@ -5,6 +5,7 @@ It rewrites the machine's settings and needs sudo (Administrator on Windows), so
 
   NETCAP_E2E=1 python3 -m unittest -v tests/test_e2e.py
 """
+import base64
 import importlib.machinery
 import importlib.util
 import json
@@ -267,6 +268,43 @@ class E2E(unittest.TestCase):
         self.assertLess(capped[1], 1.5)
         if OS != "win":  # Windows cannot cap download
             self.assertLess(capped[0], 1.5, diag)
+
+    # docs/design.md: ping passes through. NetQosPolicy cannot match ICMP, so this is measured, not read from the rules.
+    # One 1400-byte echo in flight at a time: under a 0.1 Mbit/s cap each one would wait about 110 ms more on the way out
+    @unittest.skipUnless(OS == "win", "macOS and Linux exempt ICMP by rule (tests/test_files.py)")
+    def test_36_icmp_passes_on_windows(self):
+        script = """$p = New-Object System.Net.NetworkInformation.Ping; $buf = New-Object byte[] 1400
+$rtt = @(); $lost = 0; $end = (Get-Date).AddSeconds(10)
+while ((Get-Date) -lt $end) {
+  $t = Get-Date
+  try { $r = $p.Send('1.1.1.1', 2000, $buf) } catch { $r = $null }
+  if ($r -and $r.Status -eq 'Success') { $rtt += $r.RoundtripTime } else { $lost++ }
+  if ($rtt.Count -eq 0 -and $lost -ge 5) { break }
+  $w = 50 - ((Get-Date) - $t).TotalMilliseconds; if ($w -gt 0) { Start-Sleep -Milliseconds $w }
+}
+$s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Count / 2)] } else { -1 })"
+"""
+
+        def pings():
+            enc = base64.b64encode(script.encode("utf-16-le")).decode()  # no quoting layer for the script
+            got, lost, med = map(int, sh("powershell", "-NoProfile", "-EncodedCommand", enc).stdout.split()[-3:])
+            return got, lost / max(got + lost, 1), med
+
+        free = pings()
+        if free[0] < 20 or free[1] > 0.2:
+            self.skipTest(f"ICMP to 1.1.1.1 does not get through here: {free[0]} replies, {free[1]:.0%} lost")
+        self.netcap("on", "self", "--up", "0.1", "--down", "0.1")
+        try:
+            capped = pings()
+            # The cap is on: TCP upload is held near 0.1 Mbit/s
+            up = float(json.loads(self.netcap("check", "self", "--bytes", "50000", "--json"))[0]["up_mbit"])
+        finally:
+            self.netcap("off", "self")
+        print(f"\n  ICMP 1400 B: no cap {free[0]} replies, {free[1]:.0%} lost, median {free[2]} ms; "
+              f"at 0.1 Mbit/s {capped[0]} replies, {capped[1]:.0%} lost, median {capped[2]} ms; TCP up {up} Mbit/s")
+        self.assertLess(up, 0.2)
+        self.assertLessEqual(capped[1], free[1] + 0.05)
+        self.assertLessEqual(capped[2], free[2] + 50)
 
     @unittest.skipIf(OS == "win", "Windows keeps its state across reboots (boot=keep)")
     def test_40_boot_on(self):
