@@ -20,7 +20,7 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | IPv6 | ⚠️ capped toward the LAN too; ICMPv6 and DNS pass | ⚠️ all IPv6 is capped, LAN, ICMPv6, and DNS included | ⚠️ capped toward the LAN too; DNS passes |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
-| `netcap install --ssh` from a controller | ✅ | ⚠️ tested with a fake ssh only | ✅ (the ssh user must be an Administrator) |
+| `netcap install --ssh` from a controller | ✅ | ✅ | ✅ (the ssh user must be an Administrator) |
 
 The exempt ranges are in [design.md](design.md#destinations-that-pass-through). The IPv6 rows for macOS and Windows
 come from reading the rules (only IPv4 ranges are exempt), not from a measurement.
@@ -31,9 +31,12 @@ come from reading the rules (only IPv4 ranges are exempt), not from a measuremen
 | --- | --- | --- | --- |
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | `install` / `uninstall` / `rename` for this machine | ✅ | ✅ | ✅ |
-| `install` / `uninstall` with `--ssh` to other devices | ✅ | ❓ | ❓ |
+| `install` / `uninstall` with `--ssh` to other devices | ✅ | ✅ | ❓ |
 | `export` / `import` | ✅ | ✅ | ✅ |
 | Install with brew | ✅ | ❓ (Homebrew on Linux, not tested) | ❌ (curl or zip, see [host-setup.md](host-setup.md#where-the-scripts-are)) |
 | Help and errors in Japanese under a Japanese locale | ✅ | ✅ | ⚠️ English unless `LANG` / `LC_ALL` is set |
 
 The CLI needs only Python 3 and the OpenSSH client.
+
+CI tests `--ssh` from a Linux controller to a Linux device by connecting the runner to itself through a real sshd
+(`tests/test_e2e_ssh.py`).
