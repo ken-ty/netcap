@@ -146,6 +146,7 @@ netcap --version
 - [docs/compatibility.ja.md](docs/compatibility.ja.md) — CLI の各リリースがどの版の agent と動くか
 - [docs/design.ja.md](docs/design.ja.md) — 設計判断と実測
 - [SECURITY.ja.md](SECURITY.ja.md) — 脅威モデルと脆弱性の報告先
+- [CHANGELOG.md](CHANGELOG.md) — 各リリースで変わったこと (英語のみ)
 - [CONTRIBUTING.md](CONTRIBUTING.md) — 開発とリリース
 
 ## License

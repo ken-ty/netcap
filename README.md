@@ -144,6 +144,7 @@ Help and error messages follow your locale (`LANG`); Japanese is available. `LC_
 - [docs/compatibility.md](docs/compatibility.md) — which agent versions each CLI release works with
 - [docs/design.md](docs/design.md) — design decisions and measurements
 - [SECURITY.md](SECURITY.md) — threat model and how to report a vulnerability
+- [CHANGELOG.md](CHANGELOG.md) — what changed in each release
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development and releases
 
 ## License
