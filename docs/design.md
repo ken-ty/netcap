@@ -23,6 +23,9 @@ IPv6 is treated the same way: the IPv6 ranges in the table, ICMPv6, and DNS pass
 (`PassThrough` in `tests/test_e2e.py`); on macOS and Windows it comes from the rules. On Windows, as with ICMP, nothing
 names ICMPv6, and it has not been measured there.
 
+One exception on Linux: an ICMPv6 message too large for one packet is capped. tc reads the protocol from the IPv6
+header, which names the fragment header when the message is split. Pings of the usual size are not split.
+
 ## Where the root-owned parts live
 
 Binaries that can become root without a password live where every parent directory is writable only by root.

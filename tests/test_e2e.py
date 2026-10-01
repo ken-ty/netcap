@@ -8,6 +8,7 @@ It rewrites the machine's settings and needs sudo (Administrator on Windows), so
 import base64
 import importlib.machinery
 import importlib.util
+import ipaddress
 import json
 import os
 import re
@@ -212,8 +213,9 @@ class E2E(unittest.TestCase):
                 ps = sh("powershell", "-NoProfile", "-Command",
                         "Get-NetQosPolicy | Where-Object Name -like 'netcap-*' | "
                         "ForEach-Object { \"$($_.Name) $($_.IPDstPrefixMatchCondition) $($_.IPDstPortStartMatchCondition)\" }").stdout
-                for n in LOCAL:
-                    self.assertIn(f" {n} ", ps)
+                # Windows may write a prefix its own way (::1/128 comes back as ::1), so compare the networks
+                held = {ipaddress.ip_network(l.split()[1]) for l in ps.splitlines() if l.startswith("netcap-local-")}
+                self.assertEqual(held, {ipaddress.ip_network(n) for n in LOCAL}, ps)
                 self.assertRegex(ps, r"netcap-dns\s+53")
         finally:
             self.netcap("off", "self")
@@ -379,10 +381,14 @@ class PassThrough(unittest.TestCase):
         return p.stdout
 
     def measure(self, kind, addr):
-        """pass or capped, from how long the traffic took (lab_echo.py; ping with 30 kB echoes)"""
+        """pass or capped, from how long the traffic took (lab_echo.py; ping)"""
         if kind == "ping":
-            out = self.ns(LAB["dev"], "ping", "-c", "3", "-i", "0.3", "-s", "30000", addr)
-            ms = float(re.search(r"= [\d.]+/([\d.]+)/", out).group(1))  # avg: about 500 ms each way at 1 Mbit/s
+            # 200 echoes of 1400 bytes, 5 ms apart: about 2.3 Mbit/s, so under a 1 Mbit/s cap the queue grows to
+            # hundreds of ms. Small enough not to be fragmented: a fragmented ICMPv6 echo is not recognized (design.md)
+            out = sh("sudo", "ip", "netns", "exec", LAB["dev"], "ping", "-q", "-c", "200", "-i", "0.005", "-s", "1400",
+                     addr).stdout
+            m = re.search(r"= [\d.]+/([\d.]+)/", out)
+            ms = float(m.group(1)) if m else float("inf")  # nothing came back: held in the queue or dropped
             return ms, "pass" if ms < 50 else "capped" if ms > 200 else "?"
         sec = float(self.ns(LAB["dev"], sys.executable, str(ROOT / "tests" / "lab_echo.py"), kind, addr))
         return sec, "pass" if sec < 0.3 else "capped" if sec > 0.6 else "?"
