@@ -10,6 +10,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Fixed
 
+- `netcap install --ssh` from a Windows controller running from a git clone failed on macOS and Linux devices:
+  the clone had CRLF line endings, which bash on the device cannot read. The device side now goes out with LF (#65)
 - The Quick Start adds `brew trust ken-ty/netcap`: Homebrew 7 refuses to load a formula from a tap you have not
   trusted, so `brew install netcap` failed (#60)
 - On a Windows device whose sshd uses its default shell (`cmd.exe`), every request was denied: `cmd.exe` split the
