@@ -42,3 +42,5 @@ CLI に要るのは Python 3 と OpenSSH のクライアントだけ。
 
 Linux から Linux、Windows から Windows への `--ssh` は、CI で試している。ランナーが本物の sshd を通して自分自身に入る
 (`tests/test_e2e_ssh.py`)。Windows では sshd の既定のシェル (`cmd.exe`) と PowerShell の 2 通りで流す。
+Windows 11 の管理する側から macOS 26.3 の端末へも、同じテストを手で流し、install、forced command、`doctor`、`on` / `off`、uninstall が動くことを確かめた (2026-10-01)。0.10.0 より後の版が要る。
+Windows の git clone からでも端末側を LF で送るようにした (#65)。macOS から Windows へは日々使っている。

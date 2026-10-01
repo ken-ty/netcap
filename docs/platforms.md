@@ -40,3 +40,6 @@ The CLI needs only Python 3 and the OpenSSH client.
 
 CI tests `--ssh` from Linux to Linux and from Windows to Windows by connecting each runner to itself through a real sshd
 (`tests/test_e2e_ssh.py`). On Windows it runs twice: with sshd's default shell (`cmd.exe`) and with PowerShell.
+The same test, run by hand from a Windows 11 controller to a macOS 26.3 device on 2026-10-01, showed install, the forced
+command, `doctor`, `on` / `off`, and uninstall working. It needs a version after 0.10.0, which sends the device side
+with LF from a Windows git clone (#65). macOS to Windows is in daily use.
