@@ -31,12 +31,12 @@ come from reading the rules (only IPv4 ranges are exempt), not from a measuremen
 | --- | --- | --- | --- |
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | `install` / `uninstall` / `rename` for this machine | ✅ | ✅ | ✅ |
-| `install` / `uninstall` with `--ssh` to other devices | ✅ | ✅ | ❓ |
+| `install` / `uninstall` with `--ssh` to other devices | ✅ | ✅ | ✅ |
 | `export` / `import` | ✅ | ✅ | ✅ |
 | Install with brew | ✅ | ❓ (Homebrew on Linux, not tested) | ❌ (curl or zip, see [host-setup.md](host-setup.md#where-the-scripts-are)) |
 | Help and errors in Japanese under a Japanese locale | ✅ | ✅ | ⚠️ English unless `LANG` / `LC_ALL` is set |
 
 The CLI needs only Python 3 and the OpenSSH client.
 
-CI tests `--ssh` from a Linux controller to a Linux device by connecting the runner to itself through a real sshd
-(`tests/test_e2e_ssh.py`).
+CI tests `--ssh` from Linux to Linux and from Windows to Windows by connecting each runner to itself through a real sshd
+(`tests/test_e2e_ssh.py`). On Windows it runs twice: with sshd's default shell (`cmd.exe`) and with PowerShell.

@@ -49,4 +49,4 @@ To stop managing a device from one controller only, do not run `netcap uninstall
 Instead run `netcap uninstall <name> --config-only`, then delete that controller's line (ending in `netcap@<controller>`)
 from the device's `~/.ssh/authorized_keys` (Windows: `C:\ProgramData\ssh\administrators_authorized_keys`).
 
-On Windows, the CLI runs day-to-day commands (CI runs it there), but `netcap install --ssh` from a Windows controller has not been tested yet.
+On Windows, the CLI runs day-to-day commands and `netcap install --ssh` (CI runs both there, the latter to a Windows device).

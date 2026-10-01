@@ -33,12 +33,12 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | --- | --- | --- | --- |
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | この機械の `install` / `uninstall` / `rename` | ✅ | ✅ | ✅ |
-| `--ssh` で他の端末へ `install` / `uninstall` | ✅ | ✅ | ❓ |
+| `--ssh` で他の端末へ `install` / `uninstall` | ✅ | ✅ | ✅ |
 | `export` / `import` | ✅ | ✅ | ✅ |
 | brew で入れる | ✅ | ❓ (Homebrew on Linux。未確認) | ❌ (curl か zip。[host-setup.ja.md](host-setup.ja.md#スクリプトの在り処) を参照) |
 | 日本語ロケールでヘルプとエラーが日本語 | ✅ | ✅ | ⚠️ `LANG` か `LC_ALL` を設定しない限り英語 |
 
 CLI に要るのは Python 3 と OpenSSH のクライアントだけ。
 
-Linux の管理する側から Linux の端末への `--ssh` は、CI で試している。ランナーが本物の sshd を通して自分自身に入る
-(`tests/test_e2e_ssh.py`)。
+Linux から Linux、Windows から Windows への `--ssh` は、CI で試している。ランナーが本物の sshd を通して自分自身に入る
+(`tests/test_e2e_ssh.py`)。Windows では sshd の既定のシェル (`cmd.exe`) と PowerShell の 2 通りで流す。
