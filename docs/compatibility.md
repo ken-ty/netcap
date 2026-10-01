@@ -24,6 +24,7 @@ Raise the minimum when a release changes any of these:
 
 | CLI | Oldest agent | Notes |
 | --- | --- | --- |
+| 0.10.0 | 0.9.0 | The device side is unchanged since 0.9.0. `netcap get` points out these agents as different from the CLI; that is expected |
 | 0.9.1 | 0.9.0 | The device side is unchanged since 0.9.0 |
 
 Releases before 0.9.1 did not record this. A device with an agent older than 0.9.0 should be updated with
