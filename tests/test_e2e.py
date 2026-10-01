@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -214,6 +215,24 @@ class E2E(unittest.TestCase):
             body = AGENT.replace("netcap-agent", "netcap-netshape")
             st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
             self.assertEqual(st.stdout.strip(), "0 755")
+
+    # The default route can be gone for a moment: systemd-networkd drops it while it restarts (#42). on waits for it
+    @unittest.skipUnless(OS == "linux", "the route lookup with a wait is in the Linux shaper")
+    def test_32_on_waits_for_the_default_route(self):
+        route = sh("ip", "-4", "route", "show", "default").stdout.splitlines()[0].split()
+        self.assertEqual(sh("sudo", "ip", "route", "del", *route).returncode, 0)
+        try:
+            p = subprocess.Popen([sys.executable, str(ROOT / "bin" / "netcap"), "on", "self", "--up", "2", "--down", "3"],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=self.env)
+            time.sleep(0.5)
+        finally:
+            sh("sudo", "ip", "route", "replace", *route)
+        try:
+            out = p.communicate(timeout=30)[0]
+            self.assertEqual(p.returncode, 0, out)
+            self.assertCap("on", "2", "3")
+        finally:
+            self.netcap("off", "self")
 
     # --- measurement: does the cap really work (top of the README) ---
     def test_35_cap_really_limits(self):
