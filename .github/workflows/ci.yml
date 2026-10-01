@@ -32,3 +32,71 @@ jobs:
         env:
           NETCAP_E2E: "1"
           PYTHONUTF8: "1"
+
+  # docs/platforms.md: install --ssh. The runner connects to itself through a real sshd, so the controller and the
+  # device are the same machine but every step goes through ssh, scp, sudo on the device, and the forced command
+  e2e-ssh:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          # Windows' sshd runs a forced command through its default shell: cmd.exe unless DefaultShell is set (#57)
+          - os: windows-latest
+            shell: cmd
+          - os: windows-latest
+            shell: powershell
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - if: runner.os == 'Linux'
+        run: sudo tc qdisc del dev "$(ip route get 1.1.1.1 | sed -n 's/.* dev \([^ ]*\).*/\1/p')" clsact
+      - if: runner.os == 'Linux'
+        name: Start sshd and trust the runner's own key
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends openssh-server
+          sudo systemctl start ssh
+          ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+          chmod 600 ~/.ssh/authorized_keys
+          chmod go-w ~
+          printf 'Host netcap-dev\n  HostName 127.0.0.1\n  StrictHostKeyChecking accept-new\n' >> ~/.ssh/config
+          for i in $(seq 30); do ssh -o BatchMode=yes netcap-dev true && exit 0; sleep 1; done; exit 1
+      # The runner user is an Administrator, so sshd reads administrators_authorized_keys (docs/host-setup.md)
+      - if: runner.os == 'Windows'
+        name: Start sshd and trust the runner's own key
+        run: |
+          where.exe ssh scp ssh-keygen
+          if (-not (Get-Service sshd -ErrorAction SilentlyContinue)) {
+            Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+          }
+          if ('${{ matrix.shell }}' -eq 'powershell') {
+            New-Item -Path HKLM:\SOFTWARE\OpenSSH -Force | Out-Null
+            New-ItemProperty -Path HKLM:\SOFTWARE\OpenSSH -Name DefaultShell -PropertyType String -Force `
+              -Value "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" | Out-Null
+          }
+          Set-Service sshd -StartupType Manual
+          Start-Service sshd
+          $ssh = Join-Path $HOME '.ssh'
+          New-Item -ItemType Directory -Force $ssh | Out-Null
+          # Python passes the empty passphrase as "" (as bin/netcap does), which PowerShell does not do reliably
+          python -c "import subprocess, sys; subprocess.run(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', sys.argv[1]], check=True)" "$ssh\id_ed25519"
+          $keys = "$env:ProgramData\ssh\administrators_authorized_keys"
+          [IO.File]::WriteAllText($keys, (Get-Content -Raw "$ssh\id_ed25519.pub"))
+          icacls.exe $keys /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F'
+          [IO.File]::WriteAllText("$ssh\config", "Host netcap-dev`n  HostName 127.0.0.1`n  StrictHostKeyChecking accept-new`n")
+          for ($i = 0; $i -lt 30; $i++) {
+            ssh -o BatchMode=yes netcap-dev echo ok
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Start-Sleep 1
+          }
+          exit 1
+      - run: python -m unittest -v tests/test_e2e_ssh.py
+        env:
+          NETCAP_E2E_SSH: netcap-dev
+          PYTHONUTF8: "1"

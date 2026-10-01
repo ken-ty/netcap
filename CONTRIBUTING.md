@@ -28,6 +28,7 @@
 ```bash
 python3 -m unittest discover tests           # the CLI (with a fake ssh), and docs checked against the implementation
 NETCAP_E2E=1 python3 -m unittest tests/test_e2e.py   # real machine: installs the device side here, applies a cap, and removes it at the end
+NETCAP_E2E_SSH=<ssh Host> python3 -m unittest tests/test_e2e_ssh.py   # a device over real ssh: installs netcap there and removes it at the end
 ```
 
 E2E rewrites this machine's settings and needs sudo (Administrator on Windows). Normally leave it to CI.

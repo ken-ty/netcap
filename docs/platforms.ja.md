@@ -22,7 +22,7 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | IPv6 | ⚠️ LAN 宛ても絞る。ICMPv6 と DNS は素通し | ⚠️ IPv6 はすべて絞る (LAN、ICMPv6、DNS も) | ⚠️ LAN 宛ても絞る。DNS は素通し |
 | 関門 | forced command + 動詞ごとの sudoers | forced command + 動詞ごとの sudoers | forced command のみ |
 | この機械に `netcap install` | ✅ (sudo) | ✅ (sudo) | ✅ (管理者として) |
-| 管理する側から `netcap install --ssh` | ✅ | ⚠️ 偽の ssh でしか試していない | ✅ (ssh のユーザーが管理者であること) |
+| 管理する側から `netcap install --ssh` | ✅ | ✅ | ✅ (ssh のユーザーが管理者であること) |
 
 素通しにする範囲は [design.ja.md](design.ja.md#素通しにする宛先) にある。macOS と Windows の IPv6 の行は、ルールを読んだ結果
 (素通しにする範囲が IPv4 だけ) で、実測ではない。
@@ -33,9 +33,12 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | --- | --- | --- | --- |
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | この機械の `install` / `uninstall` / `rename` | ✅ | ✅ | ✅ |
-| `--ssh` で他の端末へ `install` / `uninstall` | ✅ | ❓ | ❓ |
+| `--ssh` で他の端末へ `install` / `uninstall` | ✅ | ✅ | ✅ |
 | `export` / `import` | ✅ | ✅ | ✅ |
 | brew で入れる | ✅ | ❓ (Homebrew on Linux。未確認) | ❌ (curl か zip。[host-setup.ja.md](host-setup.ja.md#スクリプトの在り処) を参照) |
 | 日本語ロケールでヘルプとエラーが日本語 | ✅ | ✅ | ⚠️ `LANG` か `LC_ALL` を設定しない限り英語 |
 
 CLI に要るのは Python 3 と OpenSSH のクライアントだけ。
+
+Linux から Linux、Windows から Windows への `--ssh` は、CI で試している。ランナーが本物の sshd を通して自分自身に入る
+(`tests/test_e2e_ssh.py`)。Windows では sshd の既定のシェル (`cmd.exe`) と PowerShell の 2 通りで流す。

@@ -51,4 +51,4 @@ CLI が入っていればどの機械も管理する側になれて、同じ端�
 代わりに `netcap uninstall <名前> --config-only` を流し、端末の `~/.ssh/authorized_keys`
 (Windows は `C:\ProgramData\ssh\administrators_authorized_keys`) から、その管理する側の行 (`netcap@<管理する側>` で終わる) を消す。
 
-Windows でも CLI は日々のコマンドなら動く (CI で動かしている) が、Windows の管理する側からの `netcap install --ssh` はまだ試していない。
+Windows でも CLI は日々のコマンドも `netcap install --ssh` も動く (どちらも CI で動かしている。後者は Windows の端末へ)。
