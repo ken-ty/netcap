@@ -2,9 +2,10 @@
 
   python3 lab_echo.py serve              TCP echo on port 5201 and UDP echo on port 53, IPv4 and IPv6
   python3 lab_echo.py tcp <address>      send 250 kB and read it back; print the seconds it took
-  python3 lab_echo.py udp53 <address>    60 datagrams of 1200 bytes, one at a time; print the seconds
+  python3 lab_echo.py udp53 <address>    150 datagrams of 1200 bytes, one at a time; print the seconds
 
-At 1 Mbit/s each way, tcp takes about 4 seconds and udp53 about 1.2. Without a cap both take milliseconds.
+At 1 Mbit/s each way, tcp takes about 2.5 seconds and udp53 about 1.5 (measured on a runner: 60 datagrams took 0.58).
+Without a cap both take milliseconds.
 """
 import socket
 import sys
@@ -12,7 +13,7 @@ import threading
 import time
 
 TCP_PORT, DNS_PORT = 5201, 53
-TCP_BYTES, UDP_COUNT, UDP_SIZE = 250_000, 60, 1200
+TCP_BYTES, UDP_COUNT, UDP_SIZE = 250_000, 150, 1200
 
 
 def serve():
