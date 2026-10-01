@@ -57,13 +57,25 @@ CLI messages for people (help and errors) can be translated too, in the same spi
 - A test checks that every translation still has its English message and the same placeholders.
   When changing a message, update or remove its translation in the same PR
 
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md) tells people who use netcap what changed and what to do about it.
+
+- A PR that changes what users see (commands, flags, output, the device side, behavior the docs promise) adds a
+  line under `## [Unreleased]` in the same PR. Tests, CI, refactoring, and formula bumps do not
+- Put the line under Added, Changed, Deprecated, Removed, Fixed, or Security, and end it with the PR number
+- Start a change that can break a script, a habit, or a device's setup with **Breaking**, and say what to do instead
+- CHANGELOG.md is English only; it has no translation
+
 ## Release
 
 1. Decide the oldest agent the new CLI works with ([docs/compatibility.md](docs/compatibility.md) lists what raises it).
    If it goes up, say so in the tag message
-2. Push an annotated tag `vX.Y.Z` on main
-3. Point `tag` and `revision` in `Formula/netcap.rb` at that tag
-4. Update the version in the curl and zip examples in [docs/host-setup.md](docs/host-setup.md) and its translations
-5. Add a row for the version to [docs/compatibility.md](docs/compatibility.md) and its translations
+2. In a PR, move the lines under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) to a new `## [X.Y.Z] - YYYY-MM-DD`
+   section, and add its compare link at the bottom
+3. After it merges, push an annotated tag `vX.Y.Z` on main. The message is a one-line summary, then that section
+4. Point `tag` and `revision` in `Formula/netcap.rb` at that tag
+5. Update the version in the curl and zip examples in [docs/host-setup.md](docs/host-setup.md) and its translations
+6. Add a row for the version to [docs/compatibility.md](docs/compatibility.md) and its translations
 
 The tag is the source of truth for the version. The formula fills `@VERSION@` in `bin/netcap`; a clone uses `git describe`.

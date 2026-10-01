@@ -96,6 +96,16 @@ class Release(unittest.TestCase):
                 self.assertEqual(set(re.findall(r"refs/tags/v([\d.]+)\.", doc)), {tag})
                 self.assertEqual(set(re.findall(r"netcap-([\d.]+)\b", doc)), {tag})
 
+    def test_changelog_has_the_release(self):
+        """CONTRIBUTING.md Release: the version in the formula has its section, and Unreleased stays on top.
+        Not "the second section": between the changelog PR and the formula bump, main is one version ahead"""
+        tag = re.search(r'tag:\s+"v([\d.]+)"', read("Formula/netcap.rb")).group(1)
+        log = read("CHANGELOG.md")
+        heads = re.findall(r"^## \[([^\]]+)\]", log, re.M)
+        self.assertEqual(heads[0], "Unreleased")
+        self.assertIn(tag, heads)
+        self.assertEqual(set(re.findall(r"^\[([^\]]+)\]: https://", log, re.M)), set(heads))
+
 
 class Readme(unittest.TestCase):
     """README.md and its translations list the same commands (CONTRIBUTING.md)"""
