@@ -515,8 +515,10 @@ def run_device_script(dest, os_, script, args=()):
                 cmd = ["sudo", "bash", str(src / os_ / script), *args]
             return subprocess.run(cmd).returncode
         if os_ == "win":
-            tmp = powershell(dest, "$d = Join-Path $env:TEMP ('netcap-' + [guid]::NewGuid()); "
-                                   "New-Item -ItemType Directory $d | Out-Null; $d").out.splitlines()[-1]
+            tmp = (powershell(dest, "$d = Join-Path $env:TEMP ('netcap-' + [guid]::NewGuid()); "
+                                    "New-Item -ItemType Directory $d | Out-Null; $d").out.splitlines() or [""])[-1]
+            if "\\netcap-" not in tmp:
+                sys.exit(_("could not make a temporary directory on {dest}").format(dest=dest))
             rm = f"Remove-Item -Recurse -Force {ps_quote(tmp)}"
             scp = subprocess.run(["scp", "-q", "-r", str(src / "win"), f"{dest}:{tmp.replace(chr(92), '/')}/"])
             if scp.returncode != 0:

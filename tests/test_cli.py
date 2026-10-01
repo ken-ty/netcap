@@ -46,7 +46,7 @@ FAKE_SSH = textwrap.dedent("""\
         import subprocess
         sys.exit(subprocess.run(["sh", "-c", cmd], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
     if cmd.startswith("powershell "):
-        if "NewGuid" in cmd:
+        if "NewGuid" in cmd and host != "h-notemp":
             print("C:\\\\Temp\\\\netcap-1"); sys.exit(0)
         if "administrators_authorized_keys" in cmd:
             f = os.path.join(os.environ["FAKE_REMOTE_HOME"], "administrators_authorized_keys")
@@ -278,6 +278,15 @@ class CLI(unittest.TestCase):
         p = self.netcap("install", "off", "--ssh", "h-new", env=self.install_env())
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("netcap rename off", p.stderr)
+
+    # A Windows device that prints no temporary directory gets the same error as macOS / Linux, not a traceback
+    def test_win_temp_dir_not_made(self):
+        mod = load_netcap()
+        os.environ.update(PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log), LC_ALL="C")
+        with self.assertRaises(SystemExit) as e:
+            mod.run_device_script("h-notemp", "win", "install.ps1")  # the fake ssh prints nothing for this host
+        self.assertEqual(str(e.exception), "could not make a temporary directory on h-notemp")
+        self.assertNotIn("scp", self.log.read_text())
 
     # docs/host-setup.md: netcap doctor finds a netcap key line without its forced command
     PUB = "ssh-ed25519 AAAAnetcap netcap@test"
