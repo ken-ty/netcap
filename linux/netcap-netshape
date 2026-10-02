@@ -1,8 +1,12 @@
 #!/bin/bash
 # netcap-netshape — cap this Linux's internet-bound traffic (tc)
 #
-#   netcap-netshape on [UP_MBIT DOWN_MBIT]  apply the cap (the systemd unit calls this at boot)
-#   netcap-netshape off                     remove the cap
+#   netcap-netshape on [UP_MBIT DOWN_MBIT] [--for SECONDS]
+#                                           apply the cap (the systemd unit calls this at boot).
+#                                           --for: lift it by itself after SECONDS (60 to 86400). Without it,
+#                                           an earlier --for is cancelled
+#   netcap-netshape off                     remove the cap (and cancel --for)
+#   netcap-netshape expire                  remove the cap if the --for deadline has passed (the timer calls this)
 #   netcap-netshape status                  current state; line 1 is derived from the real thing (tc)
 #   netcap-netshape set UP_MBIT DOWN_MBIT   rewrite the default; reapply if a cap is in effect
 #   netcap-netshape get                     the default and boot behavior, in one line
@@ -24,6 +28,10 @@ DOWN_MBIT=1
 CONF=/etc/netcap-netshape.conf
 UNIT=/etc/systemd/system/netcap-netshape.service # if present, on at boot
 DEV_FILE=/run/netcap-netshape.dev                # "interface ingress-parent created-ingress-qdisc" (for off)
+# on --for: the deadline (epoch seconds), and a transient systemd timer on the wall clock. A realtime timer catches up
+# after suspend; a monotonic one (--on-active) would stop counting while the machine sleeps (systemd.timer(5))
+UNTIL=/run/netcap-netshape.until
+TIMER=netcap-netshape-expire
 IFB=ifb-netcap
 H=ca9
 # docs/design.md: Destinations that pass through
@@ -95,10 +103,10 @@ shape() {
   tc filter add dev "$dev" parent "$H:" protocol ipv6 prio 2 u32 match ip6 protocol 58 0xff flowid "$H:20" # ICMPv6
 }
 
-on() {
+apply() {
   if [ $# -ge 1 ]; then
     [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
-      echo "usage: $0 on [UP_MBIT DOWN_MBIT]" >&2
+      echo "usage: $0 on [UP_MBIT DOWN_MBIT] [--for SECONDS]" >&2
       exit 2
     }
     UP_MBIT=$1
@@ -114,7 +122,7 @@ on() {
   done
   [ -n "$dev" ] || { echo "no default route (ip route get 1.1.1.1)" >&2; exit 3; }
   require_free "$dev"
-  off >/dev/null
+  remove >/dev/null
   shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff" "ip6 dport 53 0xffff"
   modprobe ifb numifbs=0 2>/dev/null || true
   ip link add "$IFB" type ifb
@@ -134,7 +142,7 @@ on() {
   echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s dev=${dev}"
 }
 
-off() {
+remove() {
   local dev
   dev=$(dev)
   if [ -n "$dev" ] && tc qdisc show dev "$dev" root | grep -q " $H: "; then
@@ -151,6 +159,71 @@ off() {
   fi
   rm -f "$DEV_FILE"
   echo "netshape OFF"
+}
+
+stop_timer() {
+  rm -f "$UNTIL"
+  systemctl stop "$TIMER.timer" 2>/dev/null || true
+}
+
+start_timer() {
+  local until=$(($(date +%s) + $1))
+  echo "$until" >"$UNTIL"
+  systemctl stop "$TIMER.timer" 2>/dev/null || true
+  # The installed shaper, not this copy: the timer runs as root
+  systemd-run --quiet --unit="$TIMER" --collect --timer-property=AccuracySec=1s \
+    --timer-property=RemainAfterElapse=no --on-calendar="$(date -u -d "@$until" '+%Y-%m-%d %H:%M:%S') UTC" \
+    /usr/libexec/netcap/netcap-netshape expire
+}
+
+on() {
+  local for=
+  if [ $# -ge 2 ] && [ "${*: -2:1}" = --for ]; then
+    for=${*: -1}
+    [[ "$for" =~ ^[0-9]+$ ]] && [ "$for" -ge 60 ] && [ "$for" -le 86400 ] || {
+      echo "--for takes seconds, 60 to 86400: $for" >&2
+      exit 2
+    }
+    [ -d /run/systemd/system ] && command -v systemd-run >/dev/null || {
+      echo "--for needs systemd; nothing changed" >&2
+      exit 3
+    }
+    set -- "${@:1:$(($# - 2))}"
+  fi
+  apply "$@"
+  if [ -z "$for" ]; then
+    stop_timer
+  elif ! start_timer "$for"; then
+    # Never leave a cap that was meant to end
+    off >/dev/null
+    echo "could not start the timer for --for; removed the cap" >&2
+    exit 3
+  fi
+}
+
+off() {
+  remove
+  stop_timer
+}
+
+expire() {
+  if [ ! -s "$UNTIL" ]; then
+    stop_timer
+  elif [ "$(date +%s)" -ge "$(cat "$UNTIL")" ]; then
+    off
+  fi
+}
+
+# until=<epoch> left=<seconds> while --for is pending, else -
+timer_fields() {
+  local until
+  until=$(cat "$UNTIL" 2>/dev/null || true)
+  if [[ "$until" =~ ^[0-9]+$ ]]; then
+    local left=$((until - $(date +%s)))
+    echo "until=${until} left=$((left > 0 ? left : 0))"
+  else
+    echo "until=- left=-"
+  fi
 }
 
 # Print the rate of the capped class (:10) in Mbit/s. Empty if absent
@@ -176,7 +249,7 @@ set_default() {
   install -o root -g root -m 0644 "$tmp" "$CONF"
   rm -f "$tmp"
   if [ -n "$(class_mbit "$(dev)")" ]; then
-    on "$1" "$2" >/dev/null
+    apply "$1" "$2" >/dev/null # keeps a pending --for
     echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (reapplied, since a cap was in effect)"
   else
     echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (takes effect at the next on / reboot)"
@@ -201,7 +274,7 @@ status() {
   else
     state=partial # only one side remains; run on or off again
   fi
-  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=tc dev=${dev:--}"
+  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=tc dev=${dev:--} $(timer_fields)"
   echo "--- qdisc (${dev:--} / ${IFB})"
   { tc qdisc show dev "$dev"; tc qdisc show dev "$IFB"; } 2>/dev/null || true
 }
@@ -209,11 +282,12 @@ status() {
 case "${1:-}" in
   on) shift; on "$@" ;;
   off) off ;;
+  expire) expire ;;
   status) status ;;
   set) shift; set_default "$@" ;;
   get) get ;;
   *)
-    echo "usage: $0 {on [UP_MBIT DOWN_MBIT]|off|status|set UP_MBIT DOWN_MBIT|get}" >&2
+    echo "usage: $0 {on [UP_MBIT DOWN_MBIT] [--for SECONDS]|off|status|set UP_MBIT DOWN_MBIT|get}" >&2
     exit 2
     ;;
 esac

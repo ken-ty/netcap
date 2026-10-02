@@ -64,6 +64,7 @@ sudo bash mac/install.sh --boot on|off
 | `/etc/pf.anchors/netcap-netshape` | pf rules |
 | `/etc/sudoers.d/netcap-netshape` | NOPASSWD for each user who ran the installer, limited to the shaper's fixed verbs |
 | `/Library/LaunchDaemons/netcap-netshape.plist` | Only with `--boot on` |
+| `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | The job `on --for` loads to lift the cap at the deadline. Not loaded at boot |
 
 - `--boot on` applies the default cap at boot (initially 1/1; change it with `netcap set`). `off` leaves the device as is
 - sudoers allows only the shaper's fixed verbs, for the user who ran `sudo`. For a different user, pass `NETCAP_USER=<user>`.
