@@ -8,6 +8,11 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Fixed
+
+- `status` said `off in 0m` for a cap whose `--for` deadline had passed but that the device had not lifted yet;
+  it now says `due, lifting soon` (#80)
+
 ## [0.11.0] - 2026-10-02
 
 ### Added

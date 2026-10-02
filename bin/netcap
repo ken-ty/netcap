@@ -264,7 +264,9 @@ def note(r):
     """For devices that were not reached, show why from the last line. For a capped one, when --for lifts it."""
     if r.get("reach") == "ok":
         left = r.get("left", "-")
-        return _("off in {left}").format(left=fmt_left(int(left))) if left.isdigit() else ""
+        if not left.isdigit():
+            return ""
+        return _("off in {left}").format(left=fmt_left(int(left))) if int(left) else _("due, lifting soon")
     last = (r.get("raw", "").splitlines() or [""])[-1]
     if last == "netcap-agent: arguments must be numbers: --for":  # an agent from before --for refused it
         return _("this agent does not know --for (nothing changed). Update it: netcap install {host}").format(host=r["host"])
@@ -1224,6 +1226,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "the cap for the others (default: each device's default)": "ほかの端末にかける上限 (省くと各端末の既定値)",
     "put every device back as it was before protect": "各端末を protect の前の状態に戻す",
     "off in {left}": "あと {left} で外れる",
+    "due, lifting soon": "期限を過ぎた。まもなく外れる",
     "this agent does not know --for (nothing changed). Update it: netcap install {host}":
         "この agent は --for を知らない (何も変えていない)。更新するには: netcap install {host}",
     "--for takes a time such as 30m, 2h, or 1h30m, from 1m to 24h: {value}":
