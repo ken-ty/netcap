@@ -21,11 +21,13 @@ def with_translations(p):
 
 
 def nets(text):
-    """Turn "10/8" and "10.0.0.0/8" into a set of ip_network."""
+    """Turn "10/8", "10.0.0.0/8" and "fc00::/7" into a set of ip_network."""
     out = set()
     for m in re.findall(r"\b(\d{1,3}(?:\.\d{1,3}){0,3})/(\d{1,2})\b", text):
         addr = ".".join((m[0].split(".") + ["0"] * 4)[:4])
         out.add(ipaddress.ip_network(f"{addr}/{m[1]}"))
+    for m in re.findall(r"(?<![\w:])([0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{0,4}){2,7})/(\d{1,3})\b", text):
+        out.add(ipaddress.ip_network(f"{m[0]}/{m[1]}"))
     return out
 
 
@@ -36,14 +38,16 @@ class Exempt(unittest.TestCase):
         section = read("docs/design.md").split("## Destinations that pass through")[1].split("\n## ")[0]
         self.table = nets("\n".join(l for l in section.splitlines() if l.startswith("|")))
         self.assertTrue(self.table)
+        self.assertTrue(any(n.version == 6 for n in self.table), "the table lists IPv6 ranges too (#28)")
 
     def test_mac_ranges(self):
         pf = read("mac/netcap-netshape.pf")
-        self.assertEqual(nets(re.search(r"table <netcap_local>.*", pf).group()), self.table)
+        self.assertEqual(nets(re.search(r"table <netcap_local>[^}]*", pf).group()), self.table)
 
     def test_win_ranges(self):
         ps = read("win/netshape.ps1")
-        self.assertEqual(nets(re.search(r"\$Local = .*", ps).group()), self.table)
+        # A line ending in a comma goes on to the next
+        self.assertEqual(nets(re.search(r"\$Local = (?:.*,\n)*.*", ps).group()), self.table)
 
     def test_dns_and_icmp_pass_on_mac(self):
         pf = read("mac/netcap-netshape.pf")
@@ -55,13 +59,17 @@ class Exempt(unittest.TestCase):
 
     def test_linux_ranges(self):
         sh = read("linux/netcap-netshape")
-        self.assertEqual(nets(re.search(r"^LOCAL=.*", sh, re.M).group()), self.table)
+        self.assertEqual(nets("\n".join(re.findall(r"^LOCAL6?=.*", sh, re.M))), self.table)
 
     def test_dns_and_icmp_pass_on_linux(self):
         sh = read("linux/netcap-netshape")
         self.assertRegex(sh, r"ip protocol 1 0xff")  # ICMP
         self.assertRegex(sh, r"ip dport 53 0xffff")  # DNS (up)
         self.assertRegex(sh, r"ip sport 53 0xffff")  # DNS (down)
+        # IPv6 has its own filters, in a prio of their own: tc keeps one protocol per prio (#28)
+        self.assertRegex(sh, r"protocol ipv6 prio 2 u32 match ip6 protocol 58 0xff")  # ICMPv6
+        self.assertRegex(sh, r"ip6 dport 53 0xffff")
+        self.assertRegex(sh, r"ip6 sport 53 0xffff")
 
     def test_dns_passes_on_win(self):
         self.assertRegex(read("win/netshape.ps1"), r"-IPDstPortMatchCondition 53 ")

@@ -24,7 +24,8 @@ $ErrorActionPreference = 'Stop'
 
 $Dir = 'C:\ProgramData\netcap'
 $Conf = Join-Path $Dir 'netshape.conf'
-$Local = '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '224.0.0.0/4'
+$Local = '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16', '224.0.0.0/4',
+         'fc00::/7', '::1/128', 'fe80::/10', 'ff00::/8'
 
 function IsNumber([string]$s) { $s -match '^[0-9]+([.][0-9]+)?$' }
 function Usage([string]$m) { [Console]::Error.WriteLine("usage: netshape.ps1 $m"); exit 2 }
