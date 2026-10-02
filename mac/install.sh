@@ -9,7 +9,7 @@
 #   /Library/PrivilegedHelperTools/netcap-agent      entry point netcap calls (also used as the forced command)
 #   /usr/local/bin/netcap-check                      measurement (no root needed)
 #   /etc/pf.anchors/netcap-netshape                  pf rules (loaded into anchor com.apple/netcap-netshape)
-#   /etc/sudoers.d/netcap-netshape                   NOPASSWD for the invoking user (fixed shaper verbs only)
+#   /etc/sudoers.d/netcap-netshape                   NOPASSWD for each user who ran it (fixed shaper verbs only)
 #   /Library/LaunchDaemons/netcap-netshape.plist     only with --boot on
 #
 # Root-run files (shaper, config, anchor, sudoers) are placed only after checking that
@@ -93,11 +93,14 @@ install -o root -g wheel -m 0755 netcap-agent "$AGENT"
 install -o root -g wheel -m 0755 netcap-check /usr/local/bin/netcap-check
 install -o root -g wheel -m 0644 netcap-netshape.pf "$ANCHOR_FILE"
 
+# Add this user and keep the ones already there: each controller may log in as its own user (#31).
+# The existing file is root-only (checked above), so its user lines can be trusted
 tmp=$(mktemp)
-sed "s/__USER__/${USER_NAME}/" sudoers.d/netcap-netshape >"$tmp"
+bash netcap-sudoers sudoers.d/netcap-netshape "$SUDOERS" add "$USER_NAME" >"$tmp"
 visudo -cf "$tmp" >/dev/null
 install -o root -g wheel -m 0440 "$tmp" "$SUDOERS"
 rm -f "$tmp"
+USERS=$(sed -n 's/ ALL=(root) NOPASSWD: NETSHAPE$//p' "$SUDOERS" | paste -sd, - | sed 's/,/, /g')
 
 if [ "$BOOT" = on ]; then
   install -o root -g wheel -m 0644 netcap-netshape.plist "$PLIST"
@@ -109,6 +112,6 @@ else
   rm -f "$PLIST"
 fi
 
-echo "installed (boot=${BOOT}, sudoers for ${USER_NAME})"
+echo "installed (boot=${BOOT}, sudoers for ${USERS})"
 "$BIN" get
 "$BIN" status | head -1

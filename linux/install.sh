@@ -8,7 +8,7 @@
 #   /usr/libexec/netcap/netcap-netshape            the shaper (runs as root; tc)
 #   /usr/libexec/netcap/netcap-agent               entry point netcap calls (same as mac; also the forced command)
 #   /usr/local/bin/netcap-check                    measurement (same as mac; no root needed)
-#   /etc/sudoers.d/netcap-netshape                 NOPASSWD for the invoking user (only the shaper's fixed verbs)
+#   /etc/sudoers.d/netcap-netshape                 NOPASSWD for each user who ran it (only the shaper's fixed verbs)
 #   /etc/systemd/system/netcap-netshape.service    only with --boot on
 #
 # Root-run files (the shaper, config, sudoers) are placed only after checking that every
@@ -63,11 +63,14 @@ install -o root -g root -m 0755 netcap-netshape "$BIN"
 install -o root -g root -m 0755 ../mac/netcap-agent "$AGENT"
 install -o root -g root -m 0755 ../mac/netcap-check "$CHECK"
 
+# Add this user and keep the ones already there: each controller may log in as its own user (#31).
+# The existing file is root-only (checked above), so its user lines can be trusted
 tmp=$(mktemp)
-sed "s/__USER__/${USER_NAME}/" sudoers.d/netcap-netshape >"$tmp"
+bash ../mac/netcap-sudoers sudoers.d/netcap-netshape "$SUDOERS" add "$USER_NAME" >"$tmp"
 visudo -cf "$tmp" >/dev/null
 install -o root -g root -m 0440 "$tmp" "$SUDOERS"
 rm -f "$tmp"
+USERS=$(sed -n 's/ ALL=(root) NOPASSWD: NETSHAPE$//p' "$SUDOERS" | paste -sd, - | sed 's/,/, /g')
 
 if [ "$BOOT" = on ]; then
   install -o root -g root -m 0644 netcap-netshape.service "$UNIT"
@@ -79,6 +82,6 @@ else
   systemctl daemon-reload
 fi
 
-echo "installed (boot=${BOOT}, sudoers for ${USER_NAME})"
+echo "installed (boot=${BOOT}, sudoers for ${USERS})"
 "$BIN" get
 "$BIN" status | head -1

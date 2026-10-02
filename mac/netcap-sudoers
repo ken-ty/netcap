@@ -1,0 +1,28 @@
+#!/bin/bash
+# netcap-sudoers — print the contents of /etc/sudoers.d/netcap-netshape (used by install.sh / uninstall.sh)
+#
+#   netcap-sudoers <template> <existing file> add|remove <user>
+#
+# One line per user who installed netcap, so a second controller that logs in as another user adds itself
+# instead of replacing the first (#31). Everything else comes from the template every time, so the verbs
+# never widen. From the existing file only lines of exactly that form are carried over: a line added by hand
+# is dropped. Prints nothing when no user is left. Needs no root; install.sh checks the result with visudo.
+set -eu
+
+[ $# -eq 4 ] || { echo "usage: netcap-sudoers <template> <existing> add|remove <user>" >&2; exit 2; }
+template=$1 existing=$2 action=$3 user=$4
+# Embedded in sudoers, so accept only plain user-name strings (the same rule as install.sh)
+[[ "$user" =~ ^[a-z_][a-z0-9_.-]*$ ]] || { echo "cannot parse the user name: $user" >&2; exit 1; }
+
+users=$(sed -n 's/^\([a-z_][a-z0-9_.-]*\) ALL=(root) NOPASSWD: NETSHAPE$/\1/p' "$existing" 2>/dev/null || true)
+case "$action" in
+  add) users=$(printf '%s\n' $users "$user" | sort -u) ;;
+  remove) users=$(printf '%s\n' $users | grep -vxF "$user" || true) ;;
+  *) echo "add or remove: $action" >&2; exit 2 ;;
+esac
+[ -n "$users" ] || exit 0
+
+grep -v '^__USER__ ' "$template"
+for u in $users; do
+  sed -n "s/^__USER__ /$u /p" "$template"
+done

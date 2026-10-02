@@ -63,12 +63,14 @@ sudo bash mac/install.sh --boot on|off
 | `/Library/PrivilegedHelperTools/netcap-netshape` | 本体 (root で動く。pf + dummynet) |
 | `/usr/local/bin/netcap-check` | 実測 (curl と ping だけなので root 不要) |
 | `/etc/pf.anchors/netcap-netshape` | pf のルール |
-| `/etc/sudoers.d/netcap-netshape` | 呼び出したユーザーに、本体の決まった動詞だけ NOPASSWD |
+| `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/Library/LaunchDaemons/netcap-netshape.plist` | `--boot on` のときだけ |
 
 - `--boot on` は起動時に既定の上限 (初期値 1/1。`netcap set` で変える) をかける。`off` は素のまま
-- sudoers は `sudo` を呼んだユーザーに、本体の決まった動詞だけを許す。別のユーザーなら `NETCAP_USER=<user>`
-- 外すのは `sudo bash mac/uninstall.sh`
+- sudoers は `sudo` を呼んだユーザーに、本体の決まった動詞だけを許す。別のユーザーなら `NETCAP_USER=<user>`。
+  別のユーザーで流し直すと、そのユーザーが足され、ほかのユーザーは残る
+- 外すのは `sudo bash mac/uninstall.sh`。1 人だけ外すなら `sudo bash mac/uninstall.sh --user`
+  (最後の 1 人が外れると全部外れる)
 - v0.5.0 までの旧名 `ken-ty-netshape` は、`install.sh` を流し直せば外れる。上限も外れるので `netcap on` でかけ直す
 
 ## Linux
@@ -82,11 +84,11 @@ sudo bash linux/install.sh --boot on|off
 | `/usr/libexec/netcap/netcap-agent` | netcap が叩く入口。forced command にも使う |
 | `/usr/libexec/netcap/netcap-netshape` | 本体 (root で動く。tc) |
 | `/usr/local/bin/netcap-check` | 実測 (root 不要) |
-| `/etc/sudoers.d/netcap-netshape` | 呼び出したユーザーに、本体の決まった動詞だけ NOPASSWD |
+| `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/etc/systemd/system/netcap-netshape.service` | `--boot on` のときだけ |
 
 - 既定の経路のインターフェースを絞る。下りは `ifb` で受信を折り返して絞る
-- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh`
+- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh` (1 人だけなら `--user`)
 
 ## Windows
 

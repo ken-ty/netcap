@@ -41,8 +41,9 @@ To add a controller, install the CLI there, bring the settings over with `netcap
 ([configuration.md](configuration.md#export-and-import)), and run `netcap install` from it: `netcap install` for itself,
 `netcap install <name>` for each imported device. The device's installer runs again, which is harmless, with two things to keep in mind:
 
-- **Use the same ssh user on a device from every controller.** The device's sudoers allows only the user who ran the
-  installer last (macOS / Linux). A controller that logs in as another user gets `no-sudo`
+- **Each controller may log in as its own ssh user.** The installer adds the user who runs it to the device's sudoers and
+  keeps the users already there (macOS / Linux). netcap 0.10.0 and earlier replaced them instead, so update the CLI on
+  every controller before using more than one user
 - **Pass the same `--boot`.** Reinstalling sets it again (above)
 
 To stop managing a device from one controller only, do not run `netcap uninstall <name>`: that removes the agent for every controller.
