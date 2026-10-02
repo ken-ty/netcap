@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Loaded by netcap-netshape on --for and removed by off or at the deadline. Not in LaunchDaemons, so a reboot
+     does not load it. An empty StartCalendarInterval starts it every minute (launchd.plist(5): a missing key is a
+     wildcard); a start missed during sleep runs once on wake -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>netcap-netshape-expire</string>
+  <key>ProgramArguments</key>
+  <array><string>/Library/PrivilegedHelperTools/netcap-netshape</string><string>expire</string></array>
+  <key>StartCalendarInterval</key><dict/>
+  <key>StandardOutPath</key><string>/var/log/netcap-netshape.log</string>
+  <key>StandardErrorPath</key><string>/var/log/netcap-netshape.log</string>
+</dict>
+</plist>

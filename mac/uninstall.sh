@@ -18,7 +18,9 @@ if [ "${1:-}" = --user ]; then
 fi
 launchctl bootout system/netcap-netshape 2>/dev/null || true
 /Library/PrivilegedHelperTools/netcap-netshape off 2>/dev/null || true
+launchctl bootout system/netcap-netshape-expire 2>/dev/null || true
 rm -f /Library/LaunchDaemons/netcap-netshape.plist /Library/PrivilegedHelperTools/netcap-netshape \
+  /Library/PrivilegedHelperTools/netcap-netshape-expire.plist /var/run/netcap-netshape.until \
   /Library/PrivilegedHelperTools/netcap-agent \
   /usr/local/bin/netcap-check \
   /etc/pf.anchors/netcap-netshape /etc/netcap-netshape.conf \

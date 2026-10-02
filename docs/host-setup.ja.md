@@ -66,6 +66,7 @@ sudo bash mac/install.sh --boot on|off
 | `/etc/pf.anchors/netcap-netshape` | pf のルール |
 | `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/Library/LaunchDaemons/netcap-netshape.plist` | `--boot on` のときだけ |
+| `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | `on --for` が読み込み、期限に上限を外すジョブ。起動時には読み込まれない |
 
 - `--boot on` は起動時に既定の上限 (初期値 1/1。`netcap set` で変える) をかける。`off` は素のまま
 - sudoers は `sudo` を呼んだユーザーに、本体の決まった動詞だけを許す。別のユーザーなら `NETCAP_USER=<user>`。

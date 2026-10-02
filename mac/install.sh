@@ -7,6 +7,7 @@
 # What it installs:
 #   /Library/PrivilegedHelperTools/netcap-netshape   the shaper (runs as root)
 #   /Library/PrivilegedHelperTools/netcap-agent      entry point netcap calls (also used as the forced command)
+#   /Library/PrivilegedHelperTools/netcap-netshape-expire.plist   the job on --for loads (lifts the cap at the deadline)
 #   /usr/local/bin/netcap-check                      measurement (no root needed)
 #   /etc/pf.anchors/netcap-netshape                  pf rules (loaded into anchor com.apple/netcap-netshape)
 #   /etc/sudoers.d/netcap-netshape                   NOPASSWD for each user who ran it (fixed shaper verbs only)
@@ -90,6 +91,7 @@ fi
 
 install -o root -g wheel -m 0755 netcap-netshape "$BIN"
 install -o root -g wheel -m 0755 netcap-agent "$AGENT"
+install -o root -g wheel -m 0644 netcap-netshape-expire.plist /Library/PrivilegedHelperTools/netcap-netshape-expire.plist
 install -o root -g wheel -m 0755 netcap-check /usr/local/bin/netcap-check
 install -o root -g wheel -m 0644 netcap-netshape.pf "$ANCHOR_FILE"
 
