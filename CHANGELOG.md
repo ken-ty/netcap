@@ -10,6 +10,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Added
 
+- `netcap protect <host> [--up N --down N]` caps every other device and shows `<host>`'s check before and after;
+  `netcap protect --off` puts each device back as it was (#73)
 - `netcap on <host> --for 30m` (or `2h`, `1h30m`; 1 minute to 24 hours): the device lifts the cap by itself after that
   long, even with the controller off. `status` shows the time left. It needs the agent from this release on each device:
   run `netcap install <name>` (#71, #72)
