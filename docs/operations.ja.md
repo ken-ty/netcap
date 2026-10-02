@@ -48,8 +48,9 @@ CLI が入っていればどの機械も管理する側になれて、同じ端�
   すべての管理する側の CLI を更新する
 - **`--boot` を揃える。** 入れ直すと設定し直される (上)
 
-1 つの管理する側からだけ外したいときは、`netcap uninstall <名前>` を使わない。全部の管理する側から agent が消える。
-代わりに `netcap uninstall <名前> --config-only` を流し、端末の `~/.ssh/authorized_keys`
-(Windows は `C:\ProgramData\ssh\administrators_authorized_keys`) から、その管理する側の行 (`netcap@<管理する側>` で終わる) を消す。
+1 つの管理する側から外すときは、そこで `netcap uninstall <名前>` を流す。外れるのはその管理する側が足したものだけ:
+その鍵と、macOS / Linux では端末の sudoers にあるその ssh ユーザー。同じログインにほかの管理する側の鍵が残っている間は
+agent も残り、最後の 1 つと一緒に外れる。全部まとめて外すには、端末で `sudo bash mac/uninstall.sh`
+(Linux は `linux/uninstall.sh`、Windows は `C:\ProgramData\netcap\uninstall.ps1`) を流す ([host-setup.ja.md](host-setup.ja.md))。
 
 Windows でも CLI は日々のコマンドも `netcap install --ssh` も動く (どちらも CI で動かしている。後者は Windows の端末へ)。

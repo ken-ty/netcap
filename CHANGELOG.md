@@ -10,6 +10,9 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Changed
 
+- **Breaking** `netcap uninstall <name>` removes only this controller's key and, on macOS / Linux, its ssh user from the
+  device's sudoers. The agent stays while another controller's netcap key is on the device, and goes with the last one.
+  To remove everything at once, run the device's `uninstall.sh` (Windows: `uninstall.ps1`) (#70)
 - Installing on a macOS or Linux device as another ssh user adds that user to its sudoers instead of replacing the
   previous one, so each controller may log in as its own user. Update the CLI on every controller first: 0.10.0 and
   earlier still replace the list. `uninstall.sh --user` removes one user (#68)

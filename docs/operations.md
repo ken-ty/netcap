@@ -46,8 +46,9 @@ To add a controller, install the CLI there, bring the settings over with `netcap
   every controller before using more than one user
 - **Pass the same `--boot`.** Reinstalling sets it again (above)
 
-To stop managing a device from one controller only, do not run `netcap uninstall <name>`: that removes the agent for every controller.
-Instead run `netcap uninstall <name> --config-only`, then delete that controller's line (ending in `netcap@<controller>`)
-from the device's `~/.ssh/authorized_keys` (Windows: `C:\ProgramData\ssh\administrators_authorized_keys`).
+To stop managing a device from one controller, run `netcap uninstall <name>` there. It takes back only what that controller
+added: its key, and on macOS / Linux its ssh user in the device's sudoers. The agent stays while another controller's key is
+on the device for the same login, and goes with the last one. To remove everything at once, run `sudo bash mac/uninstall.sh`
+(Linux: `linux/uninstall.sh`; Windows: `C:\ProgramData\netcap\uninstall.ps1`) on the device ([host-setup.md](host-setup.md)).
 
 On Windows, the CLI runs day-to-day commands and `netcap install --ssh` (CI runs both there, the latter to a Windows device).

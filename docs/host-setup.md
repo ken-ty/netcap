@@ -20,7 +20,8 @@ page is for reference and for setting a device up by hand.
 
 To update a device, run `netcap install <name>` again. The `agent` column of `netcap get` shows each device's version.
 Which agent versions each CLI release works with: [compatibility.md](compatibility.md).
-`netcap uninstall <name>` reverses all of it (`--config-only` just forgets a device that is gone).
+`netcap uninstall <name>` reverses what this controller added; the agent goes with the last controller
+([operations.md](operations.md#more-than-one-controller)). `--config-only` just forgets a device that is gone.
 
 ## Where the scripts are
 
