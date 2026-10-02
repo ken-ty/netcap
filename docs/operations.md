@@ -18,7 +18,7 @@ by hand, a reboot, or another controller, is left as it is.
 
 | What happens | Result |
 | --- | --- |
-| The controller shuts down, sleeps, or leaves the network | Nothing changes on the devices. A cap stays until someone runs `off`; there is no timer that lifts it |
+| The controller shuts down, sleeps, or leaves the network | Nothing changes on the devices. A cap stays until someone runs `off`, or until its `--for` runs out: the device lifts that one by itself |
 | A macOS / Linux device reboots, `boot=off` (the default) | It starts without a cap |
 | A macOS / Linux device reboots, `boot=on` | It starts capped at its default (the `default` column of `netcap get`) |
 | A Windows device reboots (`boot=keep`) | It keeps what it had: capped stays capped, uncapped stays uncapped |

@@ -32,7 +32,7 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 | --- | --- | --- | --- |
 | インターネット宛てだけ | LAN・VPN・ping・DNS は IPv4 でも IPv6 でも素通し | IPv4 と IPv6 で同じ。Linux は実測、macOS と Windows はルールから | 小 · [#28](https://github.com/ken-ty/netcap/issues/28) (macOS と Windows を測る) |
 | 守りたいものを守る | 守る端末を指定すると、他を絞り、効いたかを示す | `netcap protect` が他を絞り、守る端末の check を前後で見せる。差が出るのは、そのとき他が回線を使っている場合だけ | 小: 比べるための負荷は作らない |
-| 戻せる | 絞りっぱなしにならない | 手元の `off` は回線不要、`on` の後に戻し方を表示、`boot` の既定は off。時間で外れる仕組みは無い | 中 · [#29](https://github.com/ken-ty/netcap/issues/29) |
+| 戻せる | 絞りっぱなしにならない | 手元の `off` は回線不要、`on` の後に戻し方を表示、`boot` の既定は off。`on --for` は端末が自分で外す | なし |
 | 対応 OS | 3 OS で上りも下りも | Windows は上りのみ | 受け入れる: Windows の下りはドライバが要り、netcap の規模を超える |
 | 導入 | 端末 1 台に 1 コマンド | `netcap install`。`--ssh` は CI (Linux、Windows) で試し、Windows から macOS へは実測した | なし |
 | 管理する側が複数 | どの ssh ユーザーで入っても管理できる | export / import。sudoers はインストールした各ユーザーを許し、uninstall は 1 つの管理する側の分だけ戻す | なし |

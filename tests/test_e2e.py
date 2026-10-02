@@ -136,9 +136,11 @@ class E2E(unittest.TestCase):
     def timer_loaded(self):
         if OS == "mac":
             return sh("sudo", "launchctl", "print", "system/netcap-netshape-expire").returncode == 0
+        if OS == "win":
+            return sh("powershell", "-NoProfile", "-Command", "if (Get-ScheduledTask -TaskPath '\\netcap\\' -TaskName expire "
+                      "-ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }").returncode == 0
         return sh("systemctl", "is-active", "netcap-netshape-expire.timer").stdout.strip() == "active"
 
-    @unittest.skipIf(OS == "win", "Windows follows in its own PR")
     def test_07_on_for_lifts_itself(self):
         p = agent("on", "2", "3", "--for", "60")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -153,7 +155,6 @@ class E2E(unittest.TestCase):
         self.assertEqual(self.row()["left"], "-")
         self.assertFalse(self.timer_loaded())
 
-    @unittest.skipIf(OS == "win", "Windows follows in its own PR")
     def test_08_later_on_and_off_replace_the_timer(self):
         for undo in (("on",), ("off",)):
             with self.subTest(undo=undo[0]):
@@ -164,7 +165,6 @@ class E2E(unittest.TestCase):
                 self.assertFalse(self.timer_loaded())
         agent("off")
 
-    @unittest.skipIf(OS == "win", "Windows follows in its own PR")
     def test_09_set_keeps_the_timer(self):
         self.assertEqual(agent("on", "--for", "600").returncode, 0)
         try:

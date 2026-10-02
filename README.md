@@ -45,9 +45,9 @@ Without brew, see [docs/host-setup.md](docs/host-setup.md).
 ### 2. Try it on your own line
 
 ```bash
-netcap on me --up 2 --down 2    # cap this machine to 2 Mbit/s up and down
-netcap status                   # read the cap actually in effect
-netcap off me                   # remove it
+netcap on me --up 2 --down 2 --for 10m   # cap this machine to 2 Mbit/s for 10 minutes; it lifts itself after that
+netcap status                            # read the cap actually in effect, and when it ends
+netcap off me                            # remove it now
 ```
 
 > **If you get stuck: `netcap off me` removes the cap.** It runs locally, so it works even when the line is too thin to load anything.
@@ -125,7 +125,7 @@ Feature by feature: [docs/platforms.md](docs/platforms.md).
 ```text
 netcap status [host|all] [--json]           read the cap actually in effect
 netcap get    [host|all] [--json]           read the settings (default, boot behavior)
-netcap on     <host|all> [--up N --down N]  apply a cap (flags apply this time only)
+netcap on     <host|all> [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
 netcap off    <host|all>                    remove the cap (default returns on reboot)
 netcap set    <host|all> --up N --down N    change the default
 netcap check  <host|all> [--json]           measure (curl up/down + ping)
