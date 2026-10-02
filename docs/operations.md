@@ -10,6 +10,10 @@ What happens on reboots and power loss, and when more than one machine runs netc
 `~/.config/netcap/` (hosts, profiles) and the key `~/.ssh/netcap`. Nothing runs between commands, on either side.
 So the controller being on or off does not change any device.
 
+One exception: while `netcap protect` is in effect, the controller keeps how each device was before, in
+`~/.local/state/netcap/protect.json` (`$XDG_STATE_HOME` if set), for `netcap protect --off`. A device changed since,
+by hand, a reboot, or another controller, is left as it is.
+
 ## Power loss and reboots
 
 | What happens | Result |

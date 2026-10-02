@@ -12,6 +12,10 @@
 `~/.config/netcap/` (hosts、profiles) と鍵 `~/.ssh/netcap`。コマンドとコマンドの間は、どちらの側でも何も動いていない。
 だから管理する側の電源が入っていてもいなくても、端末は何も変わらない。
 
+例外が 1 つある。`netcap protect` をかけている間、管理する側は各端末の前の状態を
+`~/.local/state/netcap/protect.json` (`$XDG_STATE_HOME` があればその下) に持つ。`netcap protect --off` で戻すため。
+その後に手作業・再起動・ほかの管理する側で変わった端末には触らない。
+
 ## 電源断と再起動
 
 | 起きること | 結果 |
