@@ -22,7 +22,8 @@
 100.64/10 で素通しになるのは VPN のトンネルの内側だけ。インターネットへ出る外側の UDP は絞られる。
 
 IPv6 も同じに扱う。表の IPv6 の範囲、ICMPv6、DNS は素通しにする。Linux は CI で実測している
-(`tests/test_e2e.py` の `PassThrough`)。macOS と Windows はルールから読んだもの。Windows は ICMP と同じく ICMPv6 を
+(`tests/test_e2e.py` の `PassThrough`)。macOS と Windows は、LAN 宛ての IPv6 を実機で測った
+([platforms.ja.md](platforms.ja.md))。それ以外はルールから読んだもの。Windows は ICMP と同じく ICMPv6 を
 名指しするものが無く、まだ測っていない。
 
 Linux には例外が 1 つある。1 パケットに収まらない大きさの ICMPv6 は絞られる。tc は IPv6 ヘッダからプロトコルを読むが、

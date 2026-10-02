@@ -18,13 +18,15 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
 | ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
-| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (from the rules) | ✅ (measured) | ⚠️ LAN and DNS pass (from the rules); ICMPv6 ❓ |
+| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (LAN measured) | ✅ (measured) | ⚠️ LAN passes (measured), DNS from the rules; ICMPv6 ❓ |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
 | `netcap install --ssh` from a controller | ✅ | ✅ | ✅ (the ssh user must be an Administrator) |
 
-The exempt ranges are in [design.md](design.md#destinations-that-pass-through). The IPv6 row for Linux is measured in CI;
-for macOS and Windows it comes from reading the rules, not from a measurement.
+The exempt ranges are in [design.md](design.md#destinations-that-pass-through). The IPv6 row for Linux is measured in CI.
+On macOS and Windows, IPv6 to the LAN was measured on real machines on 2026-10-01: 2 MB over link-local took 8.1 s
+(macOS at 2 Mbit/s) and 17.1 s (Windows at 1 Mbit/s) with the rules of 0.10.0, and 0.14 s with these. The rest of
+their IPv6 rows comes from reading the rules: that line had no IPv6 to the internet.
 
 ## As a controller (the CLI)
 
