@@ -54,6 +54,31 @@ FAKE_SSH = textwrap.dedent("""\
                 print(open(f).read(), end="")
             sys.exit(0)
     ok = "netshape state={s} up_mbit={u} down_mbit={u} down_src=applied pipes=2 rules=2"
+    # Devices that keep their state in $FAKE_STATE/<host> ("off" or "on UP DOWN"). check pings 40 ms when every
+    # other such device is capped, 400 ms otherwise. <host>.gone makes the device unreachable
+    if host.startswith("h-s-"):
+        state_dir = os.environ["FAKE_STATE"]
+        st = os.path.join(state_dir, host)
+        if os.path.exists(st + ".gone"):
+            print(f"ssh: connect to host {host}: Operation timed out", file=sys.stderr); sys.exit(255)
+        words = cmd.split()
+        verb, args = (words[1], words[2:]) if len(words) > 1 else ("", [])
+        if verb == "on":
+            open(st, "w").write("on " + (" ".join(args) or "1 1"))
+        elif verb == "off":
+            open(st, "w").write("off")
+        elif verb == "status":
+            s = open(st).read().split() if os.path.exists(st) else ["off"]
+            if s[0] == "on":
+                print(f"netshape state=on up_mbit={s[1]} down_mbit={s[2]} down_src=applied")
+            else:
+                print("netshape state=off up_mbit=- down_mbit=- down_src=applied")
+        elif verb == "check":
+            others = [f for f in os.listdir(state_dir) if f.startswith("h-s-") and "." not in f and f != host]
+            capped = all(open(os.path.join(state_dir, f)).read().startswith("on") for f in others)
+            ms = 40 if capped else 400
+            print(f"netcheck down_mbit=10.00 up_mbit=5.00 ping_med={ms} ping_p95={ms} ping_max={ms} ping_n=10 bytes=1000000")
+        sys.exit(0)
     if host == "h-off":
         print(ok.format(s="off", u="-"))
     elif host == "h-on":
@@ -92,8 +117,11 @@ class CLI(unittest.TestCase):
         self.conf = self.tmp / "conf"
         self.conf.mkdir()
         # LC_ALL=C: the assertions read English messages, whatever the locale of the machine running the tests
+        self.state = self.tmp / "devices"
+        self.state.mkdir()
         self.env = {**os.environ, "PATH": f"{self.tmp / 'bin'}{os.pathsep}{os.environ['PATH']}",
-                    "FAKE_SSH_LOG": str(self.log), "NETCAP_CONFIG_DIR": str(self.conf), "LC_ALL": "C"}
+                    "FAKE_SSH_LOG": str(self.log), "NETCAP_CONFIG_DIR": str(self.conf), "LC_ALL": "C",
+                    "FAKE_STATE": str(self.state), "NETCAP_STATE_DIR": str(self.tmp / "netcap-state")}
 
     def hosts(self, *names, profiles=""):
         (self.conf / "hosts").write_text("".join(f"{n} mac h-{n}\n" for n in names))
@@ -114,7 +142,7 @@ class CLI(unittest.TestCase):
         for args in (["status", "off", "--json"], ["status", "all", "--json"], ["get", "off", "--json"],
                      ["on", "off", "--up", "1", "--down", "2"], ["off", "off"],
                      ["set", "off", "--up", "1", "--down", "2"], ["use", "p"], ["profiles"],
-                     ["status", "off", "-v"], ["--version"], ["-V"]):
+                     ["status", "off", "-v"], ["--version"], ["-V"], ["protect", "--off"]):
             with self.subTest(args=args):
                 p = self.netcap(*args)
                 self.assertNotIn("unrecognized arguments", p.stderr)
@@ -188,6 +216,86 @@ class CLI(unittest.TestCase):
         self.assertRegex(lines["on"], r"^on\s+ok\s+on\s+2 Mbit/s\s+2 Mbit/s\*\s*$")
         self.assertRegex(lines["partial"], r"^partial\s+ok\s+partial\s")
         self.assertRegex(lines["error"], r"^error\s+error\s+\?\s.*last line of error$")
+
+    # #30: netcap protect. Cap every other device, measure the protected one before and after, undo with --off
+    def devices(self, **states):
+        (self.conf / "hosts").write_text("".join(f"{n} mac h-s-{n}\n" for n in states))
+        for n, s in states.items():
+            (self.state / f"h-s-{n}").write_text(s)
+
+    def device(self, name):
+        return (self.state / f"h-s-{name}").read_text()
+
+    def test_protect_caps_the_others_and_measures(self):
+        self.devices(game="off", laptop="off", server="on 3 3")
+        p = self.netcap("protect", "game", "--up", "2", "--down", "2")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server"), self.device("game")), ("on 2 2", "on 2 2", "off"))
+        self.assertRegex(p.stdout, r"(?m)^before\s+ok\s+10.00 Mbit/s\s+5.00 Mbit/s\s+400/400/400")
+        self.assertRegex(p.stdout, r"(?m)^after\s+ok\s+10.00 Mbit/s\s+5.00 Mbit/s\s+40/40/40")
+        self.assertIn("to undo: netcap protect --off", p.stdout)
+        log = [l for l in self.log.read_text().splitlines() if l.startswith("h-s-game")]
+        self.assertEqual([l.split()[2] for l in log], ["status", "check", "check"])  # never capped or uncapped
+        # --off puts each device back as it was
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server"), self.device("game")), ("off", "on 3 3", "off"))
+        self.assertIn("nothing to undo", self.netcap("protect", "--off").stdout)
+
+    def test_protect_json(self):
+        self.devices(game="off", laptop="off")
+        out = json.loads(self.netcap("protect", "game", "--json").stdout)
+        self.assertEqual(out["protected"], "game")
+        self.assertEqual((out["before"]["ping_med"], out["after"]["ping_med"]), ("400", "40"))
+        self.assertEqual([r["host"] for r in out["devices"]], ["laptop"])
+        self.assertEqual(self.device("laptop"), "on 1 1")  # the device's default without --up / --down
+
+    def test_protect_off_leaves_a_device_someone_changed(self):
+        self.devices(game="off", laptop="off", server="off")
+        self.netcap("protect", "game")
+        (self.state / "h-s-server").write_text("on 5 5")  # changed by hand in the meantime
+        p = self.netcap("protect", "--off")
+        self.assertEqual((self.device("laptop"), self.device("server")), ("off", "on 5 5"))
+        self.assertIn("server changed since protect; left as is. To undo: netcap off server", p.stdout)
+
+    def test_protect_off_keeps_an_unreachable_device_for_later(self):
+        self.devices(game="off", laptop="off")
+        self.netcap("protect", "game")
+        (self.state / "h-s-laptop.gone").touch()
+        p = self.netcap("protect", "--off")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("run netcap protect --off again", p.stdout)
+        (self.state / "h-s-laptop.gone").unlink()
+        self.assertEqual(self.netcap("protect", "--off").returncode, 0)
+        self.assertEqual(self.device("laptop"), "off")
+
+    def test_protect_refuses(self):
+        self.devices(game="off", laptop="off")
+        for args, msg in ((["protect"], "netcap protect <host>"), (["protect", "all"], "one device"),
+                          (["protect", "game", "--up", "2"], "--up and --down together"),
+                          (["protect", "game", "--up", "0", "--down", "1"], "positive numbers")):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(msg, p.stderr)
+        self.assertEqual(self.netcap("protect", "game").returncode, 0)
+        p = self.netcap("protect", "laptop")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("already protecting game", p.stderr)
+
+    def test_protect_stops_when_the_protected_device_is_unreachable(self):
+        self.devices(game="off", laptop="off")
+        (self.state / "h-s-game.gone").touch()
+        p = self.netcap("protect", "game")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("changed nothing", p.stderr)
+        self.assertEqual(self.device("laptop"), "off")
+
+    def test_protect_needs_another_device(self):
+        self.devices(game="off")
+        p = self.netcap("protect", "game")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("no other device", p.stderr)
 
     # docs/configuration.md: devices not listed are left untouched
     def test_use_leaves_unlisted_hosts(self):
