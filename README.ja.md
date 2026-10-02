@@ -95,12 +95,14 @@ netcap use none      # 全部外す
 守る端末だけを名指ししてもよい。netcap がほかの全端末を絞り、その端末を前後で測る。
 
 ```bash
-netcap protect gamepc --up 2 --down 2   # gamepc 以外を全部絞り、gamepc の check を前後で見せる
-netcap protect --off                    # 各端末を元の状態に戻す
+netcap protect gamepc --up 2 --down 2             # gamepc 以外を全部絞り、gamepc の check を前後で見せる
+netcap protect gamepc --up 2 --down 2 --load 5    # その間ほかの端末も 5 MB ずつ転送し、遅延が良くなったかを言う
+netcap protect --off                              # 各端末を元の状態に戻す
 ```
 
-測定に差が出るのは、そのときほかの端末が回線を使っていた場合だけ。netcap はその通信を作らない。守る端末から
-4 MB ほど送受信する。Windows の端末は上りしか絞れない。
+`--load` が無いと、測定に差が出るのは、そのときほかの端末がたまたま回線を使っていた場合だけ。`--load` はその通信を
+作るので通信量を使う: 約 4 × MB × ほかの端末の数 (最初に表示する)。守る端末自身はどちらでも 4 MB ほど送受信する。
+Windows の端末は上りしか絞れない。
 
 名前は `netcap rename me laptop` で変えられる。外すときは `netcap uninstall gamepc`。
 ファイルの書式は [docs/configuration.ja.md](docs/configuration.ja.md)、install が端末に何を置くかは [docs/host-setup.ja.md](docs/host-setup.ja.md)。
@@ -133,7 +135,7 @@ netcap set    <host|all> --up N --down N    既定を書き換える
 netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
 netcap use    <profile>                     プロファイルを適用
 netcap profiles                             プロファイル一覧
-netcap protect <host> [--up N --down N]     ほかの全端末を絞り、<host> の check を前後で見せる
+netcap protect <host> [--up N --down N] [--load MB]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
 netcap install [name] [--ssh DEST]          端末に agent を入れて登録する
 netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
