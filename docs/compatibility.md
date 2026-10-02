@@ -24,6 +24,7 @@ Raise the minimum when a release changes any of these:
 
 | CLI | Oldest agent | Notes |
 | --- | --- | --- |
+| 0.11.0 | 0.11.0 | `on --for`, the `until=` / `left=` fields, and the installer changed. An older agent still answers `status` `get` `on` `off` `set` `check`, refuses `--for` without changing anything, and keeps the IPv6 and cmd.exe bugs. Update with `netcap install <name>` |
 | 0.10.0 | 0.9.0 | The device side is unchanged since 0.9.0. `netcap get` points out these agents as different from the CLI; that is expected |
 | 0.9.1 | 0.9.0 | The device side is unchanged since 0.9.0 |
 
