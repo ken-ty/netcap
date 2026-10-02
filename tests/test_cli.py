@@ -85,6 +85,8 @@ FAKE_SSH = textwrap.dedent("""\
         print(ok.format(s="on", u="2"))
     elif host == "h-timed":  # on --for 1800, 29 minutes left
         print(ok.format(s="on", u="2") + " until=1900000000 left=1740")
+    elif host == "h-due":  # the deadline has passed; the device's scheduler lifts it on its next run
+        print(ok.format(s="on", u="2") + " until=1700000000 left=0")
     elif host == "h-oldfor":  # an agent from before --for
         if "--for" in cmd:
             print("netcap-agent: arguments must be numbers: --for", file=sys.stderr); sys.exit(77)
@@ -365,6 +367,9 @@ class CLI(unittest.TestCase):
         line = self.netcap("status", "timed").stdout.splitlines()[2]
         self.assertRegex(line, r"^timed\s+ok\s+on\s+2 Mbit/s\s+2 Mbit/s\*\s+off in 29m$")
         self.assertEqual(self.status_row("timed")["left"], "1740")
+        # Past the deadline, macOS lifts it within a minute and Windows when the task runs: "off in 0m" read as a mistake
+        self.hosts("due")
+        self.assertRegex(self.netcap("status", "due").stdout.splitlines()[2], r"\s+due, lifting soon$")
 
     def test_on_for_with_an_old_agent(self):
         self.hosts("oldfor")
