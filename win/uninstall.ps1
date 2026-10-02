@@ -3,6 +3,7 @@
 $ErrorActionPreference = 'Continue'
 $Dir = 'C:\ProgramData\netcap'
 if (Test-Path "$Dir\netshape.ps1") { & "$Dir\netshape.ps1" off }
+Unregister-ScheduledTask -TaskPath '\netcap\' -TaskName expire -Confirm:$false -ErrorAction SilentlyContinue
 Get-NetQosPolicy -ErrorAction SilentlyContinue |
   Where-Object { $_.Name -like 'netcap-*' } |
   ForEach-Object { Remove-NetQosPolicy -Name $_.Name -Confirm:$false }

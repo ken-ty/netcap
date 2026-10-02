@@ -12,11 +12,15 @@
 `~/.config/netcap/` (hosts、profiles) と鍵 `~/.ssh/netcap`。コマンドとコマンドの間は、どちらの側でも何も動いていない。
 だから管理する側の電源が入っていてもいなくても、端末は何も変わらない。
 
+例外が 1 つある。`netcap protect` をかけている間、管理する側は各端末の前の状態を
+`~/.local/state/netcap/protect.json` (`$XDG_STATE_HOME` があればその下) に持つ。`netcap protect --off` で戻すため。
+その後に手作業・再起動・ほかの管理する側で変わった端末には触らない。
+
 ## 電源断と再起動
 
 | 起きること | 結果 |
 | --- | --- |
-| 管理する側が電源断・スリープ・ネットワークから外れる | 端末は何も変わらない。上限は誰かが `off` するまで残る。時間で外れる仕組みは無い |
+| 管理する側が電源断・スリープ・ネットワークから外れる | 端末は何も変わらない。上限は誰かが `off` するまで残る。`--for` を付けた上限は、その時間が経つと端末が自分で外す |
 | macOS / Linux の端末が再起動、`boot=off` (既定) | 上限なしで起動する |
 | macOS / Linux の端末が再起動、`boot=on` | 既定値 (`netcap get` の `default` 列) で上限をかけて起動する |
 | Windows の端末が再起動 (`boot=keep`) | 再起動前のまま。かかっていればかかったまま、外れていれば外れたまま |
@@ -43,12 +47,14 @@ CLI が入っていればどの機械も管理する側になれて、同じ端�
 ([configuration.ja.md](configuration.ja.md#書き出しと取り込み))、そこから `netcap install` を流す。自分自身は `netcap install`、
 取り込んだ各端末は `netcap install <名前>`。端末のインストーラがもう一度流れるが害は無い。気をつけるのは 2 つ:
 
-- **1 つの端末には、どの管理する側からも同じ ssh ユーザーで入る。** 端末の sudoers は、最後にインストーラを流した
-  ユーザーだけを許す (macOS / Linux)。別のユーザーで入る管理する側は `no-sudo` になる
+- **管理する側ごとに別の ssh ユーザーで入ってよい。** インストーラは、流したユーザーを端末の sudoers に足し、
+  すでにいるユーザーは残す (macOS / Linux)。netcap 0.10.0 以前は置き換えていたので、複数のユーザーで使う前に
+  すべての管理する側の CLI を更新する
 - **`--boot` を揃える。** 入れ直すと設定し直される (上)
 
-1 つの管理する側からだけ外したいときは、`netcap uninstall <名前>` を使わない。全部の管理する側から agent が消える。
-代わりに `netcap uninstall <名前> --config-only` を流し、端末の `~/.ssh/authorized_keys`
-(Windows は `C:\ProgramData\ssh\administrators_authorized_keys`) から、その管理する側の行 (`netcap@<管理する側>` で終わる) を消す。
+1 つの管理する側から外すときは、そこで `netcap uninstall <名前>` を流す。外れるのはその管理する側が足したものだけ:
+その鍵と、macOS / Linux では端末の sudoers にあるその ssh ユーザー。同じログインにほかの管理する側の鍵が残っている間は
+agent も残り、最後の 1 つと一緒に外れる。全部まとめて外すには、端末で `sudo bash mac/uninstall.sh`
+(Linux は `linux/uninstall.sh`、Windows は `C:\ProgramData\netcap\uninstall.ps1`) を流す ([host-setup.ja.md](host-setup.ja.md))。
 
 Windows でも CLI は日々のコマンドも `netcap install --ssh` も動く (どちらも CI で動かしている。後者は Windows の端末へ)。

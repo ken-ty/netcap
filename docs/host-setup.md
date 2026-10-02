@@ -20,7 +20,8 @@ page is for reference and for setting a device up by hand.
 
 To update a device, run `netcap install <name>` again. The `agent` column of `netcap get` shows each device's version.
 Which agent versions each CLI release works with: [compatibility.md](compatibility.md).
-`netcap uninstall <name>` reverses all of it (`--config-only` just forgets a device that is gone).
+`netcap uninstall <name>` reverses what this controller added; the agent goes with the last controller
+([operations.md](operations.md#more-than-one-controller)). `--config-only` just forgets a device that is gone.
 
 ## Where the scripts are
 
@@ -61,12 +62,15 @@ sudo bash mac/install.sh --boot on|off
 | `/Library/PrivilegedHelperTools/netcap-netshape` | The shaper (runs as root; pf + dummynet) |
 | `/usr/local/bin/netcap-check` | Measurement (only curl and ping, so no root needed) |
 | `/etc/pf.anchors/netcap-netshape` | pf rules |
-| `/etc/sudoers.d/netcap-netshape` | NOPASSWD for the invoking user, limited to the shaper's fixed verbs |
+| `/etc/sudoers.d/netcap-netshape` | NOPASSWD for each user who ran the installer, limited to the shaper's fixed verbs |
 | `/Library/LaunchDaemons/netcap-netshape.plist` | Only with `--boot on` |
+| `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | The job `on --for` loads to lift the cap at the deadline. Not loaded at boot |
 
 - `--boot on` applies the default cap at boot (initially 1/1; change it with `netcap set`). `off` leaves the device as is
-- sudoers allows only the shaper's fixed verbs, for the user who ran `sudo`. For a different user, pass `NETCAP_USER=<user>`
-- To remove: `sudo bash mac/uninstall.sh`
+- sudoers allows only the shaper's fixed verbs, for the user who ran `sudo`. For a different user, pass `NETCAP_USER=<user>`.
+  Running it again as another user adds that user and keeps the others
+- To remove: `sudo bash mac/uninstall.sh`. To remove only one user: `sudo bash mac/uninstall.sh --user`
+  (everything goes with the last user)
 - The old name `ken-ty-netshape` (up to v0.5.0) is removed by running `install.sh` again. That also removes the cap, so reapply it with `netcap on`
 
 ## Linux
@@ -80,11 +84,11 @@ sudo bash linux/install.sh --boot on|off
 | `/usr/libexec/netcap/netcap-agent` | The entry point netcap calls. Also used as the forced command |
 | `/usr/libexec/netcap/netcap-netshape` | The shaper (runs as root; tc) |
 | `/usr/local/bin/netcap-check` | Measurement (no root needed) |
-| `/etc/sudoers.d/netcap-netshape` | NOPASSWD for the invoking user, limited to the shaper's fixed verbs |
+| `/etc/sudoers.d/netcap-netshape` | NOPASSWD for each user who ran the installer, limited to the shaper's fixed verbs |
 | `/etc/systemd/system/netcap-netshape.service` | Only with `--boot on` |
 
 - Caps the interface of the default route. Download is capped by redirecting ingress through `ifb`
-- `--boot`, sudoers, and `NETCAP_USER` work as on macOS. To remove: `sudo bash linux/uninstall.sh`
+- `--boot`, sudoers, and `NETCAP_USER` work as on macOS. To remove: `sudo bash linux/uninstall.sh` (`--user` for one user)
 
 ## Windows
 

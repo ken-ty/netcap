@@ -47,9 +47,9 @@ brew を使わないときは [docs/host-setup.ja.md](docs/host-setup.ja.md) を
 ### 2. 自分の回線で試す
 
 ```bash
-netcap on me --up 2 --down 2    # この端末を上り下り 2 Mbit/s に絞る
-netcap status                   # 実際にかかっている上限を読む
-netcap off me                   # 外す
+netcap on me --up 2 --down 2 --for 10m   # この端末を上り下り 2 Mbit/s に 10 分だけ絞る。過ぎたら自分で外れる
+netcap status                            # 実際にかかっている上限と、いつ外れるかを読む
+netcap off me                            # 今すぐ外す
 ```
 
 > **困ったら `netcap off me` で戻る。** 手元で動くので、回線が細くて何も読み込めないときでも効く。
@@ -92,6 +92,16 @@ netcap use game      # レシピを適用する
 netcap use none      # 全部外す
 ```
 
+守る端末だけを名指ししてもよい。netcap がほかの全端末を絞り、その端末を前後で測る。
+
+```bash
+netcap protect gamepc --up 2 --down 2   # gamepc 以外を全部絞り、gamepc の check を前後で見せる
+netcap protect --off                    # 各端末を元の状態に戻す
+```
+
+測定に差が出るのは、そのときほかの端末が回線を使っていた場合だけ。netcap はその通信を作らない。守る端末から
+4 MB ほど送受信する。Windows の端末は上りしか絞れない。
+
 名前は `netcap rename me laptop` で変えられる。外すときは `netcap uninstall gamepc`。
 ファイルの書式は [docs/configuration.ja.md](docs/configuration.ja.md)、install が端末に何を置くかは [docs/host-setup.ja.md](docs/host-setup.ja.md)。
 
@@ -117,14 +127,16 @@ netcap use none      # 全部外す
 ```text
 netcap status [host|all] [--json]           実際にかかっている上限を読む
 netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
-netcap on     <host|all> [--up N --down N]  上限をかける (flag は今回だけ)
+netcap on     <host|all> [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
 netcap off    <host|all>                    上限を外す (再起動で既定に戻る)
 netcap set    <host|all> --up N --down N    既定を書き換える
 netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
 netcap use    <profile>                     プロファイルを適用
 netcap profiles                             プロファイル一覧
+netcap protect <host> [--up N --down N]     ほかの全端末を絞り、<host> の check を前後で見せる
+netcap protect --off                        各端末を元の状態に戻す
 netcap install [name] [--ssh DEST]          端末に agent を入れて登録する
-netcap uninstall <name>                     agent と登録を外す
+netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
 netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
 netcap import <file|->                      それを読み戻す (--replace で上書き)

@@ -1,6 +1,9 @@
 """Do the values written in the docs match the contents of the device-side files?"""
 import ipaddress
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -70,6 +73,61 @@ class Exempt(unittest.TestCase):
 
     def test_dns_passes_on_win(self):
         self.assertRegex(read("win/netshape.ps1"), r"-IPDstPortMatchCondition 53 ")
+
+
+class Sudoers(unittest.TestCase):
+    """mac/netcap-sudoers builds /etc/sudoers.d/netcap-netshape: the template's verbs, and one line per user (#31)"""
+    LINE = "{} ALL=(root) NOPASSWD: NETSHAPE"
+
+    def build(self, existing, action, user, os_="mac"):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "existing"
+            f.write_text(existing)
+            return subprocess.run(["bash", str(ROOT / "mac" / "netcap-sudoers"), str(ROOT / os_ / "sudoers.d" / "netcap-netshape"),
+                                   str(f), action, user], capture_output=True, text=True)
+
+    def users(self, text):
+        return [l.split()[0] for l in text.splitlines() if l.endswith("NOPASSWD: NETSHAPE")]
+
+    def template(self, os_="mac"):
+        return [l for l in read(f"{os_}/sudoers.d/netcap-netshape").splitlines() if not l.startswith("__USER__")]
+
+    def test_adds_a_user_and_keeps_the_others(self):
+        for os_ in ("mac", "linux"):
+            one = self.build("", "add", "alice", os_).stdout
+            self.assertEqual(self.users(one), ["alice"])
+            two = self.build(one, "add", "first.last", os_)
+            self.assertEqual(two.returncode, 0, two.stderr)
+            self.assertEqual(self.users(two.stdout), ["alice", "first.last"])
+            # Everything but the user lines comes from the template: the verbs never widen
+            self.assertEqual([l for l in two.stdout.splitlines() if not l.endswith("NOPASSWD: NETSHAPE")], self.template(os_))
+
+    def test_add_again_and_remove(self):
+        two = self.build(self.LINE.format("alice") + "\n" + self.LINE.format("bob") + "\n", "add", "alice").stdout
+        self.assertEqual(self.users(two), ["alice", "bob"])
+        self.assertEqual(self.users(self.build(two, "remove", "alice").stdout), ["bob"])
+        self.assertEqual(self.build(self.LINE.format("bob") + "\n", "remove", "bob").stdout, "")  # nobody left
+
+    def test_carries_over_only_its_own_lines(self):
+        hand = "alice ALL=(ALL) ALL\n" + self.LINE.format("bob") + "\nCmnd_Alias X = /bin/sh\n"
+        out = self.build(hand, "add", "carol").stdout
+        self.assertEqual(self.users(out), ["bob", "carol"])
+        self.assertNotIn("(ALL) ALL", out)
+        self.assertNotIn("/bin/sh", out)
+
+    def test_refuses_a_name_sudoers_would_read_otherwise(self):
+        for bad in ("Alice", "a b", "a,b", "%admin", ""):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(self.build("", "add", bad).returncode, 0)
+
+    @unittest.skipUnless(shutil.which("visudo"), "visudo checks the syntax")
+    def test_visudo_accepts_it(self):
+        out = self.build(self.LINE.format("alice") + "\n", "add", "first.last").stdout
+        with tempfile.NamedTemporaryFile("w", suffix=".sudoers") as f:
+            f.write(out)
+            f.flush()
+            p = subprocess.run(["visudo", "-cf", f.name], capture_output=True, text=True)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
 class HostSetup(unittest.TestCase):

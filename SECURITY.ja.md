@@ -37,7 +37,7 @@ netcap の動詞を実行できる。** 自分だけが読める状態に保ち 
 
 | OS | 1 つ目の関門 | 2 つ目の関門 |
 | --- | --- | --- |
-| macOS、Linux | forced command: `--allow` の動詞だけ、引数は数値だけ | sudoers: shaper の決まった動詞だけをパスワードなしで |
+| macOS、Linux | forced command: `--allow` の動詞だけ、引数は数値だけ (`on` の末尾の `--for <秒>` を除く) | sudoers: shaper の決まった動詞だけをパスワードなしで |
 | Windows | forced command | 無し。管理者の ssh セッションは昇格して動く |
 
 Windows では forced command が唯一の関門なので、`restrict,command="…"` の無い netcap の鍵の行を手で足すと、

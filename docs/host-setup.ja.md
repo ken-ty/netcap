@@ -22,7 +22,8 @@ CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を�
 
 更新は `netcap install <名前>` をもう一度流す。`netcap get` の `agent` 列に各端末の版が出る。
 CLI の各リリースがどの版の agent と動くかは [compatibility.ja.md](compatibility.ja.md) にある。
-`netcap uninstall <名前>` で全部を戻す (`--config-only` はもう無い端末の登録だけ消す)。
+`netcap uninstall <名前>` で、この管理する側が足したものを戻す。agent は最後の管理する側と一緒に外れる
+([operations.ja.md](operations.ja.md#管理する側が複数))。`--config-only` はもう無い端末の登録だけ消す。
 
 ## スクリプトの在り処
 
@@ -63,12 +64,15 @@ sudo bash mac/install.sh --boot on|off
 | `/Library/PrivilegedHelperTools/netcap-netshape` | 本体 (root で動く。pf + dummynet) |
 | `/usr/local/bin/netcap-check` | 実測 (curl と ping だけなので root 不要) |
 | `/etc/pf.anchors/netcap-netshape` | pf のルール |
-| `/etc/sudoers.d/netcap-netshape` | 呼び出したユーザーに、本体の決まった動詞だけ NOPASSWD |
+| `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/Library/LaunchDaemons/netcap-netshape.plist` | `--boot on` のときだけ |
+| `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | `on --for` が読み込み、期限に上限を外すジョブ。起動時には読み込まれない |
 
 - `--boot on` は起動時に既定の上限 (初期値 1/1。`netcap set` で変える) をかける。`off` は素のまま
-- sudoers は `sudo` を呼んだユーザーに、本体の決まった動詞だけを許す。別のユーザーなら `NETCAP_USER=<user>`
-- 外すのは `sudo bash mac/uninstall.sh`
+- sudoers は `sudo` を呼んだユーザーに、本体の決まった動詞だけを許す。別のユーザーなら `NETCAP_USER=<user>`。
+  別のユーザーで流し直すと、そのユーザーが足され、ほかのユーザーは残る
+- 外すのは `sudo bash mac/uninstall.sh`。1 人だけ外すなら `sudo bash mac/uninstall.sh --user`
+  (最後の 1 人が外れると全部外れる)
 - v0.5.0 までの旧名 `ken-ty-netshape` は、`install.sh` を流し直せば外れる。上限も外れるので `netcap on` でかけ直す
 
 ## Linux
@@ -82,11 +86,11 @@ sudo bash linux/install.sh --boot on|off
 | `/usr/libexec/netcap/netcap-agent` | netcap が叩く入口。forced command にも使う |
 | `/usr/libexec/netcap/netcap-netshape` | 本体 (root で動く。tc) |
 | `/usr/local/bin/netcap-check` | 実測 (root 不要) |
-| `/etc/sudoers.d/netcap-netshape` | 呼び出したユーザーに、本体の決まった動詞だけ NOPASSWD |
+| `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/etc/systemd/system/netcap-netshape.service` | `--boot on` のときだけ |
 
 - 既定の経路のインターフェースを絞る。下りは `ifb` で受信を折り返して絞る
-- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh`
+- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh` (1 人だけなら `--user`)
 
 ## Windows
 

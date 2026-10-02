@@ -45,9 +45,9 @@ Without brew, see [docs/host-setup.md](docs/host-setup.md).
 ### 2. Try it on your own line
 
 ```bash
-netcap on me --up 2 --down 2    # cap this machine to 2 Mbit/s up and down
-netcap status                   # read the cap actually in effect
-netcap off me                   # remove it
+netcap on me --up 2 --down 2 --for 10m   # cap this machine to 2 Mbit/s for 10 minutes; it lifts itself after that
+netcap status                            # read the cap actually in effect, and when it ends
+netcap off me                            # remove it now
 ```
 
 > **If you get stuck: `netcap off me` removes the cap.** It runs locally, so it works even when the line is too thin to load anything.
@@ -90,6 +90,16 @@ netcap use game      # apply a recipe to its devices
 netcap use none      # remove all caps
 ```
 
+Or name only the device to protect: netcap caps every other one and measures it before and after.
+
+```bash
+netcap protect gamepc --up 2 --down 2   # cap everything but gamepc; show gamepc's check before and after
+netcap protect --off                    # put each device back as it was
+```
+
+The difference in the measurement shows only if the other devices were using the line at the time; netcap does not make
+that traffic. It sends about 4 MB from the protected device. On Windows the others are capped on upload only.
+
 Rename a device with `netcap rename me laptop`; remove one with `netcap uninstall gamepc`.
 For the file format, see [docs/configuration.md](docs/configuration.md); for what install sets up on a device, [docs/host-setup.md](docs/host-setup.md).
 
@@ -115,14 +125,16 @@ Feature by feature: [docs/platforms.md](docs/platforms.md).
 ```text
 netcap status [host|all] [--json]           read the cap actually in effect
 netcap get    [host|all] [--json]           read the settings (default, boot behavior)
-netcap on     <host|all> [--up N --down N]  apply a cap (flags apply this time only)
+netcap on     <host|all> [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
 netcap off    <host|all>                    remove the cap (default returns on reboot)
 netcap set    <host|all> --up N --down N    change the default
 netcap check  <host|all> [--json]           measure (curl up/down + ping)
 netcap use    <profile>                     apply a profile
 netcap profiles                             list profiles
+netcap protect <host> [--up N --down N]     cap every other device; show <host>'s check before and after
+netcap protect --off                        put each device back as it was
 netcap install [name] [--ssh DEST]          install the agent on a device and register it
-netcap uninstall <name>                     remove the agent and the registration
+netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)
 netcap rename <old> <new>                   rename a device
 netcap export                               print hosts and profiles as JSON (no keys)
 netcap import <file|->                      read them back (--replace to overwrite)

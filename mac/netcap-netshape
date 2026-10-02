@@ -1,9 +1,13 @@
 #!/bin/bash
 # netcap-netshape — cap this Mac's own WAN-bound traffic (pf + dummynet)
 #
-#   netcap-netshape on [UP_MBIT DOWN_MBIT]  apply the cap (the LaunchDaemon calls this at boot)
-#                                           with arguments, use them this time only; default unchanged
-#   netcap-netshape off                     lift the cap
+#   netcap-netshape on [UP_MBIT DOWN_MBIT] [--for SECONDS]
+#                                           apply the cap (the LaunchDaemon calls this at boot)
+#                                           with arguments, use them this time only; default unchanged.
+#                                           --for: lift it by itself after SECONDS (60 to 86400). Without it,
+#                                           an earlier --for is cancelled
+#   netcap-netshape off                     lift the cap (and cancel --for)
+#   netcap-netshape expire                  lift the cap if the --for deadline has passed (launchd calls this)
 #   netcap-netshape status                  current state. Line 1 is derived from the real thing (dnctl / pfctl)
 #   netcap-netshape set UP_MBIT DOWN_MBIT   rewrite the default (persists across reboot).
 #                                           if a cap is in effect, reapply it with these values
@@ -33,6 +37,11 @@ PIPE_DOWN=2
 TOKEN=/var/run/netcap-netshape.token
 APPLIED=/var/run/netcap-netshape.applied # values applied by on, "UP DOWN" (used only to display download)
 PLIST=/Library/LaunchDaemons/netcap-netshape.plist # if present, on at boot
+# on --for: the deadline (epoch seconds), and a job launchd starts every minute while it is loaded. launchd runs a
+# calendar job missed during sleep once on wake, so the cap is lifted within a minute of waking (launchd.plist(5))
+UNTIL=/var/run/netcap-netshape.until
+EXPIRE_PLIST=/Library/PrivilegedHelperTools/netcap-netshape-expire.plist
+EXPIRE_JOB=system/netcap-netshape-expire
 
 [ "$(id -u)" = 0 ] || {
   echo "run as root (sudo)" >&2
@@ -62,10 +71,10 @@ require_anchor_point() {
   }
 }
 
-on() {
+apply() {
   if [ $# -ge 1 ]; then
     [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
-      echo "usage: $0 on [UP_MBIT DOWN_MBIT]" >&2
+      echo "usage: $0 on [UP_MBIT DOWN_MBIT] [--for SECONDS]" >&2
       exit 2
     }
     UP_MBIT=$1
@@ -83,7 +92,7 @@ on() {
   echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s"
 }
 
-off() {
+remove() {
   pfctl -q -a "$ANCHOR" -F all 2>/dev/null || true
   dnctl -q pipe delete "$PIPE_UP" "$PIPE_DOWN" 2>/dev/null || true
   if [ -s "$TOKEN" ]; then
@@ -92,6 +101,64 @@ off() {
   fi
   rm -f "$APPLIED"
   echo "netshape OFF"
+}
+
+stop_timer() {
+  rm -f "$UNTIL"
+  # When the deadline lifts the cap, this runs inside the job itself and bootout ends it: keep it last
+  launchctl bootout "$EXPIRE_JOB" 2>/dev/null || true
+}
+
+start_timer() {
+  echo $(($(date +%s) + $1)) >"$UNTIL"
+  launchctl bootout "$EXPIRE_JOB" 2>/dev/null || true
+  launchctl bootstrap system "$EXPIRE_PLIST"
+}
+
+on() {
+  local for=
+  if [ $# -ge 2 ] && [ "${*: -2:1}" = --for ]; then
+    for=${*: -1}
+    [[ "$for" =~ ^[0-9]+$ ]] && [ "$for" -ge 60 ] && [ "$for" -le 86400 ] || {
+      echo "--for takes seconds, 60 to 86400: $for" >&2
+      exit 2
+    }
+    set -- "${@:1:$(($# - 2))}"
+  fi
+  apply "$@"
+  if [ -z "$for" ]; then
+    stop_timer
+  elif ! start_timer "$for"; then
+    # Never leave a cap that was meant to end
+    off >/dev/null
+    echo "could not start the timer for --for; lifted the cap" >&2
+    exit 3
+  fi
+}
+
+off() {
+  remove
+  stop_timer
+}
+
+expire() {
+  if [ ! -s "$UNTIL" ]; then
+    stop_timer
+  elif [ "$(date +%s)" -ge "$(cat "$UNTIL")" ]; then
+    off
+  fi
+}
+
+# until=<epoch> left=<seconds> while --for is pending, else -
+timer_fields() {
+  local until
+  until=$(cat "$UNTIL" 2>/dev/null || true)
+  if [[ "$until" =~ ^[0-9]+$ ]]; then
+    local left=$((until - $(date +%s)))
+    echo "until=${until} left=$((left > 0 ? left : 0))"
+  else
+    echo "until=- left=-"
+  fi
 }
 
 # Print pipe 1's bandwidth in Mbit/s. Empty if absent.
@@ -140,7 +207,7 @@ EOF
   UP_MBIT=$1
   DOWN_MBIT=$2
   if [ "$(anchor_rules)" -ge 2 ]; then
-    on "$1" "$2" >/dev/null
+    apply "$1" "$2" >/dev/null # keeps a pending --for
     echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (reapplied, since a cap was in effect)"
   else
     echo "netshape SET up=${1}Mbit/s down=${2}Mbit/s (takes effect at the next on / reboot)"
@@ -172,7 +239,7 @@ status() {
   else
     state=partial # rules and pipes disagree. Run on or off again
   fi
-  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules}"
+  echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules} $(timer_fields)"
   pfctl -s info 2>/dev/null | head -1
   echo "--- pipes (dnctl shows only pipe 1's header; the mask: line count is the pipe count)"
   dnctl list 2>/dev/null || echo "(none)"
@@ -183,11 +250,12 @@ status() {
 case "${1:-}" in
   on) shift; on "$@" ;;
   off) off ;;
+  expire) expire ;;
   status) status ;;
   set) shift; set_default "$@" ;;
   get) get ;;
   *)
-    echo "usage: $0 {on [UP_MBIT DOWN_MBIT]|off|status|set UP_MBIT DOWN_MBIT|get}" >&2
+    echo "usage: $0 {on [UP_MBIT DOWN_MBIT] [--for SECONDS]|off|status|set UP_MBIT DOWN_MBIT|get}" >&2
     exit 2
     ;;
 esac

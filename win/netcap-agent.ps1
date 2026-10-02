@@ -60,6 +60,13 @@ if ($verb -eq 'check') {
   exit $LASTEXITCODE
 }
 
+# on may end with --for <seconds>. Take it off before the numbers are checked, and pass it on as is
+$forArgs = @()
+if ($verb -eq 'on' -and $rest.Count -ge 2 -and $rest[-2] -eq '--for') {
+  if ($rest[-1] -notmatch '^[1-9][0-9]{0,7}$') { Deny "--for takes seconds: $($rest[-1])" }
+  $forArgs = @('--for', $rest[-1])
+  $rest = @($rest | Select-Object -First ($rest.Count - 2))
+}
 # Only on / set take numbers. The other verbs take no arguments
 foreach ($a in $rest) {
   if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" }
@@ -74,5 +81,5 @@ if ($verb -eq 'get') {
   $out
   exit $(if ($null -eq $rc) { 0 } else { $rc })
 }
-& (Join-Path $Dir 'netshape.ps1') $verb @rest
+& (Join-Path $Dir 'netshape.ps1') $verb @rest @forArgs
 exit $LASTEXITCODE

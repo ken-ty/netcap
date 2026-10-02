@@ -8,6 +8,23 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Added
+
+- `netcap protect <host> [--up N --down N]` caps every other device and shows `<host>`'s check before and after;
+  `netcap protect --off` puts each device back as it was (#73)
+- `netcap on <host> --for 30m` (or `2h`, `1h30m`; 1 minute to 24 hours): the device lifts the cap by itself after that
+  long, even with the controller off. `status` shows the time left. It needs the agent from this release on each device:
+  run `netcap install <name>` (#71, #72)
+
+### Changed
+
+- **Breaking** `netcap uninstall <name>` removes only this controller's key and, on macOS / Linux, its ssh user from the
+  device's sudoers. The agent stays while another controller's netcap key is on the device, and goes with the last one.
+  To remove everything at once, run the device's `uninstall.sh` (Windows: `uninstall.ps1`) (#70)
+- Installing on a macOS or Linux device as another ssh user adds that user to its sudoers instead of replacing the
+  previous one, so each controller may log in as its own user. Update the CLI on every controller first: 0.10.0 and
+  earlier still replace the list. `uninstall.sh --user` removes one user (#68)
+
 ### Fixed
 
 - IPv6 is treated like IPv4: LAN (`fc00::/7`, `fe80::/10`), loopback, multicast, ICMPv6, and DNS pass through the cap.

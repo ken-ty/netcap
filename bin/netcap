@@ -3,14 +3,18 @@
 
   netcap status [host|all] [--json]           read the real state (pf pipes / QoS policy)
   netcap get    [host|all] [--json]           read the settings (default, boot behavior)
-  netcap on     <host|all> [--up N --down N]  apply a cap; flags apply this time only
+  netcap on     <host|all> [--up N --down N] [--for 30m]
+                                              apply a cap; flags apply this time only. --for: the device
+                                              lifts it by itself after that long
   netcap off    <host|all>                    remove the cap
   netcap set    <host|all> --up N --down N    change the default (survives reboots)
   netcap check  <host|all> [--json]           measure (curl up/down + ping)
   netcap use    <profile>                     apply a profile to all devices
   netcap profiles                             list profiles
+  netcap protect <host> [--up N --down N]     cap every other device; show <host>'s check before and after
+  netcap protect --off                        put each device back as it was
   netcap install [name] [--ssh DEST]          install the agent on a device and register it
-  netcap uninstall <name>                     remove the agent and the registration
+  netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)
   netcap rename <old> <new>                   rename a device in hosts and profiles
   netcap export                               print hosts and profiles as JSON (no keys)
   netcap import <file|->                      read them back, on this or another machine
@@ -56,6 +60,9 @@ VERSION = "@VERSION@"
 CONFIG_DIR = Path(os.environ.get("NETCAP_CONFIG_DIR")
                   or Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "netcap")
 ROOT = Path(__file__).resolve().parent.parent
+# What netcap protect must remember to undo itself. State, not settings: kept out of CONFIG_DIR, which may be shared
+STATE_DIR = Path(os.environ.get("NETCAP_STATE_DIR")
+                 or Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "netcap")
 EXAMPLES = ROOT / "examples"
 # Filled by main() from CONFIG_DIR/hosts. {name: {"os": "mac"|"linux"|"win", "ssh": Host name | None}}
 HOSTS = {}
@@ -251,10 +258,28 @@ def print_table(rows, cols, footnote=None):
 
 
 def note(r):
-    """For devices that were not reached, show why from the last line."""
+    """For devices that were not reached, show why from the last line. For a capped one, when --for lifts it."""
     if r.get("reach") == "ok":
-        return ""
-    return (r.get("raw", "").splitlines() or [""])[-1]
+        left = r.get("left", "-")
+        return _("off in {left}").format(left=fmt_left(int(left))) if left.isdigit() else ""
+    last = (r.get("raw", "").splitlines() or [""])[-1]
+    if last == "netcap-agent: arguments must be numbers: --for":  # an agent from before --for refused it
+        return _("this agent does not know --for (nothing changed). Update it: netcap install {host}").format(host=r["host"])
+    return last
+
+
+def fmt_left(seconds):
+    h, m = divmod((seconds + 59) // 60, 60)  # round up: "off in 0m" would read as already off
+    return f"{h}h{m:02d}m" if h else f"{m}m"
+
+
+def parse_duration(text):
+    """30m, 2h, or 1h30m in seconds, from 1 minute to 24 hours (the device takes 60 to 86400)."""
+    m = re.fullmatch(r"(?:([0-9]+)h)?(?:([0-9]+)m)?", text or "")
+    seconds = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60) if m else 0
+    if not 60 <= seconds <= 86400:
+        sys.exit(_("--for takes a time such as 30m, 2h, or 1h30m, from 1m to 24h: {value}").format(value=text))
+    return seconds
 
 
 DOWN_NOTE = "* download is the value recorded at on, because dnctl on macOS cannot show the bandwidth of pipe 2 (the pipe itself was verified)"
@@ -385,6 +410,115 @@ def cmd_use(a):
     if not a.json:
         print(f"profile: {a.profile}")
     return emit(rows, STATUS_COLS, a.json, a.verbose)
+
+
+# --- protect --------------------------------------------------------------------------------------
+# Cap every other device, so the protected one gets the line, and show its check before and after. The state before is
+# written down first, in profile form ("off", "2/3", "on"), so that protect --off can put each device back.
+
+def cap_value(r):
+    """A status row as a profile value, or None if unreachable. Windows cannot cap download, so it reuses up."""
+    if r.get("reach") != "ok":
+        return None
+    if r.get("state") != "on":
+        return "off"  # partial cannot be reproduced; off is the safe side
+    up, down = r.get("up_mbit", "-"), r.get("down_mbit", "-")
+    if r.get("down_src") == "unsupported":
+        down = up
+    if not (is_mbit(up) and is_mbit(down)):
+        return "on"  # the value is not known (macOS without its record): the device's default
+    return f"{float(up):g}/{float(down):g}"
+
+
+def cmd_protect(a):
+    load_hosts()
+    path = STATE_DIR / "protect.json"
+    saved = json.loads(path.read_text()) if path.exists() else None
+    if a.off:
+        return protect_off(path, saved, a)
+    if a.host is None:
+        sys.exit(_("usage: netcap protect <host> [--up N --down N], or netcap protect --off"))
+    if a.host == "all":
+        sys.exit(_("protect one device: netcap protect <host>"))
+    resolve(a.host)
+    if saved:
+        sys.exit(_("already protecting {host}. First: netcap protect --off").format(host=saved["protected"]))
+    if (a.up is None) != (a.down is None):
+        sys.exit(_("give --up and --down together (with only one, the other would silently "
+                   "stay at the default)"))
+    args = [a.up, a.down] if a.up is not None else []
+    bad = [v for v in args if not is_mbit(v)]
+    if bad:
+        sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
+    others = [h for h in ORDER if h != a.host]
+    if not others:
+        sys.exit(_("no other device to cap (hosts has only {host})").format(host=a.host))
+
+    rows = {r["host"]: r for r in fan_out(ORDER, "status")}
+    if rows[a.host].get("reach") != "ok":
+        sys.exit(_("cannot reach {host}; changed nothing").format(host=a.host))
+    if rows[a.host].get("state") == "on":
+        say(_("{host} itself is capped. To lift it: netcap off {host}").format(host=a.host))
+    targets = [h for h in others if cap_value(rows[h]) is not None]
+    before = run(a.host, "check")
+    # Written before anything changes, so that --off works even if this stops halfway
+    saved = {"protected": a.host, "before": {h: cap_value(rows[h]) for h in targets}, "applied": {}}
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(saved, indent=2))
+    fan_out(targets, "on", args)
+    after_rows = fan_out(others, "status")
+    saved["applied"] = {r["host"]: cap_value(r) for r in after_rows if r["host"] in targets and cap_value(r)}
+    path.write_text(json.dumps(saved, indent=2))
+    after = run(a.host, "check")
+    rc = 0 if all(r.get("reach") == "ok" for r in after_rows) else 1
+    if a.json:
+        print(json.dumps({"protected": a.host, "devices": after_rows, "before": before, "after": after},
+                         ensure_ascii=False, indent=2))
+        return rc
+    print(f"protect: {a.host}")
+    print_table(after_rows, STATUS_COLS, DOWN_NOTE)
+    print()
+    print_table([{**before, "host": "before"}, {**after, "host": "after"}], CHECK_COLS)
+    print(_("\nThe difference shows only if the other devices used the line while {host} was measured; "
+            "netcap does not make that traffic.").format(host=a.host))
+    print(_("to undo: netcap protect --off"))
+    return rc
+
+
+def protect_off(path, saved, a):
+    if not saved:
+        print(_("nothing to undo"))
+        return 0
+    hosts = [h for h in ORDER if h in saved["before"]]
+    now = {r["host"]: r for r in fan_out(hosts, "status")} if hosts else {}
+    restore, left = [], {}
+    for h in hosts:
+        cur, was, set_to = cap_value(now[h]), saved["before"][h], saved["applied"].get(h)
+        if cur is None:
+            left[h] = was  # try again later
+        elif cur == was:
+            continue
+        elif cur == set_to:
+            restore.append(h)
+        else:
+            undo = f"netcap off {h}" if was == "off" else f"netcap on {h}" if was == "on" else \
+                "netcap on {} --up {} --down {}".format(h, *was.split("/"))
+            print(_("{host} changed since protect; left as is. To undo: {command}").format(host=h, command=undo))
+
+    def one(h):
+        action, args = parse_profile_value(h, saved["before"][h])
+        return run(h, action, args)
+    if restore:
+        with ThreadPoolExecutor(max_workers=len(restore)) as ex:
+            list(ex.map(one, restore))
+    if left:
+        path.write_text(json.dumps({**saved, "before": left}, indent=2))
+        print(_("could not reach {hosts}; run netcap protect --off again when they are back").format(hosts=", ".join(left)))
+    else:
+        path.unlink()
+    if restore:
+        emit(fan_out(restore, "status"), STATUS_COLS, a.json, a.verbose)
+    return 1 if left else 0
 
 
 def cmd_profiles(a):
@@ -638,8 +772,21 @@ def cmd_install(a):
         say(_("added {name} to {path}").format(name=name, path=path))
     rc = emit([run(name, "get")], GET_COLS, a.json, a.verbose)
     if not a.json:
-        print(_("\nTry it:  netcap on {name} --up 2 --down 2\nUndo:    netcap off {name}").format(name=name))
+        print(_("\nTry it:  netcap on {name} --up 2 --down 2 --for 10m\nUndo:    netcap off {name}").format(name=name))
     return rc
+
+
+def others_use_the_agent(dest, os_):
+    """Whether a netcap key line (another controller's) is left in the keys file of this login on the device."""
+    if dest is None:
+        f = Path(os.environ.get("ProgramData", "C:/ProgramData")) / "ssh" / "administrators_authorized_keys" \
+            if os_ == "win" else Path.home() / ".ssh" / "authorized_keys"
+        text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
+    elif os_ == "win":
+        text = powershell(dest, WIN_KEYS + "if (Test-Path $f) { [IO.File]::ReadAllText($f) }").out
+    else:
+        text = ssh_plain(dest, "cat ~/.ssh/authorized_keys 2>/dev/null || true").out
+    return any(re.search(r'command="[^"]*netcap-agent', line) for line in text.splitlines())
 
 
 def cmd_uninstall(a):
@@ -650,12 +797,18 @@ def cmd_uninstall(a):
     os_, dest = HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
     if not a.config_only:
         where = dest or _("this machine")
-        say(_("removing the agent from {where}").format(where=where))
-        if run_device_script(dest, os_, "uninstall.ps1" if os_ == "win" else "uninstall.sh") != 0:
-            sys.exit(_("the uninstall on {where} failed (see above). To only forget it here: "
-                       "netcap uninstall {name} --config-only").format(where=where, name=a.name))
+        # Take back only what this controller added: its key, then its ssh user in sudoers. The agent stays while
+        # another controller's key still points at it for the same login (docs/operations.md, #31)
         if dest is not None:
             unauthorize(dest, os_)
+        if others_use_the_agent(dest, os_):
+            say(_("another controller still uses the agent on {where}: kept it").format(where=where))
+        else:
+            say(_("removing the agent from {where}").format(where=where))
+            script, args = ("uninstall.ps1", []) if os_ == "win" else ("uninstall.sh", ["--user"])
+            if run_device_script(dest, os_, script, args) != 0:
+                sys.exit(_("the uninstall on {where} failed (see above). To only forget it here: "
+                           "netcap uninstall {name} --config-only").format(where=where, name=a.name))
     name = re.escape(a.name)
     edit_config("hosts", lambda c: None if c.split()[0] == a.name else c)
     dropped = []
@@ -899,14 +1052,18 @@ JA = {
 
   netcap status [host|all] [--json]           実際の状態を読む (pf のパイプ / QoS ポリシー)
   netcap get    [host|all] [--json]           設定を読む (既定値、起動時の挙動)
-  netcap on     <host|all> [--up N --down N]  上限をかける。--up/--down は今回だけ有効
+  netcap on     <host|all> [--up N --down N] [--for 30m]
+                                              上限をかける。--up/--down は今回だけ有効。--for: その時間が
+                                              経つと機器が自分で外す
   netcap off    <host|all>                    上限を外す
   netcap set    <host|all> --up N --down N    既定値を変える (再起動後も残る)
   netcap check  <host|all> [--json]           測る (curl の上り/下り + ping)
   netcap use    <profile>                     プロファイルを全機器に適用する
   netcap profiles                             プロファイルの一覧
+  netcap protect <host> [--up N --down N]     ほかの全端末を絞り、<host> の check を前後で見せる
+  netcap protect --off                        各端末を元の状態に戻す
   netcap install [name] [--ssh DEST]          機器に agent を入れて登録する
-  netcap uninstall <name>                     agent と登録を外す
+  netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
   netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
   netcap import <file|->                      それを読み戻す (この機械でも別の機械でも)
@@ -997,9 +1154,37 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "the install on {where} failed (see above)": "{where} へのインストールが失敗した (上の出力を参照)",
     "registering the netcap key on {dest}": "{dest} に netcap の鍵を登録する",
     "added {name} to {path}": "{path} に {name} を足した",
-    "\nTry it:  netcap on {name} --up 2 --down 2\nUndo:    netcap off {name}":
-        "\n試す:    netcap on {name} --up 2 --down 2\n戻す:    netcap off {name}",
+    "\nTry it:  netcap on {name} --up 2 --down 2 --for 10m\nUndo:    netcap off {name}":
+        "\n試す:    netcap on {name} --up 2 --down 2 --for 10m\n戻す:    netcap off {name}",
     "removing the agent from {where}": "{where} から agent を外す",
+    "usage: netcap protect <host> [--up N --down N], or netcap protect --off":
+        "使い方: netcap protect <host> [--up N --down N]、または netcap protect --off",
+    "protect one device: netcap protect <host>": "守る端末を 1 台だけ指定する: netcap protect <host>",
+    "already protecting {host}. First: netcap protect --off": "{host} を守っている最中。先に: netcap protect --off",
+    "no other device to cap (hosts has only {host})": "絞る相手がいない (hosts は {host} だけ)",
+    "cannot reach {host}; changed nothing": "{host} に届かないので、何も変えていない",
+    "{host} itself is capped. To lift it: netcap off {host}": "{host} 自身が絞られている。外すには: netcap off {host}",
+    "\nThe difference shows only if the other devices used the line while {host} was measured; netcap does not make that traffic.":
+        "\n差が出るのは、{host} を測っている間にほかの端末が回線を使っていたときだけ。netcap はその通信を作らない。",
+    "to undo: netcap protect --off": "戻すには: netcap protect --off",
+    "nothing to undo": "戻すものは無い",
+    "{host} changed since protect; left as is. To undo: {command}":
+        "{host} は protect の後に変わっているので、触らずに残した。戻すには: {command}",
+    "could not reach {hosts}; run netcap protect --off again when they are back":
+        "{hosts} に届かなかった。戻ってきたら netcap protect --off をもう一度",
+    "cap every other device and show this one's check before and after":
+        "ほかの全端末を絞り、この端末の check を前後で見せる",
+    "the device to protect": "守る端末",
+    "the cap for the others (default: each device's default)": "ほかの端末にかける上限 (省くと各端末の既定値)",
+    "put every device back as it was before protect": "各端末を protect の前の状態に戻す",
+    "off in {left}": "あと {left} で外れる",
+    "this agent does not know --for (nothing changed). Update it: netcap install {host}":
+        "この agent は --for を知らない (何も変えていない)。更新するには: netcap install {host}",
+    "--for takes a time such as 30m, 2h, or 1h30m, from 1m to 24h: {value}":
+        "--for には 30m、2h、1h30m のような時間を 1m から 24h の範囲で渡す: {value}",
+    "the device lifts the cap by itself after this long: 30m, 2h, 1h30m (1m to 24h)":
+        "この時間が経つと機器が自分で上限を外す: 30m、2h、1h30m (1m から 24h)",
+    "another controller still uses the agent on {where}: kept it": "{where} の agent はほかの管理する側がまだ使っているので残した",
     "removed profiles that had only {name}: {profiles}": "{name} だけだったプロファイルを消した: {profiles}",
     "{name} is already in hosts": "{name} は hosts にもうある",
     "could not make a temporary directory on {dest}": "{dest} に一時ディレクトリを作れない",
@@ -1087,6 +1272,8 @@ def main():
     add_target(p)
     p.add_argument("--up", metavar="MBIT")
     p.add_argument("--down", metavar="MBIT")
+    p.add_argument("--for", dest="for_", metavar="TIME",
+                   help=_("the device lifts the cap by itself after this long: 30m, 2h, 1h30m (1m to 24h)"))
     p.add_argument("values", nargs="*", help=argparse.SUPPRESS)  # to catch the old form
     p = sub.add_parser("off", help=_("remove the cap"))
     add_target(p)
@@ -1101,6 +1288,11 @@ def main():
     p = sub.add_parser("use", help=_("apply a profile to all devices"))
     p.add_argument("profile")
     sub.add_parser("profiles", help=_("list profiles"))
+    p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
+    p.add_argument("host", nargs="?", help=_("the device to protect"))
+    p.add_argument("--up", metavar="MBIT", help=_("the cap for the others (default: each device's default)"))
+    p.add_argument("--down", metavar="MBIT")
+    p.add_argument("--off", action="store_true", help=_("put every device back as it was before protect"))
     p = sub.add_parser("install", help=_("install the agent on a device and register it (this machine without --ssh)"))
     p.add_argument("name", nargs="?", help=_("the device's name in hosts (asked when omitted); a registered name updates it"))
     p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))
@@ -1121,7 +1313,7 @@ def main():
 
     a = ap.parse_args()
     a.verbose += getattr(a, "verbose_after", 0)
-    commands = {"install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
+    commands = {"protect": cmd_protect, "install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
                 "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor}
     if a.cmd in commands:
         return commands[a.cmd](a)
@@ -1144,6 +1336,8 @@ def main():
         bad = [v for v in args if not is_mbit(v)]
         if bad:
             sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
+        if a.cmd == "on" and a.for_ is not None:
+            args += ["--for", str(parse_duration(a.for_))]
         rc = apply_and_read(resolve(a.host), a.cmd, args, a.json, a.verbose)
         if a.cmd == "on" and not a.json:
             # The way back is printed right where it is needed, in case the cap makes it hard to look up

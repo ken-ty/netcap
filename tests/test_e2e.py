@@ -26,7 +26,8 @@ AGENT = {"mac": "/Library/PrivilegedHelperTools/netcap-agent",
          "win": r"C:\ProgramData\netcap\netcap-agent.ps1"}.get(OS)
 INSTALLED = {"mac": ["/Library/PrivilegedHelperTools/netcap-netshape", "/Library/PrivilegedHelperTools/netcap-agent",
                      "/usr/local/bin/netcap-check", "/etc/pf.anchors/netcap-netshape",
-                     "/etc/sudoers.d/netcap-netshape", "/Library/LaunchDaemons/netcap-netshape.plist"],
+                     "/etc/sudoers.d/netcap-netshape", "/Library/LaunchDaemons/netcap-netshape.plist",
+                     "/Library/PrivilegedHelperTools/netcap-netshape-expire.plist"],
              "linux": ["/usr/libexec/netcap/netcap-netshape", "/usr/libexec/netcap/netcap-agent",
                        "/usr/local/bin/netcap-check", "/etc/sudoers.d/netcap-netshape",
                        "/etc/systemd/system/netcap-netshape.service"],
@@ -131,6 +132,49 @@ class E2E(unittest.TestCase):
         self.netcap("off", "self")
         self.assertCap("off")
 
+    # #29: on --for. The device lifts the cap by itself at the deadline, with no controller involved
+    def timer_loaded(self):
+        if OS == "mac":
+            return sh("sudo", "launchctl", "print", "system/netcap-netshape-expire").returncode == 0
+        if OS == "win":
+            return sh("powershell", "-NoProfile", "-Command", "if (Get-ScheduledTask -TaskPath '\\netcap\\' -TaskName expire "
+                      "-ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }").returncode == 0
+        return sh("systemctl", "is-active", "netcap-netshape-expire.timer").stdout.strip() == "active"
+
+    def test_07_on_for_lifts_itself(self):
+        p = agent("on", "2", "3", "--for", "60")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        r = self.row()
+        self.assertEqual(r["state"], "on", r)
+        self.assertTrue(0 < int(r["left"]) <= 60, r)
+        self.assertTrue(self.timer_loaded())
+        deadline = time.time() + 150  # macOS checks once a minute
+        while time.time() < deadline and self.row()["state"] != "off":
+            time.sleep(5)
+        self.assertCap("off")
+        self.assertEqual(self.row()["left"], "-")
+        self.assertFalse(self.timer_loaded())
+
+    def test_08_later_on_and_off_replace_the_timer(self):
+        for undo in (("on",), ("off",)):
+            with self.subTest(undo=undo[0]):
+                self.assertEqual(agent("on", "--for", "600").returncode, 0)
+                self.assertTrue(self.timer_loaded())
+                self.assertEqual(agent(*undo).returncode, 0)
+                self.assertEqual(self.row()["left"], "-")
+                self.assertFalse(self.timer_loaded())
+        agent("off")
+
+    def test_09_set_keeps_the_timer(self):
+        self.assertEqual(agent("on", "--for", "600").returncode, 0)
+        try:
+            self.assertEqual(agent("set", "4", "5").returncode, 0)  # the default test_04 left
+            r = self.row()
+            self.assertEqual((r["state"], r["up_mbit"]), ("on", "4"), r)
+            self.assertTrue(0 < int(r["left"]) <= 600, r)
+        finally:
+            agent("off")
+
     def test_06_status_all(self):
         self.assertEqual([r["host"] for r in json.loads(self.netcap("status", "all", "--json"))], ["self"])
 
@@ -194,6 +238,14 @@ class E2E(unittest.TestCase):
         p = agent("--allow", "'status", "get'", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} on"})
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("netcap-agent: not allowed for this key: on", p.stderr)
+
+    # on takes --for <seconds> only at its end, and no other verb takes it (#29)
+    def test_25_for_args(self):
+        for cmd in ("on --for abc", "on --for 1800 2 3", "on 2 3 --for 1 --for 2", "off --for 60", "on --for 0"):
+            with self.subTest(cmd=cmd):
+                p = agent("--allow", "on off", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} {cmd}"})
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("netcap-agent: ", p.stderr)
 
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
@@ -320,6 +372,38 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
         finally:
             install("off")
             agent("off")
+
+    # docs/operations.md: More than one controller. Each controller may log in as its own user (#31)
+    @unittest.skipIf(OS == "win", "Windows has no sudoers: any Administrator works")
+    def test_50_more_than_one_user(self):
+        users = ["netcap-e2e-a", "netcap-e2e-b"]
+        for i, u in enumerate(users):
+            if OS == "mac":
+                for key, value in (("UniqueID", str(599 - i)), ("PrimaryGroupID", "20"), ("UserShell", "/bin/bash"),
+                                   ("NFSHomeDirectory", "/var/empty")):
+                    sh("sudo", "dscl", ".", "-create", f"/Users/{u}", key, value)
+            else:
+                sh("sudo", "useradd", "-M", "-s", "/bin/bash", u)
+        try:
+            for u in users:
+                p = sh("sudo", "env", f"NETCAP_USER={u}", "bash", str(ROOT / OS / "install.sh"), "--boot", "off")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn(f"sudoers for {', '.join(sorted([os.environ['USER'], *users]))}", p.stdout)
+            for u in users:  # each one reaches the shaper through sudoers
+                p = sh("sudo", "-u", u, AGENT, "status")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertTrue(p.stdout.startswith("netshape "), p.stdout)
+            # and nothing else
+            self.assertNotEqual(sh("sudo", "-u", users[0], "sudo", "-n", "/usr/bin/true").returncode, 0)
+            p = sh("sudo", "env", f"NETCAP_USER={users[0]}", "bash", str(ROOT / OS / "uninstall.sh"), "--user")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertNotEqual(sh("sudo", "-u", users[0], AGENT, "status").returncode, 0)
+            self.assertEqual(sh("sudo", "-u", users[1], AGENT, "status").returncode, 0)
+            self.assertEqual(self.row()["reach"], "ok")  # the one who installed first keeps it
+        finally:
+            for u in users:
+                sh("sudo", "env", f"NETCAP_USER={u}", "bash", str(ROOT / OS / "uninstall.sh"), "--user")
+                sh("sudo", "dscl", ".", "-delete", f"/Users/{u}") if OS == "mac" else sh("sudo", "userdel", u)
 
     def test_99_uninstall(self):
         self.netcap("uninstall", "self")

@@ -14,6 +14,7 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | `status` reads the real state | ⚠️ download shows the value recorded at `on`, marked `*` ([why](design.md#the--on-macos-download-in-status)) | ✅ | ✅ |
 | After a reboot (`boot`) | `off` (default) or `on` | `off` (default) or `on` | `keep` only: the state survives reboots ([why](design.md#windows-keeps-its-state-across-reboots)) |
 | `check` (measure up / down + ping) | ✅ | ✅ | ✅ |
+| `on --for` (the device lifts the cap by itself) | ✅ | ✅ (needs systemd) | ✅ |
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
 | ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
