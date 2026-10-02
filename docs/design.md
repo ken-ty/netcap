@@ -8,9 +8,9 @@ Traffic that does not leave for the internet is never capped.
 
 | Destination | Ranges |
 | --- | --- |
-| Private IP | 10/8, 172.16/12, 192.168/16 |
+| Private IP | 10/8, 172.16/12, 192.168/16, fc00::/7 (IPv6 ULA) |
 | CGNAT range (Tailscale and other VPNs) | 100.64/10 |
-| Loopback, link-local, multicast | 127/8, 169.254/16, 224/4 |
+| Loopback, link-local, multicast | 127/8, 169.254/16, 224/4, ::1/128, fe80::/10, ff00::/8 |
 
 ICMP and DNS (53) are not capped even toward the internet, so that pinging to monitor latency does not
 end up measuring the shaper's queue. Windows excludes only DNS explicitly: NetQosPolicy cannot match ICMP. Measured on
@@ -19,7 +19,12 @@ Windows 11 the way `test_36_icmp_passes_on_windows` in `tests/test_e2e.py` does,
 
 Only the inside of a VPN tunnel passes through via 100.64/10. The outer UDP that goes out to the internet is capped.
 
-Linux classifies IPv4 only. IPv6 traffic is capped regardless of destination (LAN, ICMPv6, and DNS included).
+IPv6 is treated the same way: the IPv6 ranges in the table, ICMPv6, and DNS pass through. On Linux this is measured in CI
+(`PassThrough` in `tests/test_e2e.py`); on macOS and Windows it comes from the rules. On Windows, as with ICMP, nothing
+names ICMPv6, and it has not been measured there.
+
+One exception on Linux: an ICMPv6 message too large for one packet is capped. tc reads the protocol from the IPv6
+header, which names the fragment header when the message is split. Pings of the usual size are not split.
 
 ## Where the root-owned parts live
 
@@ -47,7 +52,8 @@ Pipe numbers are shared by the whole machine, so netcap cannot be used together 
   can crash on the first `on` after boot and drop the DHCP routes for a moment while it restarts ([#42](https://github.com/ken-ty/netcap/issues/42))
 - Download is capped by redirecting ingress to `ifb-netcap` and shaping it with an HTB there. If another tool has filters on ingress, netcap stops
   (a filter that settles the verdict first would silently keep download from being capped)
-- Pass-through destinations, ICMP, and DNS are classified into a class that is not capped
+- Pass-through destinations, ICMP, and DNS are classified into a class that is not capped. IPv6 has its own filters in
+  another prio, since tc keeps one protocol per prio
 
 ## The `*` on macOS download in status
 

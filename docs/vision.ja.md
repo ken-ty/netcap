@@ -30,7 +30,7 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 
 | 観点 | あるべき姿 | 現在 | 差分 |
 | --- | --- | --- | --- |
-| インターネット宛てだけ | LAN・VPN・ping・DNS は IPv4 でも IPv6 でも素通し | IPv4 のみ。IPv6 は LAN 宛ても絞り、Linux は IPv6 をすべて絞る | 大 · [#28](https://github.com/ken-ty/netcap/issues/28) |
+| インターネット宛てだけ | LAN・VPN・ping・DNS は IPv4 でも IPv6 でも素通し | IPv4 と IPv6 で同じ。Linux は実測、macOS と Windows はルールから | 小 · [#28](https://github.com/ken-ty/netcap/issues/28) (macOS と Windows を測る) |
 | 守りたいものを守る | 守る端末を指定すると、他を絞り、効いたかを示す | profiles を手で組む。`check` で測れるが、判断は人任せ | 中 · [#30](https://github.com/ken-ty/netcap/issues/30) |
 | 戻せる | 絞りっぱなしにならない | 手元の `off` は回線不要、`on` の後に戻し方を表示、`boot` の既定は off。時間で外れる仕組みは無い | 中 · [#29](https://github.com/ken-ty/netcap/issues/29) |
 | 対応 OS | 3 OS で上りも下りも | Windows は上りのみ | 受け入れる: Windows の下りはドライバが要り、netcap の規模を超える |
