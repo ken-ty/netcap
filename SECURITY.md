@@ -35,7 +35,7 @@ the verbs in `--allow` and nothing else: no shell, no pty, no forwarding. With t
 
 | OS | First gate | Second gate |
 | --- | --- | --- |
-| macOS, Linux | The forced command: only the verbs in `--allow`, numeric arguments only | sudoers: only the shaper's fixed verbs, without a password |
+| macOS, Linux | The forced command: only the verbs in `--allow`, numeric arguments only (and `--for <seconds>` at the end of `on`) | sudoers: only the shaper's fixed verbs, without a password |
 | Windows | The forced command | None. An Administrator's ssh session runs elevated |
 
 On Windows the forced command is the only gate, so a netcap key line added by hand without

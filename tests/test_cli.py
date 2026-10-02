@@ -58,6 +58,12 @@ FAKE_SSH = textwrap.dedent("""\
         print(ok.format(s="off", u="-"))
     elif host == "h-on":
         print(ok.format(s="on", u="2"))
+    elif host == "h-timed":  # on --for 1800, 29 minutes left
+        print(ok.format(s="on", u="2") + " until=1900000000 left=1740")
+    elif host == "h-oldfor":  # an agent from before --for
+        if "--for" in cmd:
+            print("netcap-agent: arguments must be numbers: --for", file=sys.stderr); sys.exit(77)
+        print(ok.format(s="on", u="2"))
     elif host == "h-partial":
         print(ok.format(s="partial", u="-"))
     elif host == "h-unreachable":
@@ -188,6 +194,41 @@ class CLI(unittest.TestCase):
         self.assertRegex(lines["on"], r"^on\s+ok\s+on\s+2 Mbit/s\s+2 Mbit/s\*\s*$")
         self.assertRegex(lines["partial"], r"^partial\s+ok\s+partial\s")
         self.assertRegex(lines["error"], r"^error\s+error\s+\?\s.*last line of error$")
+
+    # #29: on --for. The duration goes to the device in seconds, at the end of on
+    def test_on_for(self):
+        self.hosts("on")
+        for flags, sent in ((["--up", "2", "--down", "3", "--for", "30m"], "on 2 3 --for 1800"),
+                            (["--for", "2h"], "on --for 7200"), (["--for", "1h30m"], "on --for 5400")):
+            with self.subTest(flags=flags):
+                self.log.write_text("")
+                p = self.netcap("on", "on", *flags)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertIn(f"/Library/PrivilegedHelperTools/netcap-agent {sent}", self.log.read_text())
+        self.log.write_text("")
+        self.netcap("on", "on")
+        self.assertNotIn("--for", self.log.read_text())
+
+    def test_on_for_refuses_a_bad_duration(self):
+        self.hosts("on")
+        for bad in ("0m", "30", "1.5h", "25h", "30s", "m", ""):
+            with self.subTest(bad=bad):
+                p = self.netcap("on", "on", "--for", bad)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("--for", p.stderr)
+        self.assertNotIn("netcap-agent on", self.log.read_text())
+
+    def test_status_shows_the_time_left(self):
+        self.hosts("timed")
+        line = self.netcap("status", "timed").stdout.splitlines()[2]
+        self.assertRegex(line, r"^timed\s+ok\s+on\s+2 Mbit/s\s+2 Mbit/s\*\s+off in 29m$")
+        self.assertEqual(self.status_row("timed")["left"], "1740")
+
+    def test_on_for_with_an_old_agent(self):
+        self.hosts("oldfor")
+        p = self.netcap("on", "oldfor", "--for", "30m")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("this agent does not know --for (nothing changed). Update it: netcap install oldfor", p.stdout)
 
     # docs/configuration.md: devices not listed are left untouched
     def test_use_leaves_unlisted_hosts(self):

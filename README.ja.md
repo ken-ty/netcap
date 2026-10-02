@@ -47,9 +47,9 @@ brew を使わないときは [docs/host-setup.ja.md](docs/host-setup.ja.md) を
 ### 2. 自分の回線で試す
 
 ```bash
-netcap on me --up 2 --down 2    # この端末を上り下り 2 Mbit/s に絞る
-netcap status                   # 実際にかかっている上限を読む
-netcap off me                   # 外す
+netcap on me --up 2 --down 2 --for 10m   # この端末を上り下り 2 Mbit/s に 10 分だけ絞る。過ぎたら自分で外れる
+netcap status                            # 実際にかかっている上限と、いつ外れるかを読む
+netcap off me                            # 今すぐ外す
 ```
 
 > **困ったら `netcap off me` で戻る。** 手元で動くので、回線が細くて何も読み込めないときでも効く。
@@ -117,7 +117,7 @@ netcap use none      # 全部外す
 ```text
 netcap status [host|all] [--json]           実際にかかっている上限を読む
 netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
-netcap on     <host|all> [--up N --down N]  上限をかける (flag は今回だけ)
+netcap on     <host|all> [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
 netcap off    <host|all>                    上限を外す (再起動で既定に戻る)
 netcap set    <host|all> --up N --down N    既定を書き換える
 netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
