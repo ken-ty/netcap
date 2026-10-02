@@ -20,13 +20,15 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | LAN と VPN (IPv4 のプライベート、100.64/10) は素通し | ✅ | ✅ | ✅ |
 | DNS は素通し | ✅ | ✅ | ✅ |
 | ICMP (ping) は素通し | ✅ | ✅ | ✅ (実測。IPv4) |
-| IPv6 (LAN・ICMPv6・DNS は素通し) | ✅ (ルールから) | ✅ (実測) | ⚠️ LAN と DNS は素通し (ルールから)。ICMPv6 は ❓ |
+| IPv6 (LAN・ICMPv6・DNS は素通し) | ✅ (LAN は実測) | ✅ (実測) | ⚠️ LAN は素通し (実測)、DNS はルールから。ICMPv6 は ❓ |
 | 関門 | forced command + 動詞ごとの sudoers | forced command + 動詞ごとの sudoers | forced command のみ |
 | この機械に `netcap install` | ✅ (sudo) | ✅ (sudo) | ✅ (管理者として) |
 | 管理する側から `netcap install --ssh` | ✅ | ✅ | ✅ (ssh のユーザーが管理者であること) |
 
-素通しにする範囲は [design.ja.md](design.ja.md#素通しにする宛先) にある。IPv6 の行は、Linux は CI で実測し、
-macOS と Windows はルールを読んだ結果で、実測ではない。
+素通しにする範囲は [design.ja.md](design.ja.md#素通しにする宛先) にある。IPv6 の行は、Linux は CI で実測している。
+macOS と Windows は、LAN 宛ての IPv6 を 2026-10-01 に実機で測った。リンクローカルで 2 MB を送ると、0.10.0 のルールでは
+8.1 秒 (macOS、2 Mbit/s) と 17.1 秒 (Windows、1 Mbit/s)、今のルールでは 0.14 秒だった。それ以外の IPv6 の行は
+ルールを読んだ結果。測った回線にはインターネット向けの IPv6 が無かった。
 
 ## 管理する側 (CLI) として
 
