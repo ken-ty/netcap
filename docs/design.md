@@ -65,6 +65,20 @@ the pipe exists, reads the value from what was recorded at `on`, and marks it wi
 The ActiveStore, which is cleared on reboot, did not keep the destination conditions and capped LAN traffic too.
 So the policy is kept in the persistent store.
 
+## How `on --for` lifts a cap
+
+The device keeps the deadline and hands it to the OS scheduler, so it works with the controller off. A later `on` or `off`
+cancels it; `set` keeps it. If the timer cannot be started, `on --for` lifts the cap again and fails: a cap meant to end
+is never left without its timer.
+
+| | Scheduler | After sleep | After a reboot |
+| --- | --- | --- | --- |
+| macOS | a launchd job, started every minute while it is loaded | runs once on wake | gone, with the cap (unless `boot=on`, which caps without a deadline) |
+| Linux | a transient systemd timer on the wall clock | catches up on resume | gone, as on macOS |
+| Windows | a one-time task as SYSTEM, also at startup, allowed on battery | runs when the machine is available | kept, with the cap (`boot=keep`) |
+
+Linux needs systemd for `--for`; without it, `on --for` changes nothing.
+
 ## Measurements
 
 One macOS device, a 4G-class line, `scripts/measure.sh` (2026-09-21).

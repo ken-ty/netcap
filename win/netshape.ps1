@@ -52,9 +52,9 @@ function Remove-Ours {
   foreach ($q in Ours) { Remove-NetQosPolicy -Name $q.Name -Confirm:$false }
 }
 
-function On([string[]]$a) {
+function Apply([string[]]$a) {
   if ($a.Count -ne 0) {
-    if ($a.Count -ne 2 -or -not (IsNumber $a[0]) -or -not (IsNumber $a[1])) { Usage 'on [UP_MBIT DOWN_MBIT]' }
+    if ($a.Count -ne 2 -or -not (IsNumber $a[0]) -or -not (IsNumber $a[1])) { Usage 'on [UP_MBIT DOWN_MBIT] [--for SECONDS]' }
     $script:UpMbit = $a[0]; $script:DownMbit = $a[1]
   }
   Remove-Ours
@@ -67,9 +67,74 @@ function On([string[]]$a) {
   "netshape ON  up=${UpMbit}Mbit/s down=unsupported"
 }
 
+# on --for: the deadline (epoch seconds) and a one-time task that runs expire as SYSTEM. The cap survives reboots
+# here (boot=keep), so the task also runs at startup, and StartWhenAvailable runs a start missed while the machine
+# was off or asleep; it needs an end boundary to do that. Without AllowStartIfOnBatteries a laptop on battery
+# would never run it
+$Until = Join-Path $Dir 'until'
+
+function Now { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
+
+function Read-Until {
+  if (Test-Path $Until) { $u = (Get-Content -Raw $Until).Trim(); if ($u -match '^[0-9]+$') { return [int64]$u } }
+  return $null
+}
+
+function Stop-Timer {
+  Remove-Item -Force $Until -ErrorAction SilentlyContinue
+  # When the deadline lifts the cap, this runs inside the task itself: keep it last
+  Unregister-ScheduledTask -TaskPath '\netcap\' -TaskName expire -Confirm:$false -ErrorAction SilentlyContinue
+}
+
+function Start-Timer([int64]$s) {
+  $at = [DateTimeOffset]::UtcNow.AddSeconds($s)
+  [IO.File]::WriteAllText($Until, [string]$at.ToUnixTimeSeconds())
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$(Join-Path $Dir 'netshape.ps1')`" expire"
+  $once = New-ScheduledTaskTrigger -Once -At $at.LocalDateTime
+  $once.StartBoundary = $at.UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $once.EndBoundary = $at.UtcDateTime.AddDays(1).ToString('yyyy-MM-ddTHH:mm:ssZ')
+  $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
+  $system = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
+  Register-ScheduledTask -TaskPath '\netcap\' -TaskName expire -Action $action -Trigger $once, (New-ScheduledTaskTrigger -AtStartup) `
+    -Settings $settings -Principal $system -Force | Out-Null
+}
+
+function On([string[]]$a) {
+  $for = $null
+  if ($a.Count -ge 2 -and $a[-2] -eq '--for') {
+    $for = $a[-1]
+    if ($for -notmatch '^[0-9]+$' -or [int64]$for -lt 60 -or [int64]$for -gt 86400) {
+      [Console]::Error.WriteLine("--for takes seconds, 60 to 86400: $for"); exit 2
+    }
+    $a = @($a | Select-Object -First ($a.Count - 2))
+  }
+  Apply $a
+  if (-not $for) { Stop-Timer; return }
+  try { Start-Timer ([int64]$for) } catch {
+    # Never leave a cap that was meant to end
+    Off | Out-Null
+    [Console]::Error.WriteLine("could not start the timer for --for; lifted the cap: $_"); exit 3
+  }
+}
+
 function Off {
   Remove-Ours
   'netshape OFF'
+  Stop-Timer
+}
+
+function Expire {
+  $u = Read-Until
+  if ($null -eq $u) { Stop-Timer } elseif ((Now) -ge $u) { Off }
+}
+
+# until=<epoch> left=<seconds> while --for is pending, else -
+function Timer-Fields {
+  $u = Read-Until
+  if ($null -eq $u) { return 'until=- left=-' }
+  "until=$u left=$([Math]::Max(0, $u - (Now)))"
 }
 
 function Status {
@@ -81,7 +146,7 @@ function Status {
   if ($wan -and $ours.Count -eq $expected) { $state = 'on' }
   elseif ($ours.Count -eq 0) { $state = 'off' }
   else { $state = 'partial' }  # only some are left. Run on or off again
-  "netshape state=$state up_mbit=$up down_mbit=- down_src=unsupported policies=$($ours.Count)"
+  "netshape state=$state up_mbit=$up down_mbit=- down_src=unsupported policies=$($ours.Count) $(Timer-Fields)"
   '--- policies (netcap-*)'
   if ($ours.Count -eq 0) { '(none)' }
   foreach ($q in $ours) { "$($q.Name) template=$($q.Template) throttle=$($q.ThrottleRate) dst=$($q.IPDstPrefixMatchCondition) port=$($q.IPDstPortStartMatchCondition)" }
@@ -98,7 +163,7 @@ function Set-Default([string[]]$a) {
   "# netshape.ps1 defaults. Written by netshape.ps1 set`r`nUP_MBIT=$($a[0])`r`nDOWN_MBIT=$($a[1])" | Set-Content -Path $tmp -Encoding ASCII
   Move-Item -Force $tmp $Conf
   if (Ours | Where-Object Name -eq 'netcap-wan') {
-    On $a | Out-Null
+    Apply $a | Out-Null  # keeps a pending --for
     "netshape SET up=$($a[0])Mbit/s down=$($a[1])Mbit/s (reapplied, since a cap was in effect)"
   } else {
     "netshape SET up=$($a[0])Mbit/s down=$($a[1])Mbit/s (takes effect at the next on)"
@@ -110,8 +175,9 @@ $rest = @($args | Select-Object -Skip 1)
 switch ($verb) {
   'on' { On $rest }
   'off' { Off }
+  'expire' { Expire }
   'status' { Status }
   'set' { Set-Default $rest }
   'get' { Get-Default }
-  default { Usage '{on [UP_MBIT DOWN_MBIT]|off|status|set UP_MBIT DOWN_MBIT|get}' }
+  default { Usage '{on [UP_MBIT DOWN_MBIT] [--for SECONDS]|off|status|set UP_MBIT DOWN_MBIT|get}' }
 }
