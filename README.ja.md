@@ -124,7 +124,7 @@ netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
 netcap use    <profile>                     プロファイルを適用
 netcap profiles                             プロファイル一覧
 netcap install [name] [--ssh DEST]          端末に agent を入れて登録する
-netcap uninstall <name>                     agent と登録を外す
+netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
 netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
 netcap import <file|->                      それを読み戻す (--replace で上書き)

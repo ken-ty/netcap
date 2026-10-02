@@ -642,6 +642,19 @@ def cmd_install(a):
     return rc
 
 
+def others_use_the_agent(dest, os_):
+    """Whether a netcap key line (another controller's) is left in the keys file of this login on the device."""
+    if dest is None:
+        f = Path(os.environ.get("ProgramData", "C:/ProgramData")) / "ssh" / "administrators_authorized_keys" \
+            if os_ == "win" else Path.home() / ".ssh" / "authorized_keys"
+        text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
+    elif os_ == "win":
+        text = powershell(dest, WIN_KEYS + "if (Test-Path $f) { [IO.File]::ReadAllText($f) }").out
+    else:
+        text = ssh_plain(dest, "cat ~/.ssh/authorized_keys 2>/dev/null || true").out
+    return any(re.search(r'command="[^"]*netcap-agent', line) for line in text.splitlines())
+
+
 def cmd_uninstall(a):
     load_hosts()
     if a.name == "all":
@@ -650,12 +663,18 @@ def cmd_uninstall(a):
     os_, dest = HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
     if not a.config_only:
         where = dest or _("this machine")
-        say(_("removing the agent from {where}").format(where=where))
-        if run_device_script(dest, os_, "uninstall.ps1" if os_ == "win" else "uninstall.sh") != 0:
-            sys.exit(_("the uninstall on {where} failed (see above). To only forget it here: "
-                       "netcap uninstall {name} --config-only").format(where=where, name=a.name))
+        # Take back only what this controller added: its key, then its ssh user in sudoers. The agent stays while
+        # another controller's key still points at it for the same login (docs/operations.md, #31)
         if dest is not None:
             unauthorize(dest, os_)
+        if others_use_the_agent(dest, os_):
+            say(_("another controller still uses the agent on {where}: kept it").format(where=where))
+        else:
+            say(_("removing the agent from {where}").format(where=where))
+            script, args = ("uninstall.ps1", []) if os_ == "win" else ("uninstall.sh", ["--user"])
+            if run_device_script(dest, os_, script, args) != 0:
+                sys.exit(_("the uninstall on {where} failed (see above). To only forget it here: "
+                           "netcap uninstall {name} --config-only").format(where=where, name=a.name))
     name = re.escape(a.name)
     edit_config("hosts", lambda c: None if c.split()[0] == a.name else c)
     dropped = []
@@ -1000,6 +1019,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "\nTry it:  netcap on {name} --up 2 --down 2\nUndo:    netcap off {name}":
         "\n試す:    netcap on {name} --up 2 --down 2\n戻す:    netcap off {name}",
     "removing the agent from {where}": "{where} から agent を外す",
+    "another controller still uses the agent on {where}: kept it": "{where} の agent はほかの管理する側がまだ使っているので残した",
     "removed profiles that had only {name}: {profiles}": "{name} だけだったプロファイルを消した: {profiles}",
     "{name} is already in hosts": "{name} は hosts にもうある",
     "could not make a temporary directory on {dest}": "{dest} に一時ディレクトリを作れない",

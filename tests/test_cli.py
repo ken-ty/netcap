@@ -276,10 +276,26 @@ class CLI(unittest.TestCase):
         self.assertEqual(self.netcap("install", "box", env=env).returncode, 0)
         self.assertEqual(self.remote_keys(), [want])
         self.assertEqual((self.conf / "hosts").read_text().count("box"), 1)
-        # uninstall takes both back
+        # uninstall takes both back: this controller's key, and this ssh user in the device's sudoers (#31)
         self.assertEqual(self.netcap("uninstall", "box", env=env).returncode, 0)
-        self.assertIn("/mac/uninstall.sh", self.log.read_text())
+        self.assertIn("/mac/uninstall.sh --user", self.log.read_text())
         self.assertEqual(self.remote_keys(), [])
+        self.assertNotIn("box", (self.conf / "hosts").read_text())
+
+    # docs/operations.md: More than one controller. uninstall from one controller leaves the others working (#31)
+    def test_uninstall_keeps_the_agent_for_other_controllers(self):
+        env = self.install_env()
+        self.assertEqual(self.netcap("install", "box", "--ssh", "h-new", env=env).returncode, 0)
+        other = ("restrict,command=\"/Library/PrivilegedHelperTools/netcap-agent --allow 'status get check on off set'\" "
+                 "ssh-ed25519 AAAAother netcap@other")
+        with open(self.tmp / "remote" / ".ssh" / "authorized_keys", "a") as f:
+            f.write(other + "\n")
+        self.log.write_text("")
+        p = self.netcap("uninstall", "box", env=env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("uninstall.sh", self.log.read_text())
+        self.assertEqual(self.remote_keys(), [other])
+        self.assertIn("another controller still uses the agent on h-new", p.stdout)
         self.assertNotIn("box", (self.conf / "hosts").read_text())
 
     # A failed copy still removes the temporary directory made on the device

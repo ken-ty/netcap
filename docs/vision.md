@@ -33,7 +33,7 @@ Open gaps are tracked with the [`vision-gap`](https://github.com/ken-ty/netcap/l
 | Undo | A cap cannot be left on by accident | `off` works locally, `on` prints how to undo, `boot` defaults to off; no timer | Medium · [#29](https://github.com/ken-ty/netcap/issues/29) |
 | Platforms | Upload and download on all three OS | Windows caps upload only | Accepted: download on Windows needs a driver, beyond netcap's size |
 | Setup | One command per device | `netcap install`; `--ssh` tested in CI (Linux, Windows) and measured from Windows to macOS | None |
-| Several controllers | Any controller works as any ssh user | export / import; sudoers allows each user who installed | Small · [#31](https://github.com/ken-ty/netcap/issues/31) (uninstall removes every controller's agent) |
+| Several controllers | Any controller works as any ssh user | export / import; sudoers allows each user who installed; uninstall takes back one controller's part | None |
 | Device decides | A second gate behind the forced command | sudoers per verb on macOS / Linux; forced command only on Windows | Accepted: no built-in second gate on Windows |
 | Visible state | `status` reads the real state | Done; macOS download shows the value recorded at `on` | Accepted: dnctl does not report it |
 | Schedules | Cap at night, and so on | cron / launchd call `netcap use` | None: left to the OS |

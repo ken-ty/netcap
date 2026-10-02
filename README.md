@@ -122,7 +122,7 @@ netcap check  <host|all> [--json]           measure (curl up/down + ping)
 netcap use    <profile>                     apply a profile
 netcap profiles                             list profiles
 netcap install [name] [--ssh DEST]          install the agent on a device and register it
-netcap uninstall <name>                     remove the agent and the registration
+netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)
 netcap rename <old> <new>                   rename a device
 netcap export                               print hosts and profiles as JSON (no keys)
 netcap import <file|->                      read them back (--replace to overwrite)
