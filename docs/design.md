@@ -20,8 +20,8 @@ Windows 11 the way `test_36_icmp_passes_on_windows` in `tests/test_e2e.py` does,
 Only the inside of a VPN tunnel passes through via 100.64/10. The outer UDP that goes out to the internet is capped.
 
 IPv6 is treated the same way: the IPv6 ranges in the table, ICMPv6, and DNS pass through. On Linux this is measured in CI
-(`PassThrough` in `tests/test_e2e.py`). On macOS and Windows, IPv6 to the LAN was measured on real machines
-([platforms.md](platforms.md)); the rest comes from the rules. On Windows, as with ICMP, nothing names ICMPv6, and it has
+(`PassThrough` in `tests/test_e2e.py`), and on macOS on a real machine with IPv6 to the internet. On Windows, IPv6 to
+the LAN was measured ([platforms.md](platforms.md)); the rest comes from the rules. On Windows, as with ICMP, nothing names ICMPv6, and it has
 not been measured there.
 
 One exception on Linux: an ICMPv6 message too large for one packet is capped. tc reads the protocol from the IPv6

@@ -18,15 +18,18 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
 | ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
-| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (LAN measured) | ✅ (measured) | ⚠️ LAN passes (measured), DNS from the rules; ICMPv6 ❓ |
+| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (measured) | ✅ (measured) | ⚠️ LAN passes (measured), DNS from the rules; ICMPv6 ❓ |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
 | `netcap install --ssh` from a controller | ✅ | ✅ | ✅ (the ssh user must be an Administrator) |
 
 The exempt ranges are in [design.md](design.md#destinations-that-pass-through). The IPv6 row for Linux is measured in CI.
 On macOS and Windows, IPv6 to the LAN was measured on real machines on 2026-10-01: 2 MB over link-local took 8.1 s
-(macOS at 2 Mbit/s) and 17.1 s (Windows at 1 Mbit/s) with the rules of 0.10.0, and 0.14 s with these. The rest of
-their IPv6 rows comes from reading the rules: that line had no IPv6 to the internet.
+(macOS at 2 Mbit/s) and 17.1 s (Windows at 1 Mbit/s) with the rules of 0.10.0, and 0.14 s with these.
+On macOS, IPv6 to the internet was measured on 2026-10-04 over a phone's tethering: at a 1/1 Mbit/s cap, IPv6 download
+fell from 28.7 to 0.89 Mbit/s and upload held at 0.62. While that download filled the cap, new TCP connections over IPv6
+waited 0.8 to 1.8 s, but ping6 stayed at 31 ms and DNS queries over IPv6 at 26 to 52 ms, as without a cap.
+The rest of the Windows row comes from reading the rules: its line had no IPv6 to the internet.
 
 ## As a controller (the CLI)
 

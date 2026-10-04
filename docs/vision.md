@@ -28,7 +28,7 @@ Open gaps are tracked with the [`vision-gap`](https://github.com/ken-ty/netcap/l
 
 | Aspect | Ideal | Current | Gap |
 | --- | --- | --- | --- |
-| Only internet traffic | LAN, VPN, ping, DNS pass through over IPv4 and IPv6 | IPv4 and IPv6 alike; measured on Linux, IPv6 to the LAN measured on macOS and Windows | Small · [#28](https://github.com/ken-ty/netcap/issues/28) (IPv6 to the internet, and ICMPv6 on Windows: needs a line with IPv6) |
+| Only internet traffic | LAN, VPN, ping, DNS pass through over IPv4 and IPv6 | IPv4 and IPv6 alike; measured on Linux and macOS, IPv6 to the LAN measured on Windows | Small · [#28](https://github.com/ken-ty/netcap/issues/28) (Windows: IPv6 to the internet and ICMPv6, on a line with IPv6) |
 | Protecting what matters | Name the device to protect; netcap caps the others and shows whether it worked | `netcap protect --load` caps the others, loads the line from them before and after, and says whether the protected device's latency improved | None |
 | Undo | A cap cannot be left on by accident | `off` works locally, `on` prints how to undo, `boot` defaults to off; `on --for` lifts a cap on the device itself | None |
 | Platforms | Upload and download on all three OS | Windows caps upload only | Accepted: download on Windows needs a driver, beyond netcap's size |
