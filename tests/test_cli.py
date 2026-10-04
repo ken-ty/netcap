@@ -85,6 +85,8 @@ FAKE_SSH = textwrap.dedent("""\
         print(ok.format(s="on", u="2"))
     elif host == "h-timed":  # on --for 1800, 29 minutes left
         print(ok.format(s="on", u="2") + " until=1900000000 left=1740")
+    elif host == "h-due":  # the deadline has passed; the device's scheduler lifts it on its next run
+        print(ok.format(s="on", u="2") + " until=1700000000 left=0")
     elif host == "h-oldfor":  # an agent from before --for
         if "--for" in cmd:
             print("netcap-agent: arguments must be numbers: --for", file=sys.stderr); sys.exit(77)
@@ -297,6 +299,40 @@ class CLI(unittest.TestCase):
         self.assertIn("changed nothing", p.stderr)
         self.assertEqual(self.device("laptop"), "off")
 
+    # #74: --load keeps the line busy from the other devices while the protected one is measured, before and after
+    def test_protect_under_load(self):
+        self.devices(game="off", laptop="off", server="off")
+        p = self.netcap("protect", "game", "--load", "5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = self.log.read_text().splitlines()
+        for h in ("laptop", "server"):
+            self.assertEqual(sum(l.startswith(f"h-s-{h} ") and " check --bytes 5000000" in l for l in log), 2, h)
+        self.assertIn("latency on game: improved (median 400 -> 40 ms)", p.stdout)
+        self.assertIn("about 40 MB", p.stdout)  # 5 MB x 2 devices x up and down x before and after
+        out = json.loads(self.netcap("protect", "--off") and self.netcap("protect", "game", "--load", "1", "--json").stdout)
+        self.assertEqual(out["verdict"], "improved")
+
+    def test_protect_without_load_measures_only_the_protected_device(self):
+        self.devices(game="off", laptop="off")
+        self.netcap("protect", "game")
+        self.assertNotIn("h-s-laptop /Library/PrivilegedHelperTools/netcap-agent check", self.log.read_text())
+
+    def test_protect_load_range(self):
+        self.devices(game="off", laptop="off")
+        for bad in ("0", "51", "x"):
+            with self.subTest(bad=bad):
+                p = self.netcap("protect", "game", "--load", bad)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("--load", p.stderr)
+        self.assertEqual(self.device("laptop"), "off")
+
+    def test_latency_verdict(self):
+        verdict = load_netcap().latency_verdict
+        for before, after, want in (("400", "40", "improved"), ("40", "400", "worse"), ("40", "35", "no clear change"),
+                                    ("100", "85", "no clear change"), ("-", "40", "unknown")):
+            with self.subTest(before=before, after=after):
+                self.assertEqual(verdict({"ping_med": before}, {"ping_med": after}), want)
+
     def test_protect_needs_another_device(self):
         self.devices(game="off")
         p = self.netcap("protect", "game")
@@ -331,6 +367,9 @@ class CLI(unittest.TestCase):
         line = self.netcap("status", "timed").stdout.splitlines()[2]
         self.assertRegex(line, r"^timed\s+ok\s+on\s+2 Mbit/s\s+2 Mbit/s\*\s+off in 29m$")
         self.assertEqual(self.status_row("timed")["left"], "1740")
+        # Past the deadline, macOS lifts it within a minute and Windows when the task runs: "off in 0m" read as a mistake
+        self.hosts("due")
+        self.assertRegex(self.netcap("status", "due").stdout.splitlines()[2], r"\s+due, lifting soon$")
 
     def test_on_for_with_an_old_agent(self):
         self.hosts("oldfor")

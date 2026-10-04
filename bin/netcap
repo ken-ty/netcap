@@ -11,7 +11,10 @@
   netcap check  <host|all> [--json]           measure (curl up/down + ping)
   netcap use    <profile>                     apply a profile to all devices
   netcap profiles                             list profiles
-  netcap protect <host> [--up N --down N]     cap every other device; show <host>'s check before and after
+  netcap protect <host> [--up N --down N] [--load MB]
+                                              cap every other device; show <host>'s check before and after.
+                                              --load: the others load the line meanwhile, and the result says
+                                              whether latency improved
   netcap protect --off                        put each device back as it was
   netcap install [name] [--ssh DEST]          install the agent on a device and register it
   netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)
@@ -261,7 +264,9 @@ def note(r):
     """For devices that were not reached, show why from the last line. For a capped one, when --for lifts it."""
     if r.get("reach") == "ok":
         left = r.get("left", "-")
-        return _("off in {left}").format(left=fmt_left(int(left))) if left.isdigit() else ""
+        if not left.isdigit():
+            return ""
+        return _("off in {left}").format(left=fmt_left(int(left))) if int(left) else _("due, lifting soon")
     last = (r.get("raw", "").splitlines() or [""])[-1]
     if last == "netcap-agent: arguments must be numbers: --for":  # an agent from before --for refused it
         return _("this agent does not know --for (nothing changed). Update it: netcap install {host}").format(host=r["host"])
@@ -430,6 +435,26 @@ def cap_value(r):
     return f"{float(up):g}/{float(down):g}"
 
 
+def latency_verdict(before, after):
+    """Compare the protected device's median ping. Smaller differences than these are noise for ~10 samples."""
+    try:
+        b, c = float(before.get("ping_med")), float(after.get("ping_med"))
+    except (TypeError, ValueError):
+        return "unknown"
+    if c <= b * 0.8 and b - c >= 10:
+        return "improved"
+    if c >= b * 1.2 and c - b >= 10:
+        return "worse"
+    return "no clear change"
+
+
+def measure_under(host, loaders, load):
+    """check on host; with load, check --bytes on the loaders at the same time, so the line is busy meanwhile."""
+    jobs = [(host, [])] + [(h, ["--bytes", str(load)]) for h in (loaders if load else [])]
+    with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+        return list(ex.map(lambda j: run(j[0], "check", j[1]), jobs))
+
+
 def cmd_protect(a):
     load_hosts()
     path = STATE_DIR / "protect.json"
@@ -450,6 +475,11 @@ def cmd_protect(a):
     bad = [v for v in args if not is_mbit(v)]
     if bad:
         sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
+    load = 0
+    if a.load is not None:
+        if not (a.load.isdigit() and 1 <= int(a.load) <= 50):
+            sys.exit(_("--load takes megabytes per device, 1 to 50: {value}").format(value=a.load))
+        load = int(a.load) * 1000000
     others = [h for h in ORDER if h != a.host]
     if not others:
         sys.exit(_("no other device to cap (hosts has only {host})").format(host=a.host))
@@ -460,7 +490,10 @@ def cmd_protect(a):
     if rows[a.host].get("state") == "on":
         say(_("{host} itself is capped. To lift it: netcap off {host}").format(host=a.host))
     targets = [h for h in others if cap_value(rows[h]) is not None]
-    before = run(a.host, "check")
+    if load and not a.json:
+        # Up and down, before and after, on each device that makes the load
+        say(_("--load uses about {mb} MB of the line").format(mb=load * 4 * len(targets) // 1000000))
+    before, *loaded_before = measure_under(a.host, targets, load)
     # Written before anything changes, so that --off works even if this stops halfway
     saved = {"protected": a.host, "before": {h: cap_value(rows[h]) for h in targets}, "applied": {}}
     STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -469,18 +502,26 @@ def cmd_protect(a):
     after_rows = fan_out(others, "status")
     saved["applied"] = {r["host"]: cap_value(r) for r in after_rows if r["host"] in targets and cap_value(r)}
     path.write_text(json.dumps(saved, indent=2))
-    after = run(a.host, "check")
+    after, *loaded_after = measure_under(a.host, targets, load)
     rc = 0 if all(r.get("reach") == "ok" for r in after_rows) else 1
+    verdict = latency_verdict(before, after) if load else None
     if a.json:
-        print(json.dumps({"protected": a.host, "devices": after_rows, "before": before, "after": after},
-                         ensure_ascii=False, indent=2))
+        print(json.dumps({"protected": a.host, "devices": after_rows, "before": before, "after": after,
+                          "load_bytes": load, "verdict": verdict,
+                          "load": {"before": loaded_before, "after": loaded_after}}, ensure_ascii=False, indent=2))
         return rc
     print(f"protect: {a.host}")
     print_table(after_rows, STATUS_COLS, DOWN_NOTE)
     print()
     print_table([{**before, "host": "before"}, {**after, "host": "after"}], CHECK_COLS)
-    print(_("\nThe difference shows only if the other devices used the line while {host} was measured; "
-            "netcap does not make that traffic.").format(host=a.host))
+    if load:
+        print("\n" + _("latency on {host}: {verdict} (median {before} -> {after} ms)").format(
+            host=a.host, verdict=verdict, before=before.get("ping_med", "-"), after=after.get("ping_med", "-")))
+        if a.verbose:
+            print_details(loaded_before + loaded_after, a.verbose)
+    else:
+        print(_("\nThe difference shows only if the other devices used the line while {host} was measured; "
+                "netcap does not make that traffic. --load <MB> makes it").format(host=a.host))
     print(_("to undo: netcap protect --off"))
     return rc
 
@@ -1060,7 +1101,9 @@ JA = {
   netcap check  <host|all> [--json]           測る (curl の上り/下り + ping)
   netcap use    <profile>                     プロファイルを全機器に適用する
   netcap profiles                             プロファイルの一覧
-  netcap protect <host> [--up N --down N]     ほかの全端末を絞り、<host> の check を前後で見せる
+  netcap protect <host> [--up N --down N] [--load MB]
+                                              ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
+                                              ほかの端末が回線を埋め、遅延が良くなったかを言う
   netcap protect --off                        各端末を元の状態に戻す
   netcap install [name] [--ssh DEST]          機器に agent を入れて登録する
   netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
@@ -1164,8 +1207,13 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "no other device to cap (hosts has only {host})": "絞る相手がいない (hosts は {host} だけ)",
     "cannot reach {host}; changed nothing": "{host} に届かないので、何も変えていない",
     "{host} itself is capped. To lift it: netcap off {host}": "{host} 自身が絞られている。外すには: netcap off {host}",
-    "\nThe difference shows only if the other devices used the line while {host} was measured; netcap does not make that traffic.":
-        "\n差が出るのは、{host} を測っている間にほかの端末が回線を使っていたときだけ。netcap はその通信を作らない。",
+    "\nThe difference shows only if the other devices used the line while {host} was measured; netcap does not make that traffic. --load <MB> makes it":
+        "\n差が出るのは、{host} を測っている間にほかの端末が回線を使っていたときだけ。netcap はその通信を作らない。作るには --load <MB>",
+    "--load takes megabytes per device, 1 to 50: {value}": "--load には端末あたりの MB を 1 から 50 で渡す: {value}",
+    "--load uses about {mb} MB of the line": "--load で回線を約 {mb} MB 使う",
+    "latency on {host}: {verdict} (median {before} -> {after} ms)": "{host} の遅延: {verdict} (中央値 {before} -> {after} ms)",
+    "meanwhile, transfer MB on each other device to load the line, and say whether latency improved":
+        "その間ほかの各端末で MB ずつ転送して回線を埋め、遅延が良くなったかを言う",
     "to undo: netcap protect --off": "戻すには: netcap protect --off",
     "nothing to undo": "戻すものは無い",
     "{host} changed since protect; left as is. To undo: {command}":
@@ -1178,6 +1226,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "the cap for the others (default: each device's default)": "ほかの端末にかける上限 (省くと各端末の既定値)",
     "put every device back as it was before protect": "各端末を protect の前の状態に戻す",
     "off in {left}": "あと {left} で外れる",
+    "due, lifting soon": "期限を過ぎた。まもなく外れる",
     "this agent does not know --for (nothing changed). Update it: netcap install {host}":
         "この agent は --for を知らない (何も変えていない)。更新するには: netcap install {host}",
     "--for takes a time such as 30m, 2h, or 1h30m, from 1m to 24h: {value}":
@@ -1293,6 +1342,8 @@ def main():
     p.add_argument("--up", metavar="MBIT", help=_("the cap for the others (default: each device's default)"))
     p.add_argument("--down", metavar="MBIT")
     p.add_argument("--off", action="store_true", help=_("put every device back as it was before protect"))
+    p.add_argument("--load", metavar="MB", help=_("meanwhile, transfer MB on each other device to load the line, "
+                                                  "and say whether latency improved"))
     p = sub.add_parser("install", help=_("install the agent on a device and register it (this machine without --ssh)"))
     p.add_argument("name", nargs="?", help=_("the device's name in hosts (asked when omitted); a registered name updates it"))
     p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))

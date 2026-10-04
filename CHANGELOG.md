@@ -8,10 +8,18 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Fixed
+
+- `status` said `off in 0m` for a cap whose `--for` deadline had passed but that the device had not lifted yet;
+  it now says `due, lifting soon` (#80)
+
+## [0.11.0] - 2026-10-02
+
 ### Added
 
 - `netcap protect <host> [--up N --down N]` caps every other device and shows `<host>`'s check before and after;
-  `netcap protect --off` puts each device back as it was (#73)
+  `netcap protect --off` puts each device back as it was. With `--load MB` the others load the line meanwhile,
+  and the result says whether latency on `<host>` improved (#73, #77)
 - `netcap on <host> --for 30m` (or `2h`, `1h30m`; 1 minute to 24 hours): the device lifts the cap by itself after that
   long, even with the controller off. `status` shows the time left. It needs the agent from this release on each device:
   run `netcap install <name>` (#71, #72)
@@ -164,7 +172,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - The `netcap` CLI, with verbs shaped after tailscale's, and the macOS shaper (pf + dummynet)
 
-[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/ken-ty/netcap/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/ken-ty/netcap/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/ken-ty/netcap/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/ken-ty/netcap/compare/v0.8.0...v0.9.0

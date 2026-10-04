@@ -93,12 +93,14 @@ netcap use none      # remove all caps
 Or name only the device to protect: netcap caps every other one and measures it before and after.
 
 ```bash
-netcap protect gamepc --up 2 --down 2   # cap everything but gamepc; show gamepc's check before and after
-netcap protect --off                    # put each device back as it was
+netcap protect gamepc --up 2 --down 2             # cap everything but gamepc; show gamepc's check before and after
+netcap protect gamepc --up 2 --down 2 --load 5    # the others also transfer 5 MB each meanwhile; says whether latency improved
+netcap protect --off                              # put each device back as it was
 ```
 
-The difference in the measurement shows only if the other devices were using the line at the time; netcap does not make
-that traffic. It sends about 4 MB from the protected device. On Windows the others are capped on upload only.
+Without `--load`, the difference shows only if the other devices happen to use the line during the measurement.
+`--load` makes that traffic, so it costs data: about 4 × MB × the other devices (it says how much first).
+The protected device itself sends about 4 MB either way. On Windows the others are capped on upload only.
 
 Rename a device with `netcap rename me laptop`; remove one with `netcap uninstall gamepc`.
 For the file format, see [docs/configuration.md](docs/configuration.md); for what install sets up on a device, [docs/host-setup.md](docs/host-setup.md).
@@ -131,7 +133,7 @@ netcap set    <host|all> --up N --down N    change the default
 netcap check  <host|all> [--json]           measure (curl up/down + ping)
 netcap use    <profile>                     apply a profile
 netcap profiles                             list profiles
-netcap protect <host> [--up N --down N]     cap every other device; show <host>'s check before and after
+netcap protect <host> [--up N --down N] [--load MB]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
 netcap install [name] [--ssh DEST]          install the agent on a device and register it
 netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)

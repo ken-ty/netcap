@@ -36,7 +36,7 @@ git clone https://github.com/ken-ty/netcap.git ~/.local/share/netcap
 
 # curl (git を使わない)
 mkdir -p ~/.local/share/netcap
-curl -fsSL https://github.com/ken-ty/netcap/archive/refs/tags/v0.10.0.tar.gz \
+curl -fsSL https://github.com/ken-ty/netcap/archive/refs/tags/v0.11.0.tar.gz \
   | tar xz --strip-components 1 -C ~/.local/share/netcap
 
 # CLI を使うなら
@@ -46,9 +46,9 @@ ln -s ~/.local/share/netcap/bin/netcap ~/.local/bin/netcap
 curl で入れると `netcap --version` は `unknown` になる。Windows でも curl と tar は標準で使える。
 
 ```powershell
-curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.10.0.zip
+curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.11.0.zip
 tar -xf netcap.zip
-cd netcap-0.10.0
+cd netcap-0.11.0
 python bin\netcap --version   # CLI として使うなら
 ```
 
