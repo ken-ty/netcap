@@ -16,7 +16,7 @@ gamepc   win  gamepc
 
 | Column | Value |
 | --- | --- |
-| name | The name you pass to `netcap status <name>`. `all` is reserved |
+| name | The name you pass to `netcap status <name>`: letters, digits, `_`, `.`, and `-`, starting with a letter or digit. `all` is reserved |
 | OS | One of `mac` (pf + dummynet), `linux` (tc), `win` (NetQosPolicy) |
 | route | Your usual ssh destination: a Host from `~/.ssh/config`, or `user@host`. `-` for the machine running netcap itself. `netcap install` writes this line |
 
@@ -29,7 +29,7 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-A value is `up/down` in Mbit/s, `on` (the device's own default, as `netcap on <name>` without flags), or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is).
+A value is `up/down` in Mbit/s, `on` (the device's own default, as `netcap on <name>` without flags), or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is). A profile name follows the same rule as a device name.
 
 ## Export and import
 
@@ -46,7 +46,8 @@ netcap import netcap.json --replace  # overwrite existing hosts and profiles (ke
   resolved by the importing machine's own `~/.ssh/config`. Caps and defaults are not exported either; they live on the devices
 - **This machine (route `-`) is not taken over elsewhere.** Imported on another machine, it would point at that machine,
   so it is skipped (and removed from profiles) with a message. Add it back with `netcap install <name> --ssh <dest>`
-- **An export is checked before anything is written**: names, OS, routes, and profile values. A route that starts with `-`
-  is refused, because ssh would read it as an option (`-oProxyCommand=…` runs a command). hosts is checked the same way
+- **An export is checked before anything is written**: names, OS, routes, and profile values; the exporting machine's name is written only if it follows the name rule. A route that starts with `-`
+  is refused, because ssh would read it as an option (`-oProxyCommand=…` runs a command). hosts and profiles are checked the same way
+  when netcap reads them, with the file and line of anything that breaks a rule
 - Comments in hosts and profiles are not kept
 - On a new controller, run `netcap install <name>` for each device to register that machine's own key
