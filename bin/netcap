@@ -10,7 +10,7 @@
   netcap set    <host|all> --up N --down N    change the default (survives reboots)
   netcap check  [host|all] [--bytes N] [--json]
                                               measure (curl up/down + ping). --bytes: how much to transfer
-  netcap use    <profile>                     apply a profile to all devices
+  netcap use    <profile>                     apply a profile to the devices it lists
   netcap profiles                             list profiles
   netcap protect <host> [--up N --down N] [--load MB]
                                               cap every other device; show <host>'s check before and after.
@@ -1132,7 +1132,7 @@ JA = {
   netcap set    <host|all> --up N --down N    既定値を変える (再起動後も残る)
   netcap check  [host|all] [--bytes N] [--json]
                                               測る (curl の上り/下り + ping)。--bytes: 転送する量
-  netcap use    <profile>                     プロファイルを全機器に適用する
+  netcap use    <profile>                     プロファイルを、書かれた端末に適用する
   netcap profiles                             プロファイルの一覧
   netcap protect <host> [--up N --down N] [--load MB]
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
@@ -1192,7 +1192,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "change the default (survives reboots)": "既定値を変える (再起動後も残る)",
     "measure (curl up/down + ping)": "測る (curl の上り/下り + ping)",
     "bytes to transfer; use less while capped": "転送するバイト数。上限をかけている間は少なめに",
-    "apply a profile to all devices": "プロファイルを全機器に適用する",
+    "apply a profile to the devices it lists": "プロファイルを、書かれた端末に適用する",
     "list profiles": "プロファイルの一覧",
     "{path} does not exist. See {example} for the format\n"
     "  mkdir -p {dir} && cp {example} {path}":
@@ -1418,7 +1418,7 @@ def main():
     p = sub.add_parser("check", help=_("measure (curl up/down + ping)"))
     add_target(p, optional=True)
     p.add_argument("--bytes", metavar="N", help=_("bytes to transfer; use less while capped"))
-    p = sub.add_parser("use", help=_("apply a profile to all devices"))
+    p = sub.add_parser("use", help=_("apply a profile to the devices it lists"))
     p.add_argument("profile")
     sub.add_parser("profiles", help=_("list profiles"))
     p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
