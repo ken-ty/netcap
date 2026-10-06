@@ -11,12 +11,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 ### Added
 
 - `netcap help [<command>|exit-codes]`, `netcap version`, `-q` / `--quiet` (before or after the command), and
-  `netcap completion bash|zsh`, which also completes the names in hosts (#PR)
+  `netcap completion bash|zsh`, which also completes the names in hosts (#82)
 
 ### Changed
 
 - When the only failures are devices out of reach (ssh could not connect, or timed out), netcap exits with 3 instead
-  of 1, so a script can try again later. docs/operations.md lists the exit codes (#PR)
+  of 1, so a script can try again later. docs/operations.md lists the exit codes (#82)
 
 ### Fixed
 
