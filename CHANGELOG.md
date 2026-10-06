@@ -13,12 +13,24 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - **Breaking** A name in hosts or profiles that breaks the name rule (letters, digits, `_ . -`, starting with a letter
   or digit), such as one written by hand with other characters, now stops netcap with the file and line. Rename it in
   the file (#97)
+- `netcap rename` and `netcap uninstall` refuse a device that `netcap protect` capped and has not put back yet. Run
+  `netcap protect --off` first (#100)
 
 ### Fixed
 
 - On macOS, a cap with a decimal or a leading zero was not applied: `0.5` and `08` left the line unlimited and `010`
   capped at 8 Mbit/s, while `status` showed the value asked for. The shaper now hands dummynet whole bit/s, and
   refuses a value it cannot hold (above 2147.483647 Mbit/s) before changing anything (#96)
+- `netcap protect --off` deletes its state only when every device is back. A device it could not put back (out of
+  reach, failed, or no longer in hosts) stays in the state, and `--off` exits non-zero and says so on stderr; before,
+  a failed device stayed capped and a second `--off` said "nothing to undo" (#100)
+- `netcap protect` claims its state before measuring, so a second `protect` started meanwhile stops instead of
+  overwriting it, and writes the state atomically. With no other device to cap, it says so and writes nothing,
+  instead of crashing and leaving an empty state (#100)
+- `netcap protect --off` puts a device that had an `on --for` deadline back with the time left, or leaves it uncapped
+  if the deadline passed meanwhile; before, the deadline was lost (#100)
+- A corrupt `protect.json` stops `protect` and `--off` with its path and what to do, instead of a traceback. With
+  `--json`, `protect` and `protect --off` print only JSON on stdout (#100)
 
 ### Security
 

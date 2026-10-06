@@ -61,6 +61,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -198,6 +199,7 @@ class VersionAction(argparse.Action):
 VERBOSE_HELP = "also show what the table leaves out; -vv also shows the raw output from the device"
 QUIET_HELP = "print only the result: no progress, hints, or notes"
 QUIET = False  # set by -q: hint() and say() print nothing
+JSON = False  # set by --json: say() and notice() print to stderr, so stdout has only the JSON
 
 # docs/operations.md: Exit codes. 3 lets a script tell "try again later" from a real failure
 OK, FAIL, USAGE, UNREACHABLE = 0, 1, 2, 3
@@ -491,10 +493,79 @@ def measure_under(host, loaders, load):
         return list(ex.map(lambda j: run(j[0], "check", j[1]), jobs))
 
 
+def deadline(r):
+    """When a pending on --for lifts this device's cap, in this machine's clock (epoch seconds), or None.
+    Kept as this machine's time, so that a device whose clock is off does not shift it"""
+    left = r.get("left", "-")
+    return round(time.time()) + int(left) if r.get("state") == "on" and left.isdigit() else None
+
+
+def is_cap_value(v):
+    return v in ("off", "on") or (isinstance(v, str) and v.count("/") == 1 and all(map(is_mbit, v.split("/"))))
+
+
+def read_state(path):
+    """protect.json, or None when protect is not in effect. A file netcap cannot read stops here, with what to do."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return None
+    try:
+        saved = json.loads(data.decode("utf-8"))
+    except ValueError:  # also UnicodeDecodeError
+        saved = None
+    if not (isinstance(saved, dict) and isinstance(saved.get("protected"), str)
+            and all(isinstance(saved.get(k, {}), dict) for k in ("before", "applied", "until")) and "before" in saved
+            and all(map(is_cap_value, saved["before"].values()))
+            and all(isinstance(v, (int, float)) for v in saved.get("until", {}).values())):
+        sys.exit(_("{path} is not a protect state netcap can read. Check each device with netcap status, put back "
+                   "by hand what protect capped, then delete the file").format(path=path))
+    saved.setdefault("applied", {})
+    saved.setdefault("until", {})  # a file from an older netcap has none
+    return saved
+
+
+def write_state(path, saved):
+    """Replace protect.json in one step: a reader sees the old file or the new one, never half of one."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".protect-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(saved, indent=2))
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def claim_state(path, saved):
+    """Create protect.json only if there is none, so that of two protects run at once, only one goes on."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(saved, indent=2))
+    return True
+
+
+def already_protecting(saved):
+    sys.exit(_("already protecting {host}. First: netcap protect --off").format(host=saved["protected"] if saved else "?"))
+
+
+def refuse_while_protecting(name):
+    """rename and uninstall would leave protect --off unable to find a device it has to put back."""
+    path = STATE_DIR / "protect.json"
+    saved = read_state(path)
+    if saved and name in saved["before"]:
+        sys.exit(_("netcap protect capped {name} and has to put it back ({path}). First: netcap protect --off")
+                 .format(name=name, path=path))
+
+
 def cmd_protect(a):
     load_hosts()
     path = STATE_DIR / "protect.json"
-    saved = json.loads(path.read_text()) if path.exists() else None
+    saved = read_state(path)
     if a.off:
         return protect_off(path, saved, a)
     if a.host is None:
@@ -503,7 +574,7 @@ def cmd_protect(a):
         sys.exit(_("protect one device: netcap protect <host>"))
     resolve(a.host)
     if saved:
-        sys.exit(_("already protecting {host}. First: netcap protect --off").format(host=saved["protected"]))
+        already_protecting(saved)
     if (a.up is None) != (a.down is None):
         sys.exit(_("give --up and --down together (with only one, the other would silently "
                    "stay at the default)"))
@@ -526,18 +597,28 @@ def cmd_protect(a):
     if rows[a.host].get("state") == "on":
         say(_("{host} itself is capped. To lift it: netcap off {host}").format(host=a.host))
     targets = [h for h in others if cap_value(rows[h]) is not None]
-    if load and not a.json:
-        # Up and down, before and after, on each device that makes the load
-        say(_("--load uses about {mb} MB of the line").format(mb=load * 4 * len(targets) // 1000000))
-    before, *loaded_before = measure_under(a.host, targets, load)
-    # Written before anything changes, so that --off works even if this stops halfway
-    saved = {"protected": a.host, "before": {h: cap_value(rows[h]) for h in targets}, "applied": {}}
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(saved, indent=2))
+    if not targets:
+        print(_("no other device can be capped ({devices}); changed nothing").format(
+            devices=", ".join(f"{h}: {rows[h].get('reach')}" for h in others)), file=sys.stderr)
+        return rc_of([rows[h] for h in others])
+    # Claimed before the check (up to 180 s), so that a second protect stops here; written before anything changes,
+    # so that --off works even if this stops halfway. A pending --for is kept as its deadline, to bring it back
+    saved = {"protected": a.host, "before": {h: cap_value(rows[h]) for h in targets}, "applied": {},
+             "until": {h: deadline(rows[h]) for h in targets if deadline(rows[h]) is not None}}
+    if not claim_state(path, saved):
+        already_protecting(read_state(path))
+    try:
+        if load:
+            # Up and down, before and after, on each device that makes the load
+            say(_("--load uses about {mb} MB of the line").format(mb=load * 4 * len(targets) // 1000000))
+        before, *loaded_before = measure_under(a.host, targets, load)
+    except BaseException:  # stopped before capping anything (Ctrl-C): nothing to undo
+        path.unlink(missing_ok=True)
+        raise
     fan_out(targets, "on", args)
     after_rows = fan_out(others, "status")
     saved["applied"] = {r["host"]: cap_value(r) for r in after_rows if r["host"] in targets and cap_value(r)}
-    path.write_text(json.dumps(saved, indent=2))
+    write_state(path, saved)
     after, *loaded_after = measure_under(a.host, targets, load)
     rc = rc_of(after_rows)
     verdict = latency_verdict(before, after) if load else None
@@ -564,38 +645,73 @@ def cmd_protect(a):
 
 def protect_off(path, saved, a):
     if not saved:
-        print(_("nothing to undo"))
-        return 0
+        notice(_("nothing to undo"))
+        if a.json:
+            print("[]")
+        return OK
+    until = saved["until"]
+
+    def goal(h):
+        """What to put h back to: its value before, and the time left of its --for, if it had one."""
+        if h not in until:
+            return saved["before"][h], None
+        seconds = int(until[h] - time.time())
+        # The device takes 60 s at least. Past or this close to the deadline, it would have lifted the cap by now
+        return (saved["before"][h], seconds) if seconds >= 60 else ("off", None)
+
+    missing = [h for h in saved["before"] if h not in HOSTS]  # renamed or removed by hand since
     hosts = [h for h in ORDER if h in saved["before"]]
     now = {r["host"]: r for r in fan_out(hosts, "status")} if hosts else {}
-    restore, left = [], {}
+    restore, unreachable = [], []
     for h in hosts:
-        cur, was, set_to = cap_value(now[h]), saved["before"][h], saved["applied"].get(h)
+        cur, set_to = cap_value(now[h]), saved["applied"].get(h)
+        was, seconds = goal(h)
         if cur is None:
-            left[h] = was  # try again later
-        elif cur == was:
+            unreachable.append(h)  # try again later
+        elif cur == was and (seconds is None or now[h].get("left", "-").isdigit()):
             continue
         elif cur == set_to:
             restore.append(h)
         else:
             undo = f"netcap off {h}" if was == "off" else f"netcap on {h}" if was == "on" else \
                 "netcap on {} --up {} --down {}".format(h, *was.split("/"))
-            print(_("{host} changed since protect; left as is. To undo: {command}").format(host=h, command=undo))
+            if seconds is not None:
+                undo += f" --for {-(-seconds // 60)}m"
+            notice(_("{host} changed since protect; left as is. To undo: {command}").format(host=h, command=undo))
 
     def one(h):
-        action, args = parse_profile_value(h, saved["before"][h])
-        return run(h, action, args)
+        was, seconds = goal(h)
+        action, args = parse_profile_value(h, was)
+        return run(h, action, args + (["--for", str(seconds)] if seconds is not None else []))
+    done = {}
     if restore:
         with ThreadPoolExecutor(max_workers=len(restore)) as ex:
-            list(ex.map(one, restore))
-    if left:
-        path.write_text(json.dumps({**saved, "before": left}, indent=2))
-        print(_("could not reach {hosts}; run netcap protect --off again when they are back").format(hosts=", ".join(left)))
+            done = dict(zip(restore, ex.map(one, restore)))
+    failed = [h for h in restore if done[h].get("reach") != "ok"]
+    back = [h for h in restore if h not in failed]
+    shown = {r["host"]: r for r in fan_out(back, "status")} if back else {}
+    shown.update({h: done[h] for h in failed})
+    shown.update({h: now[h] for h in unreachable})
+    rows = [shown[h] for h in ORDER if h in shown]
+    if rows or a.json:
+        emit(rows, STATUS_COLS, a.json, a.verbose)
+    keep = [h for h in saved["before"] if h in (*missing, *unreachable, *failed)]
+    if keep:
+        write_state(path, {**saved, "before": {h: saved["before"][h] for h in keep},
+                           "applied": {h: v for h, v in saved["applied"].items() if h in keep},
+                           "until": {h: v for h, v in until.items() if h in keep}})
     else:
-        path.unlink()
-    if restore:
-        emit(fan_out(restore, "status"), STATUS_COLS, a.json, a.verbose)
-    return rc_of([now[h] for h in left]) if left else OK
+        path.unlink(missing_ok=True)
+    if missing:
+        print(_("{hosts} not in hosts any more, so not put back; kept in {path}. Put the name back in hosts, then run "
+                "netcap protect --off again").format(hosts=", ".join(missing), path=path), file=sys.stderr)
+    if unreachable:
+        print(_("could not reach {hosts}; run netcap protect --off again when they are back")
+              .format(hosts=", ".join(unreachable)), file=sys.stderr)
+    if failed:
+        print(_("could not put {hosts} back (see the note); run netcap protect --off again once that is fixed")
+              .format(hosts=", ".join(failed)), file=sys.stderr)
+    return FAIL if missing else rc_of([shown[h] for h in (*unreachable, *failed)])
 
 
 def cmd_profiles(a):
@@ -624,7 +740,12 @@ THIS_OS = {"darwin": "mac", "linux": "linux", "win32": "win"}.get(sys.platform)
 
 def say(msg):
     if not QUIET:
-        print(f"==> {msg}", flush=True)
+        print(f"==> {msg}", file=sys.stderr if JSON else sys.stdout, flush=True)
+
+
+def notice(msg):
+    """A line a person needs to see that is not the result. With --json it goes to stderr, so stdout stays JSON."""
+    print(msg, file=sys.stderr if JSON else sys.stdout)
 
 
 def ssh_plain(dest, cmd, tty=False, input=None, capture=True):
@@ -872,6 +993,7 @@ def cmd_uninstall(a):
     if a.name == "all":
         sys.exit(_("uninstall one device at a time"))
     resolve(a.name)
+    refuse_while_protecting(a.name)
     os_, dest = HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
     if not a.config_only:
         where = dest or _("this machine")
@@ -908,6 +1030,7 @@ def cmd_rename(a):
     load_hosts()
     if a.old not in HOSTS:
         sys.exit(_("unknown host: {host} (one of {names})").format(host=a.old, names=host_names()))
+    refuse_while_protecting(a.old)
     check_name(a.new)
     if a.new in HOSTS:
         sys.exit(_("{name} is already in hosts").format(name=a.new))
@@ -1283,6 +1406,15 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "{host} は protect の後に変わっているので、触らずに残した。戻すには: {command}",
     "could not reach {hosts}; run netcap protect --off again when they are back":
         "{hosts} に届かなかった。戻ってきたら netcap protect --off をもう一度",
+    "could not put {hosts} back (see the note); run netcap protect --off again once that is fixed":
+        "{hosts} を戻せなかった (note を参照)。直したら netcap protect --off をもう一度",
+    "{hosts} not in hosts any more, so not put back; kept in {path}. Put the name back in hosts, then run netcap protect --off again":
+        "{hosts} は hosts に無くなったので戻していない。{path} に残した。hosts に名前を戻してから netcap protect --off をもう一度",
+    "no other device can be capped ({devices}); changed nothing": "絞れる端末がほかに無い ({devices})。何も変えていない",
+    "{path} is not a protect state netcap can read. Check each device with netcap status, put back by hand what protect capped, then delete the file":
+        "{path} は netcap が読める protect の状態ではない。netcap status で各端末を確かめ、protect が絞ったものを手で戻してから、このファイルを消す",
+    "netcap protect capped {name} and has to put it back ({path}). First: netcap protect --off":
+        "{name} は netcap protect が絞ったので、戻す必要がある ({path})。先に: netcap protect --off",
     "cap every other device and show this one's check before and after":
         "ほかの全端末を絞り、この端末の check を前後で見せる",
     "the device to protect": "守る端末",
@@ -1470,8 +1602,8 @@ def main():
 
     a = ap.parse_args()
     a.verbose += getattr(a, "verbose_after", 0)
-    global QUIET
-    QUIET = a.quiet
+    global QUIET, JSON
+    QUIET, JSON = a.quiet, a.json
     if a.cmd == "help":
         if a.topic == "exit-codes":
             print(_(EXIT_CODES), end="")
