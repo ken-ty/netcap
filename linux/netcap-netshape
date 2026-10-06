@@ -170,8 +170,11 @@ start_timer() {
   local until=$(($(date +%s) + $1))
   echo "$until" >"$UNTIL"
   systemctl stop "$TIMER.timer" 2>/dev/null || true
-  # The installed shaper, not this copy: the timer runs as root
+  systemctl stop "$TIMER.service" 2>/dev/null || true # an expire waiting to be tried again
+  # The installed shaper, not this copy: the timer runs as root. An expire that fails is tried again a minute later
+  # (Restart=on-failure), as the macOS job runs every minute; once it succeeds, off has ended the timer
   systemd-run --quiet --unit="$TIMER" --collect --timer-property=AccuracySec=1s \
+    --property=Restart=on-failure --property=RestartSec=60 \
     --timer-property=RemainAfterElapse=no --on-calendar="$(date -u -d "@$until" '+%Y-%m-%d %H:%M:%S') UTC" \
     /usr/libexec/netcap/netcap-netshape expire
 }
