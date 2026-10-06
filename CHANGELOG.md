@@ -8,6 +8,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-06
+
 ### Added
 
 - `netcap help [<command>|exit-codes]`, `netcap version`, `-q` / `--quiet` (before or after the command), and
@@ -182,7 +184,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - The `netcap` CLI, with verbs shaped after tailscale's, and the macOS shaper (pf + dummynet)
 
-[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/ken-ty/netcap/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ken-ty/netcap/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/ken-ty/netcap/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/ken-ty/netcap/compare/v0.9.0...v0.9.1
