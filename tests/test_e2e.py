@@ -241,6 +241,44 @@ class E2E(unittest.TestCase):
         finally:
             agent("off")
 
+    # #92: pf disabled by something else (pfctl -d) leaves the rules loaded but not in effect. status does not call that
+    # on, and on enables pf again even though netcap still holds its token from before
+    @unittest.skipUnless(OS == "mac", "pf is macOS")
+    def test_13_pf_disabled_by_something_else(self):
+        self.netcap("on", "self", "--up", "2", "--down", "3")
+        try:
+            p = sh("sudo", "pfctl", "-d")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertEqual(self.row()["state"], "partial")
+            self.netcap("on", "self", "--up", "2", "--down", "3")
+            self.assertIn("Status: Enabled", sh("sudo", "pfctl", "-s", "info").stdout)
+            self.assertCap("on", "2", "3")
+        finally:
+            self.netcap("off", "self")
+
+    # #92: a deadline whose first expire fails is tried again, instead of leaving the cap on for good
+    @unittest.skipUnless(OS == "linux", "macOS runs expire every minute; this is the Linux timer")
+    def test_14_failed_expire_is_retried(self):
+        shaper = "/usr/libexec/netcap/netcap-netshape"
+        failed = "/run/netcap-e2e-expire-failed"
+        # The first expire fails: a wrapper in the shaper's place fails once, then runs the real one
+        wrapper = (f'#!/bin/bash\nif [ "$1" = expire ] && [ ! -e {failed} ]; then touch {failed}; exit 1; fi\n'
+                   f'exec {shaper}.real "$@"\n')
+        self.assertEqual(sh("sudo", "cp", "-p", shaper, shaper + ".real").returncode, 0)
+        try:
+            self.assertEqual(sh("sudo", "tee", shaper, input=wrapper).returncode, 0)
+            p = agent("on", "2", "3", "--for", "60")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            deadline = time.time() + 210  # the deadline, a failed expire, and a retry a minute later
+            while time.time() < deadline and self.row()["state"] != "off":
+                time.sleep(5)
+            self.assertTrue(Path(failed).exists(), "the first expire did not run")
+            self.assertCap("off")
+        finally:
+            sh("sudo", "mv", shaper + ".real", shaper)
+            sh("sudo", "rm", "-f", failed)
+            agent("off")
+
     # docs/configuration.md: Export and import (on this machine, "self" is kept)
     def test_15_export_import(self):
         out = self.netcap("export")
@@ -313,6 +351,14 @@ class E2E(unittest.TestCase):
         p = sh(*check, "--bytes", "100000001")
         self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
         self.assertEqual(p.stdout, "")
+
+    # #92: only on and set take numbers. Before, status 5 reached sudo, whose sudoers refused it as a password prompt
+    def test_27_verbs_without_arguments(self):
+        for cmd in (("status", "5"), ("get", "1"), ("off", "1")):
+            with self.subTest(cmd=cmd):
+                p = agent(*cmd)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(f"netcap-agent: {cmd[0]} takes no arguments", p.stderr)
 
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
@@ -476,6 +522,39 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
         self.assertLessEqual(capped[1], free[1] + 0.05)
         self.assertLessEqual(capped[2], free[2] + 50)
 
+    # #92: the numbers a device prints are read by machines, so they do not follow the culture (0,5 under de-DE)
+    @unittest.skipUnless(OS == "win", "PowerShell's -f formats in the current culture")
+    def test_37_numbers_do_not_follow_the_culture(self):
+        p = agent("on", "0.5", "0.5")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        try:
+            d = r"C:\ProgramData\netcap"
+            p = ps("& { [Threading.Thread]::CurrentThread.CurrentCulture = 'de-DE'; [cultureinfo]::CurrentCulture = 'de-DE'\n"
+                   f"  '{{0:G}}' -f 0.5; & '{d}\\netshape.ps1' status; & '{d}\\netcap-check.ps1' --bytes 1000 }}")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            lines = p.stdout.splitlines()
+            if lines[0] != "0,5":
+                self.skipTest(f"could not switch the culture to de-DE: {lines[0]}")
+            status = next(l for l in lines if l.startswith("netshape "))
+            self.assertIn(" up_mbit=0.5 ", status)
+            check = next(l for l in lines if l.startswith("netcheck "))
+            for k in ("down_mbit", "up_mbit", "ping_med", "ping_p95", "ping_max"):
+                self.assertRegex(check, rf" {k}=([0-9]+(\.[0-9]+)?|-)( |$)")
+        finally:
+            agent("off")
+
+    # #92: an empty deadline file (a write cut short) is no deadline, not an error in status
+    @unittest.skipUnless(OS == "win", "Read-Until is in the Windows shaper")
+    def test_38_empty_until_file(self):
+        until = Path(r"C:\ProgramData\netcap\until")
+        until.write_bytes(b"")
+        try:
+            p = agent("status")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn("until=- left=-", p.stdout)
+        finally:
+            until.unlink(missing_ok=True)
+
     @unittest.skipIf(OS == "win", "Windows keeps its state across reboots (boot=keep)")
     def test_40_boot_on(self):
         install("on")
@@ -487,6 +566,64 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
         finally:
             install("off")
             agent("off")
+
+    # #92: at boot, com.apple.pfctl may load /etc/pf.conf after the boot job starts. The job waits for it instead of
+    # failing and leaving the device uncapped. Here the main ruleset is emptied, the job is loaded, and pf.conf comes back
+    # a few seconds later
+    @unittest.skipUnless(OS == "mac", "the boot job's race with com.apple.pfctl")
+    def test_41_boot_job_waits_for_pf_conf(self):
+        p = sh("sudo", "pfctl", "-q", "-f", "/dev/null")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        try:
+            try:
+                p = install("on")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                time.sleep(3)
+            finally:
+                p = sh("sudo", "pfctl", "-q", "-f", "/etc/pf.conf")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            deadline = time.time() + 60
+            while time.time() < deadline and self.row()["state"] != "on":
+                time.sleep(2)
+            self.assertCap("on", "4", "5")  # the default test_04 left
+        finally:
+            install("off")
+            agent("off")
+
+    # #92: installing again with --boot on keeps the cap in effect and its --for, as on Linux. Before, macOS ran the
+    # boot job at once, which put the default in place and cancelled the deadline
+    @unittest.skipIf(OS == "win", "Windows has no boot job (boot=keep)")
+    def test_42_reinstall_keeps_the_cap(self):
+        try:
+            self.assertEqual(install("on").returncode, 0)
+            p = agent("on", "2", "3", "--for", "600")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            p = install("on")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            r = self.row()
+            self.assertEqual((r["state"], r["up_mbit"]), ("on", "2"), r)
+            self.assertTrue(0 < int(r["left"]) <= 600, r)
+        finally:
+            install("off")
+            agent("off")
+
+    # #92: a Linux without systemd (a container, WSL without it) installs with --boot off; --boot on says it needs
+    # systemd before changing anything. /run/systemd is hidden in a mount namespace of its own
+    @unittest.skipUnless(OS == "linux", "systemd")
+    def test_43_install_without_systemd(self):
+        def install_hidden(boot):
+            return sh("sudo", "unshare", "-m", "bash", "-c", 'mount -t tmpfs tmpfs /run/systemd && exec bash "$@"', "-",
+                      str(ROOT / "linux" / "install.sh"), "--boot", boot)
+        try:
+            p = install_hidden("off")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn("installed (boot=off", p.stdout)
+            p = install_hidden("on")
+            self.assertNotEqual(p.returncode, 0, p.stdout)
+            self.assertIn("--boot on needs systemd", p.stderr)
+            self.assertFalse(Path("/etc/systemd/system/netcap-netshape.service").exists())
+        finally:
+            install("off")
 
     # docs/operations.md: More than one controller. Each controller may log in as its own user (#31)
     @unittest.skipIf(OS == "win", "Windows has no sudoers: any Administrator works")
@@ -519,6 +656,23 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
             for u in users:
                 sh("sudo", "env", f"NETCAP_USER={u}", "bash", str(ROOT / OS / "uninstall.sh"), "--user")
                 sh("sudo", "dscl", ".", "-delete", f"/Users/{u}") if OS == "mac" else sh("sudo", "userdel", u)
+
+    # Windows PowerShell 5.1's Remove-Item -Recurse follows a junction and deletes what it points to. uninstall.ps1
+    # removes the link, and leaves the folder it points to as it was
+    @unittest.skipUnless(OS == "win", "junctions")
+    def test_97_uninstall_leaves_what_a_link_points_to(self):
+        target, link = Path(tempfile.mkdtemp()), r"C:\ProgramData\netcap\elsewhere"
+        (target / "keep.txt").write_text("x")
+        self.assertEqual(sh("cmd", "/c", "mklink", "/J", link, str(target)).returncode, 0)
+        try:
+            p = uninstall()
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertTrue((target / "keep.txt").exists(), "uninstall.ps1 deleted what the link points to")
+            self.assertFalse(Path(r"C:\ProgramData\netcap").exists())
+        finally:
+            sh("cmd", "/c", "rmdir", link)
+            p = install()
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     def test_99_uninstall(self):
         self.netcap("uninstall", "self")
