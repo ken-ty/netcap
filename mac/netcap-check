@@ -17,6 +17,11 @@ while [ $# -gt 0 ]; do
     *) echo "usage: $0 [--bytes N] [--ping-host H]" >&2; exit 2 ;;
   esac
 done
+# 1 to 100 MB, as netcap-agent allows (#91). Checked here too, for a caller that skips the agent
+if ! [[ "$BYTES" =~ ^[0-9]{1,9}$ ]] || [ "$BYTES" -lt 1 ] || [ "$BYTES" -gt 100000000 ]; then
+  echo "$0: --bytes takes 1 to 100000000: $BYTES" >&2
+  exit 2
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

@@ -135,7 +135,7 @@ netcap get    [host|all] [--json]           設定 (既定値・起動時の挙�
 netcap on     <host|all> [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
 netcap off    <host|all>                    上限を外す (boot=on なら再起動で既定の上限がかかり直す)
 netcap set    <host|all> --up N --down N    既定を書き換える
-netcap check  [host|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量)
+netcap check  [host|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
 netcap use    <profile>                     プロファイルを適用
 netcap profiles                             プロファイル一覧
 netcap protect <host> [--up N --down N] [--load MB]  ほかの全端末を絞り、<host> の check を前後で見せる

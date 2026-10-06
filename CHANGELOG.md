@@ -14,6 +14,17 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   capped at 8 Mbit/s, while `status` showed the value asked for. The shaper now hands dummynet whole bit/s, and
   refuses a value it cannot hold (above 2147.483647 Mbit/s) before changing anything (#96)
 
+### Security
+
+- The agent refuses `check --bytes` outside 1 to 100000000 (100 MB), so a key allowed only `status get check` can no
+  longer make a device transfer as much as it asks; `netcap check --bytes` says so before sending. This narrows what
+  the agent accepts, but the CLI never sends what it refuses, so the oldest agent the CLI works with does not change.
+  Update each device with `netcap install <name>` to get the limit there (#98)
+- On Windows, `install.ps1` takes over an existing `C:\ProgramData\netcap`: Administrators now own the folder and
+  everything in it, and entries someone else added to it or to files in it are removed. Before, a standard user who
+  created the folder before the install could still change the scripts that run as Administrator. A link in the
+  folder is refused. Run `win\install.ps1` (or `netcap install`) again to apply this to an existing install (#99)
+
 ## [0.12.0] - 2026-10-06
 
 ### Added
