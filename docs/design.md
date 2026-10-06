@@ -36,7 +36,10 @@ used Homebrew, `/usr/local/sbin` can be like that).
 - macOS: binaries in `/Library/PrivilegedHelperTools`, settings in `/etc`. `install.sh` checks owner and
   permissions all the way up to `/`. Settings are not sourced; they are read as numeric key=value pairs
 - Linux: binaries in `/usr/libexec/netcap`, settings in `/etc`. Checked the same way as macOS
-- Windows: Users can write to `C:\ProgramData`, so `install.ps1` breaks inheritance
+- Windows: Users can write to `C:\ProgramData`, so `install.ps1` breaks inheritance. They can also create
+  `C:\ProgramData\netcap` before the install, so `install.ps1` makes Administrators the owner of the folder and
+  everything in it, leaves only SYSTEM, Administrators, and Users (read) on the folder and nothing of their own on
+  what is in it, and refuses a link in it
 
 ## pf and dnctl: touch only our own
 
