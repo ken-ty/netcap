@@ -1,29 +1,36 @@
 #!/usr/bin/env python3
 """netcap — one command for the WAN bandwidth caps of the devices you manage.
 
-  netcap status [host|all] [--json]           read the real state (pf pipes / QoS policy)
+  netcap status [host|all] [--json]           read the real state (pf pipes / tc classes / QoS policy)
   netcap get    [host|all] [--json]           read the settings (default, boot behavior)
   netcap on     <host|all> [--up N --down N] [--for 30m]
                                               apply a cap; flags apply this time only. --for: the device
                                               lifts it by itself after that long
   netcap off    <host|all>                    remove the cap
   netcap set    <host|all> --up N --down N    change the default (survives reboots)
-  netcap check  <host|all> [--json]           measure (curl up/down + ping)
-  netcap use    <profile>                     apply a profile to all devices
+  netcap check  [host|all] [--bytes N] [--json]
+                                              measure (curl up/down + ping). --bytes: how much to transfer
+  netcap use    <profile>                     apply a profile to the devices it lists
   netcap profiles                             list profiles
   netcap protect <host> [--up N --down N] [--load MB]
                                               cap every other device; show <host>'s check before and after.
                                               --load: the others load the line meanwhile, and the result says
                                               whether latency improved
   netcap protect --off                        put each device back as it was
-  netcap install [name] [--ssh DEST]          install the agent on a device and register it
-  netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)
+  netcap install [name] [--ssh DEST] [--boot on|off]
+                                              install the agent on a device and register it. --boot on
+                                              (mac / linux): apply the default cap at boot
+  netcap uninstall <name> [--config-only]     remove this controller's key and registration (the agent goes
+                                              with the last). --config-only: only forget it here
   netcap rename <old> <new>                   rename a device in hosts and profiles
   netcap export                               print hosts and profiles as JSON (no keys)
-  netcap import <file|->                      read them back, on this or another machine
+  netcap import <file|-> [--replace]          read them back, on this or another machine (--replace to overwrite)
   netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
   netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
-  netcap --version                            version (also -V)
+  netcap <command> -q                         print only the result: no progress, hints, or notes
+  netcap help [<command>|exit-codes]          the same help as -h; exit-codes lists what each exit status means
+  netcap completion bash|zsh                  print a completion script
+  netcap --version                            version (also -V, or netcap version)
 
 The command layout is borrowed from tailscale. status (real state) and get (settings) are separate
 commands, set changes only the persistent settings, and the flags of on are "the complete desired state
@@ -1116,28 +1123,35 @@ def cmd_import(a):
 JA = {
     __doc__: """netcap — 管理している機器の WAN 帯域の上限を、1 コマンドで扱う。
 
-  netcap status [host|all] [--json]           実際の状態を読む (pf のパイプ / QoS ポリシー)
+  netcap status [host|all] [--json]           実際の状態を読む (pf のパイプ / tc のクラス / QoS ポリシー)
   netcap get    [host|all] [--json]           設定を読む (既定値、起動時の挙動)
   netcap on     <host|all> [--up N --down N] [--for 30m]
                                               上限をかける。--up/--down は今回だけ有効。--for: その時間が
                                               経つと機器が自分で外す
   netcap off    <host|all>                    上限を外す
   netcap set    <host|all> --up N --down N    既定値を変える (再起動後も残る)
-  netcap check  <host|all> [--json]           測る (curl の上り/下り + ping)
-  netcap use    <profile>                     プロファイルを全機器に適用する
+  netcap check  [host|all] [--bytes N] [--json]
+                                              測る (curl の上り/下り + ping)。--bytes: 転送する量
+  netcap use    <profile>                     プロファイルを、書かれた端末に適用する
   netcap profiles                             プロファイルの一覧
   netcap protect <host> [--up N --down N] [--load MB]
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
                                               ほかの端末が回線を埋め、遅延が良くなったかを言う
   netcap protect --off                        各端末を元の状態に戻す
-  netcap install [name] [--ssh DEST]          機器に agent を入れて登録する
-  netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
+  netcap install [name] [--ssh DEST] [--boot on|off]
+                                              機器に agent を入れて登録する。--boot on (mac / linux):
+                                              起動時に既定の上限をかける
+  netcap uninstall <name> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)。
+                                              --config-only: こちらの登録だけ消す
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
   netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
-  netcap import <file|->                      それを読み戻す (この機械でも別の機械でも)
+  netcap import <file|-> [--replace]          それを読み戻す (この機械でも別の機械でも。--replace で上書き)
   netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
   netcap <command> -v                         表に出ない項目も表示する (-vv: 生の出力も)
-  netcap --version                            バージョン (-V でも可)
+  netcap <command> -q                         結果だけを出す。進み具合・ヒント・注記は出さない
+  netcap help [<command>|exit-codes]          -h と同じヘルプ。exit-codes は終了コードの意味の一覧
+  netcap completion bash|zsh                  補完スクリプトを出す
+  netcap --version                            バージョン (-V、netcap version でも可)
 
 コマンドの形は tailscale に倣っている。status (実際の状態) と get (設定) は別のコマンドで、
 set は永続する設定だけを変え、on のフラグは「今回の望む状態のすべて」を表す。動詞だけは倣っていない。
@@ -1171,14 +1185,14 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     VERBOSE_HELP: "表に出ない項目も表示する。-vv で機器の生の出力も表示する",
     "this controller": "管理する側 (この機械)",
     "a name from hosts, or all": "hosts にある名前、または all",
-    "read the real state (pf pipes / QoS policy)": "実際の状態を読む (pf のパイプ / QoS ポリシー)",
+    "read the real state (pf pipes / tc classes / QoS policy)": "実際の状態を読む (pf のパイプ / tc のクラス / QoS ポリシー)",
     "read the settings (default, boot behavior)": "設定を読む (既定値、起動時の挙動)",
     "apply a cap; --up/--down apply this time only": "上限をかける。--up/--down は今回だけ有効",
     "remove the cap": "上限を外す",
     "change the default (survives reboots)": "既定値を変える (再起動後も残る)",
     "measure (curl up/down + ping)": "測る (curl の上り/下り + ping)",
-    "bytes to transfer; use less while capped": "転送するバイト数。上限をかけている間は少なめに",
-    "apply a profile to all devices": "プロファイルを全機器に適用する",
+    "bytes to transfer, 1 to 100000000; use less while capped": "転送するバイト数 (1 から 100000000)。上限をかけている間は少なめに",
+    "apply a profile to the devices it lists": "プロファイルを、書かれた端末に適用する",
     "list profiles": "プロファイルの一覧",
     "{path} does not exist. See {example} for the format\n"
     "  mkdir -p {dir} && cp {example} {path}":
@@ -1245,6 +1259,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "\nThe difference shows only if the other devices used the line while {host} was measured; netcap does not make that traffic. --load <MB> makes it":
         "\n差が出るのは、{host} を測っている間にほかの端末が回線を使っていたときだけ。netcap はその通信を作らない。作るには --load <MB>",
     "--load takes megabytes per device, 1 to 50: {value}": "--load には端末あたりの MB を 1 から 50 で渡す: {value}",
+    "--bytes takes 1 to 100000000: {value}": "--bytes には 1 から 100000000 のバイト数を渡す: {value}",
     "--load uses about {mb} MB of the line": "--load で回線を約 {mb} MB 使う",
     "latency on {host}: {verdict} (median {before} -> {after} ms)": "{host} の遅延: {verdict} (中央値 {before} -> {after} ms)",
     "meanwhile, transfer MB on each other device to load the line, and say whether latency improved":
@@ -1383,7 +1398,7 @@ def main():
     _add = sub.add_parser
     sub.add_parser = lambda *a, **k: _add(*a, parents=[out], **k)
 
-    p = sub.add_parser("status", help=_("read the real state (pf pipes / QoS policy)"))
+    p = sub.add_parser("status", help=_("read the real state (pf pipes / tc classes / QoS policy)"))
     add_target(p, optional=True)
     p = sub.add_parser("get", help=_("read the settings (default, boot behavior)"))
     add_target(p, optional=True)
@@ -1403,8 +1418,8 @@ def main():
     p.add_argument("values", nargs="*", help=argparse.SUPPRESS)
     p = sub.add_parser("check", help=_("measure (curl up/down + ping)"))
     add_target(p, optional=True)
-    p.add_argument("--bytes", metavar="N", help=_("bytes to transfer; use less while capped"))
-    p = sub.add_parser("use", help=_("apply a profile to all devices"))
+    p.add_argument("--bytes", metavar="N", help=_("bytes to transfer, 1 to 100000000; use less while capped"))
+    p = sub.add_parser("use", help=_("apply a profile to the devices it lists"))
     p.add_argument("profile")
     sub.add_parser("profiles", help=_("list profiles"))
     p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
@@ -1503,6 +1518,9 @@ def main():
         return rc
 
     if a.cmd == "check":
+        # The agent refuses more than 100 MB (#91). Say so here, before anything is sent
+        if a.bytes is not None and not (a.bytes.isascii() and a.bytes.isdigit() and 1 <= int(a.bytes) <= 100000000):
+            sys.exit(_("--bytes takes 1 to 100000000: {value}").format(value=a.bytes))
         args = ["--bytes", a.bytes] if a.bytes else []
         return emit(fan_out(resolve(a.host, default_all=True), "check", args),
                     CHECK_COLS, a.json, a.verbose, footnote=None)

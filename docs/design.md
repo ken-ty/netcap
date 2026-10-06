@@ -50,8 +50,10 @@ Pipe numbers are shared by the whole machine, so netcap cannot be used together 
 
 ## tc: touch only our own qdisc (Linux)
 
-- The root qdisc of the default route's interface is replaced with our own HTB (handle `ca9:`); `off` deletes it and restores the default.
-  If another tool already put a qdisc at the root, netcap stops instead of replacing it
+- The root qdisc of the interface of the IPv4 route to the internet (`ip -4 route get 1.1.1.1`) is replaced with our own
+  HTB (handle `ca9:`); `off` deletes it and restores the kernel's default. netcap stops instead only when another tool has
+  put a shaping qdisc at the root (htb, hfsc, cake, tbf, prio, drr, qfq, cbq, or ets). A plain root qdisc, such as the
+  default `fq_codel` or `noqueue`, is replaced
 - If there is no default route, `on` waits up to 3 seconds for one before it gives up. systemd-networkd on Ubuntu 24.04
   can crash on the first `on` after boot and drop the DHCP routes for a moment while it restarts ([#42](https://github.com/ken-ty/netcap/issues/42))
 - Download is capped by redirecting ingress to `ifb-netcap` and shaping it with an HTB there. If another tool has filters on ingress, netcap stops

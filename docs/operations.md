@@ -7,12 +7,15 @@ What happens on reboots and power loss, and when more than one machine runs netc
 ## Where the state lives
 
 **The cap lives on each device.** The machine running netcap (the controller) keeps only its settings:
-`~/.config/netcap/` (hosts, profiles) and the key `~/.ssh/netcap`. Nothing runs between commands, on either side.
+`~/.config/netcap/` (hosts, profiles) and the key `~/.ssh/netcap`. Nothing runs on the controller between commands.
+On a device, the OS runs netcap's shaper on its own only at boot with `boot=on`, and to lift an `on --for` cap at its deadline.
 So the controller being on or off does not change any device.
 
 One exception: while `netcap protect` is in effect, the controller keeps how each device was before, in
-`~/.local/state/netcap/protect.json` (`$XDG_STATE_HOME` if set), for `netcap protect --off`. A device changed since,
-by hand, a reboot, or another controller, is left as it is.
+`protect.json` under `$NETCAP_STATE_DIR`, or `$XDG_STATE_HOME/netcap` (`~/.local/state/netcap` if unset), for
+`netcap protect --off`. A device out of reach when `protect` runs is left alone. A device changed since, by hand,
+a reboot, or another controller, is left as it is. A device out of reach at `--off` stays in the file: run
+`netcap protect --off` again when it is back.
 
 ## Power loss and reboots
 

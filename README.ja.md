@@ -27,7 +27,8 @@
 - 端末へは ssh で頼み、許可は操作される側の `authorized_keys` が決める
 - ルーターの QoS と違い、通信に優先度は付けない。選んだ端末に上限をかけて、回線の残りを空けておく
 - macOS の pf + dummynet、Linux の `tc`、Windows の NetQosPolicy を、どの OS でも同じ動詞で扱う
-- 端末に常駐するものは無い。`netcap install` が置くのは、ssh で呼ばれたときだけ動く小さなスクリプト
+- 端末に常駐するものは無い。`netcap install` が置くのは、netcap が呼んだときだけ動く小さなスクリプト。
+  OS のスケジューラーがそれを動かすのは、`--for` の期限に上限を外すときと、`--boot on` での起動時だけ
 
 ## Quick Start
 
@@ -64,7 +65,8 @@ netcap off me                            # 今すぐ外す
 > powershell -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netshape.ps1 off   # Windows (管理者として)
 > ```
 >
-> macOS と Linux は再起動でも上限が外れる。Windows は再起動しても残る。
+> macOS と Linux は再起動でも上限が外れる。ただし `--boot on` で入れた端末では既定の上限がかかり直す。
+> Windows は再起動しても残る。
 
 ### 3. 他の端末を管理する
 
@@ -101,7 +103,8 @@ netcap protect --off                              # 各端末を元の状態に�
 ```
 
 `--load` が無いと、測定に差が出るのは、そのときほかの端末がたまたま回線を使っていた場合だけ。`--load` はその通信を
-作るので通信量を使う: 約 4 × MB × ほかの端末の数 (最初に表示する)。守る端末自身はどちらでも 4 MB ほど送受信する。
+作るので通信量を使う: 約 4 × MB × ほかの端末の数 (最初に表示する)。
+守る端末自身はどちらでも 4 MB ほど送受信する (前後それぞれで上り 1 MB と下り 1 MB)。
 Windows の端末は上りしか絞れない。
 
 名前は `netcap rename me laptop` で変えられる。外すときは `netcap uninstall gamepc`。
@@ -130,15 +133,15 @@ Windows の端末は上りしか絞れない。
 netcap status [host|all] [--json]           実際にかかっている上限を読む
 netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
 netcap on     <host|all> [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
-netcap off    <host|all>                    上限を外す (再起動で既定に戻る)
+netcap off    <host|all>                    上限を外す (boot=on なら再起動で既定の上限がかかり直す)
 netcap set    <host|all> --up N --down N    既定を書き換える
-netcap check  <host|all> [--json]           実測 (curl の上下 + ping)
+netcap check  [host|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
 netcap use    <profile>                     プロファイルを適用
 netcap profiles                             プロファイル一覧
 netcap protect <host> [--up N --down N] [--load MB]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
-netcap install [name] [--ssh DEST]          端末に agent を入れて登録する
-netcap uninstall <name>                     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
+netcap install [name] [--ssh DEST] [--boot on|off]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
+netcap uninstall <name> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
 netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
 netcap import <file|->                      それを読み戻す (--replace で上書き)

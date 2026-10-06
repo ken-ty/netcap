@@ -41,14 +41,18 @@ Windows は 2026-10-06 に同じテザリングで測った。上限 1/1 で、I
 | --- | --- | --- | --- |
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | この機械の `install` / `uninstall` / `rename` | ✅ | ✅ | ✅ |
-| `--ssh` で他の端末へ `install` / `uninstall` | ✅ | ✅ | ✅ |
+| `install --ssh` と、ssh で届く端末の `uninstall` | ✅ | ✅ | ✅ |
+| `doctor` | ✅ | ✅ | ✅ |
+| `protect` | ✅ | ✅ | ❓ |
 | `export` / `import` | ✅ | ✅ | ✅ |
 | brew で入れる | ✅ | ✅ (Homebrew on Linux) | ❌ (curl か zip。[host-setup.ja.md](host-setup.ja.md#スクリプトの在り処) を参照) |
 | 日本語ロケールでヘルプとエラーが日本語 | ✅ | ✅ | ⚠️ `LANG` か `LC_ALL` を設定しない限り英語 |
+| シェルの補完 (`completion`) | ✅ bash、zsh | ✅ bash、zsh | ⚠️ bash と zsh だけ (PowerShell は無い) |
 
 CLI に要るのは Python 3 と OpenSSH のクライアントだけ。
 
-Linux から Linux、Windows から Windows への `--ssh` は、CI で試している。ランナーが本物の sshd を通して自分自身に入る
+Linux から Linux、Windows から Windows への `--ssh` (install、forced command、`doctor`、`on` / `off`、uninstall) は、
+CI で試している。ランナーが本物の sshd を通して自分自身に入る
 (`tests/test_e2e_ssh.py`)。Windows では sshd の既定のシェル (`cmd.exe`) と PowerShell の 2 通りで流す。
-Windows 11 の管理する側から macOS 26.3 の端末へも、同じテストを手で流し、install、forced command、`doctor`、`on` / `off`、uninstall が動くことを確かめた (2026-10-01)。0.10.0 より後の版が要る。
-Windows の git clone からでも端末側を LF で送るようにした (#65)。macOS から Windows へは日々使っている。
+Windows 11 の管理する側から macOS 26.3 の端末へも、同じテストを手で流し、install、forced command、`doctor`、`on` / `off`、uninstall が動くことを確かめた (2026-10-01)。0.11.0 以降が要る。
+0.11.0 から、Windows の git clone からでも端末側を LF で送る (#65)。macOS から Windows へは日々使っている。

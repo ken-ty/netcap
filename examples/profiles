@@ -1,5 +1,5 @@
 # Sets of devices to switch together. One set per line: "name device=value device=value …"
-#   value  "up/down" (Mbit/s) or off. Devices not listed are left alone
+#   value  "up/down" (Mbit/s), on (the device's own default), or off. Devices not listed are left alone
 #   netcap use <name> applies one; netcap profiles lists them (in this same format)
 game    laptop=2/2  server=1/1  gamepc=off
 quiet   laptop=1/1  server=1/1
