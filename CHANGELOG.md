@@ -15,6 +15,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   the file (#97)
 - `netcap rename` and `netcap uninstall` refuse a device that `netcap protect` capped and has not put back yet. Run
   `netcap protect --off` first (#100)
+- **Breaking** Usage errors that netcap finds itself now exit 2, as docs/operations.md says, instead of 1: a bad or
+  missing `--up` / `--down`, `--for`, `--bytes`, or `--load`, values given as positional arguments, `protect` without a
+  host or with `all`, `uninstall all`, and a new name that breaks the name rule in `rename` and `install`. They are
+  checked before anything is read or sent. A script that treats 1 as "bad arguments" should check for 2 (#101)
+- `netcap doctor`, `netcap protect` when the protected device is out of reach, and `netcap install --ssh` when ssh
+  cannot connect exit 3 instead of 1 when the only failures are devices out of reach (#101)
 
 ### Fixed
 
@@ -31,6 +37,11 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   if the deadline passed meanwhile; before, the deadline was lost (#100)
 - A corrupt `protect.json` stops `protect` and `--off` with its path and what to do, instead of a traceback. With
   `--json`, `protect` and `protect --off` print only JSON on stdout (#100)
+- `netcap use` and `netcap protect` report a device that refused or failed the change (`denied`, `no-sudo`, `error`)
+  in the table and `--json`, and exit 1 (3 if every failure was out of reach); before, they showed the state read
+  afterwards and exited 0. `protect` does not record such a device as capped, so `--off` leaves it as it is (#101)
+- `netcap use` checks every value in the profile before sending anything: a bad value no longer leaves the devices
+  before it capped (#101)
 
 ### Security
 
