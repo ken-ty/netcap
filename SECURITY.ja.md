@@ -29,7 +29,7 @@ netcap の動詞を実行できる。** 自分だけが読める状態に保ち 
 `--allow` にある動詞しか動かない。シェルも pty も転送も無い。既定の動詞なら、鍵を持つ者は次ができる。
 
 - 各端末の状態と設定を読む (`status`、`get`)、測定する (`check`)。`check --bytes N` は測定で転送する量を決め、
-  agent は `N` が整数であることしか確かめない。いまは上限が無い
+  agent は 100 MB を超える量を拒む (`N` は 1 から 100000000)
 - 上限を変える・外す (`on`、`off`、`set`)
 
 **端末を遮断はできない。** `0` はどの OS でも拒否する。ただし `0.01/0.01` のような
@@ -39,7 +39,7 @@ netcap の動詞を実行できる。** 自分だけが読める状態に保ち 
 
 | OS | 1 つ目の関門 | 2 つ目の関門 |
 | --- | --- | --- |
-| macOS、Linux | forced command: `--allow` の動詞だけ、引数は数値だけ (ほかに通すのは `on` の末尾の `--for <秒>` と、`check` の `--bytes <数値>`) | sudoers: shaper の決まった動詞だけをパスワードなしで |
+| macOS、Linux | forced command: `--allow` の動詞だけ、引数は数値だけ (ほかに通すのは `on` の末尾の `--for <秒>` と、`check` の 1 から 100000000 の `--bytes`) | sudoers: shaper の決まった動詞だけをパスワードなしで |
 | Windows | forced command (検査は同じ) | 無し。管理者の ssh セッションは昇格して動く |
 
 Windows では forced command が唯一の関門なので、`restrict,command="…"` の無い netcap の鍵の行を手で足すと、
