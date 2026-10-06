@@ -241,6 +241,8 @@ def load_hosts():
             sys.exit(f"{path}:{n}: " + _("write 3 words, \"name mac|linux|win route\" (all is not allowed as a name): {line}")
                      .format(line=' '.join(words)))
         name, os_, ssh = words
+        if not NAME_RE.fullmatch(name):  # the same rule as install and import: the name reaches shells (completion)
+            sys.exit(f"{path}:{n}: " + _("cannot use {name!r} as a name (letters, digits, _ . -; not all)").format(name=name))
         if not ROUTE_RE.fullmatch(ssh):
             sys.exit(f"{path}:{n}: " + _("cannot use {route!r} as a route (a Host name or user@host; it must not start with -)")
                      .format(route=ssh))
@@ -404,7 +406,10 @@ def load_profiles():
         name, *pairs = words
         if not pairs or any("=" not in p for p in pairs):
             sys.exit(f"{path}:{n}: " + _("write \"name device=up/down …\": {line}").format(line=' '.join(words)))
-        profiles[name] = dict(p.split("=", 1) for p in pairs)
+        plan = dict(p.split("=", 1) for p in pairs)
+        for bad in (x for x in (name, *plan) if not NAME_RE.fullmatch(x)):
+            sys.exit(f"{path}:{n}: " + _("cannot use {name!r} as a name (letters, digits, _ . -)").format(name=bad))
+        profiles[name] = plan
     return profiles
 
 
@@ -1054,6 +1059,10 @@ def check_import(data):
         if route is not None and (not isinstance(route, str) or route == "-" or not ROUTE_RE.fullmatch(route)):
             import_error(_("bad route for {name}: {value!r}").format(name=name, value=route))
         hosts.append((name, os_, route))
+    # It goes into a comment line of hosts and profiles, so it follows the name rule too (a newline would add a line)
+    origin = data.get("exported_from", "")
+    if not isinstance(origin, str):
+        import_error(_("bad exported_from: {value!r}").format(value=origin))
     profiles = data.get("profiles", {})
     if not isinstance(profiles, dict):
         import_error(_("profiles is not an object"))
@@ -1102,7 +1111,10 @@ def cmd_import(a):
     for p in existing:
         shutil.copy2(p, p.with_name(p.name + ".bak"))
         say(_("kept the old {path} as {bak}").format(path=p, bak=p.name + ".bak"))
-    head = f"# written by netcap import from {data.get('exported_from', '?')}\n"
+    # The exporting machine's name is only shown, and only if it follows the name rule: a host name may not (a Japanese
+    # Windows name), and anything else could add a line to the files (#87)
+    origin = data.get("exported_from") or ""
+    head = "# written by netcap import" + (f" from {origin}" if NAME_RE.fullmatch(origin) else "") + "\n"
     paths[0].write_text(head + "".join(f"{n:<8} {o:<5} {r or '-'}\n" for n, o, r in hosts), encoding="utf-8")
     paths[1].write_text(head + "".join(f"{p}  " + "  ".join(f"{h}={v}" for h, v in plan.items()) + "\n"
                                        for p, plan in profiles.items()), encoding="utf-8")
@@ -1243,6 +1255,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "could not remove the netcap key on {dest}: {err}": "{dest} から netcap の鍵を外せない: {err}",
     "cannot use {name!r} as a name (letters, digits, _ . -; not all)":
         "{name!r} は名前に使えない (英数字と _ . -。all は不可)",
+    "cannot use {name!r} as a name (letters, digits, _ . -)": "{name!r} は名前に使えない (英数字と _ . -)",
     "the install on {where} failed (see above)": "{where} へのインストールが失敗した (上の出力を参照)",
     "registering the netcap key on {dest}": "{dest} に netcap の鍵を登録する",
     "added {name} to {path}": "{path} に {name} を足した",
@@ -1317,6 +1330,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "bad OS for {name}: {value!r}": "{name} の OS が不正: {value!r}",
     "bad route for {name}: {value!r}": "{name} の経路が不正: {value!r}",
     "bad profile: {value!r}": "プロファイルが不正: {value!r}",
+    "bad exported_from: {value!r}": "exported_from が不正: {value!r}",
     "cannot use {route!r} as a route (a Host name or user@host; it must not start with -)":
         "{route!r} は経路に使えない (Host 名か user@host。- で始めてはいけない)",
     "profile {profile} has an unknown device: {name}": "プロファイル {profile} に知らない機器がある: {name}",
@@ -1354,9 +1368,11 @@ def completion_script(shell, sub):
     args["help"] = " ".join([*sub.choices, "exit-codes"])
     args["completion"] = "bash zsh"
     cases = "\n".join(f'    {k}) f="{" ".join(v)}"; a="{args.get(k, "")}" ;;' for k, v in flags.items())
+    # compgen -W expands the words it is given ($(…), `…`), so only names that follow the name rule reach it,
+    # whoever wrote the line in hosts (#87)
     script = f"""_netcap_hosts() {{
   local d=${{NETCAP_CONFIG_DIR:-${{XDG_CONFIG_HOME:-$HOME/.config}}/netcap}}
-  [ -f "$d/hosts" ] && sed -e 's/#.*//' "$d/hosts" | awk 'NF {{ print $1 }}'
+  [ -f "$d/hosts" ] && sed -e 's/#.*//' "$d/hosts" | awk '$1 ~ /^{NAME_RE.pattern}$/ {{ print $1 }}'
   echo all
 }}
 _netcap() {{

@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking** A name in hosts or profiles that breaks the name rule (letters, digits, `_ . -`, starting with a letter
+  or digit), such as one written by hand with other characters, now stops netcap with the file and line. Rename it in
+  the file (#97)
+
 ### Fixed
 
 - On macOS, a cap with a decimal or a leading zero was not applied: `0.5` and `08` left the line unlimited and `010`
@@ -16,6 +22,9 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Security
 
+- `netcap import` writes the exporting machine's name into hosts and profiles only if it is a plain name: a newline in
+  it added lines that were never checked. The completion script passes only names that follow the name rule to
+  `compgen`, which ran a name like `$(…)` in hosts as a command when you pressed TAB (#97)
 - The agent refuses `check --bytes` outside 1 to 100000000 (100 MB), so a key allowed only `status get check` can no
   longer make a device transfer as much as it asks; `netcap check --bytes` says so before sending. This narrows what
   the agent accepts, but the CLI never sends what it refuses, so the oldest agent the CLI works with does not change.
