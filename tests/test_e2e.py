@@ -58,6 +58,8 @@ def agent(*args, env=None):
     return sh(*(PS if OS == "win" else []), AGENT, *args, env=env)
 
 
+# Windows PowerShell started from the CI runner fails to load Microsoft.PowerShell.Security, where Get-Acl lives
+# (CouldNotAutoloadMatchingModule), so the tests read ACLs through .NET: (Get-Item …).GetAccessControl()
 def ps(script):
     enc = base64.b64encode(script.encode("utf-16-le")).decode()  # no quoting layer for the script
     return sh("powershell", "-NoProfile", "-EncodedCommand", enc)
@@ -75,7 +77,7 @@ def win_acl(d):
 foreach ($i in @(Get-Item -LiteralPath $d -Force) + @(Get-ChildItem -LiteralPath $d -Force -Recurse)) {{
   $name = $i.FullName.Substring($d.Length).TrimStart('\\'); if (-not $name) {{ $name = '.' }}
   "entry $name"
-  $acl = Get-Acl -LiteralPath $i.FullName
+  $acl = $i.GetAccessControl()
   $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
   if ($owner -ne 'S-1-5-32-544') {{ "bad $name owner $owner" }}
   foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {{
@@ -305,10 +307,10 @@ class E2E(unittest.TestCase):
 
     def test_31_root_only(self):
         if OS == "win":
-            acl = sh("powershell", "-NoProfile", "-Command",
-                     r"(Get-Acl C:\ProgramData\netcap).Access | Where-Object { $_.IdentityReference -match 'Users$' } | "
-                     "ForEach-Object { $_.FileSystemRights }").stdout
-            self.assertNotRegex(acl, r"Write|Modify|FullControl")
+            acl = ps(r"(Get-Item C:\ProgramData\netcap).GetAccessControl().Access | "
+                     r"Where-Object { $_.IdentityReference -match 'Users$' } | ForEach-Object { $_.FileSystemRights }")
+            self.assertIn("ReadAndExecute", acl.stdout, acl.stderr)  # it was read, and Users may still read
+            self.assertNotRegex(acl.stdout, r"Write|Modify|FullControl")
         else:
             body = AGENT.replace("netcap-agent", "netcap-netshape")
             st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
@@ -349,9 +351,10 @@ class E2E(unittest.TestCase):
     def test_34_install_refuses_a_link(self):
         target, link = tempfile.mkdtemp(), r"C:\ProgramData\netcap\elsewhere"
         self.assertEqual(sh("cmd", "/c", "mklink", "/J", link, target).returncode, 0)
-        sddl = f"(Get-Acl -LiteralPath '{target}').Sddl"
+        sddl = f"(Get-Item -LiteralPath '{target}').GetAccessControl().Sddl"
         try:
             before = ps(sddl).stdout
+            self.assertIn("D:", before)
             p = install()
             self.assertNotEqual(p.returncode, 0, p.stdout)
             self.assertIn(f"{link} is a link", p.stderr)
