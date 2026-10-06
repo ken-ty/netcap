@@ -50,6 +50,32 @@ EXPIRE_JOB=system/netcap-netshape-expire
 
 is_number() { [[ "$1" =~ ^[0-9]+([.][0-9]+)?$ ]]; }
 
+# Print "<bit/s> <Mbit/s>" for a value in Mbit/s, or fail if dnctl cannot hold it. dnctl reads bw with
+# strtoul(base 0) into an int and scales only on a K or M right after the digits (network_cmds dnctl/dnctl.c):
+# 0.5Mbit/s would be 0 = unlimited, 08 would be 0, 010 octal 8, and past 2^31-1 bit/s it fails or wraps (#86).
+# So dnctl gets whole bit/s in base 10 (awk reads 08 as 8). The Mbit/s form drops leading and trailing zeros
+rate() {
+  awk -v v="$1" 'BEGIN {
+    b = int(v * 1000000 + 0.5)
+    if (b < 1 || b > 2147483647) exit 1
+    m = sprintf("%.6f", b / 1000000); sub(/0+$/, "", m); sub(/[.]$/, "", m)
+    printf "%d %s\n", b, m
+  }'
+}
+
+# Check both values before anything is changed. Sets UP_BIT DOWN_BIT, and UP_MBIT DOWN_MBIT in canonical form
+rates() {
+  local up down
+  up=$(rate "$1") && down=$(rate "$2") || {
+    echo "Mbit/s must be 0.000001 to 2147.483647 on macOS (dummynet holds bit/s in a 32-bit int): up=$1 down=$2" >&2
+    exit 2
+  }
+  UP_BIT=${up% *}
+  UP_MBIT=${up#* }
+  DOWN_BIT=${down% *}
+  DOWN_MBIT=${down#* }
+}
+
 # Read the config. Ignore unknown lines and non-numeric values (sourcing would run a shell as root)
 if [ -f "$CONF" ]; then
   while IFS='=' read -r key value; do
@@ -80,9 +106,10 @@ apply() {
     UP_MBIT=$1
     DOWN_MBIT=$2
   fi
+  rates "$UP_MBIT" "$DOWN_MBIT"
   require_anchor_point
-  dnctl -q pipe "$PIPE_UP" config bw "${UP_MBIT}Mbit/s" queue 20
-  dnctl -q pipe "$PIPE_DOWN" config bw "${DOWN_MBIT}Mbit/s" queue 50
+  dnctl -q pipe "$PIPE_UP" config bw "${UP_BIT}bit/s" queue 20
+  dnctl -q pipe "$PIPE_DOWN" config bw "${DOWN_BIT}bit/s" queue 50
   pfctl -q -a "$ANCHOR" -f "$ANCHOR_FILE"
   # pf enabling is reference-counted. Hold our own token and release only ours on off
   if [ ! -s "$TOKEN" ]; then
@@ -195,6 +222,8 @@ set_default() {
     echo "usage: $0 set UP_MBIT DOWN_MBIT" >&2
     exit 2
   }
+  rates "$1" "$2"
+  set -- "$UP_MBIT" "$DOWN_MBIT"
   local tmp
   tmp=$(mktemp)
   cat >"$tmp" <<EOF
