@@ -217,11 +217,19 @@ def hint(msg):
         print(msg)
 
 
-def rc_of(rows):
-    bad = [r for r in rows if r.get("reach") != "ok"]
+def rc_of(rows, ok=lambda r: r.get("reach") == "ok"):
+    """The worst that happened to the rows: 3 when every failure is a device out of reach, so a script can retry."""
+    bad = [r for r in rows if not ok(r)]
     if not bad:
         return OK
     return UNREACHABLE if all(r.get("reach") in ("unreachable", "timeout") for r in bad) else FAIL
+
+
+def usage_error(msg):
+    """A bad command, flag, or argument that netcap finds itself, before sending anything: exit 2, like argparse.
+    A wrong host, profile, or setting, and anything a device says, are failures (1) instead"""
+    print(msg, file=sys.stderr)
+    sys.exit(USAGE)
 
 
 def config_lines(name):
@@ -267,7 +275,7 @@ def host_names():
 def resolve(target, default_all=False):
     if target in (None, "all"):
         if target is None and not default_all:
-            sys.exit(_("specify a host ({names})").format(names=host_names()))
+            usage_error(_("specify a host ({names})").format(names=host_names()))
         return ORDER
     if target not in HOSTS:
         sys.exit(_("unknown host: {host} (one of {names})").format(host=target, names=host_names()))
@@ -318,8 +326,29 @@ def parse_duration(text):
     m = re.fullmatch(r"(?:([0-9]+)h)?(?:([0-9]+)m)?", text or "")
     seconds = (int(m.group(1) or 0) * 3600 + int(m.group(2) or 0) * 60) if m else 0
     if not 60 <= seconds <= 86400:
-        sys.exit(_("--for takes a time such as 30m, 2h, or 1h30m, from 1m to 24h: {value}").format(value=text))
+        usage_error(_("--for takes a time such as 30m, 2h, or 1h30m, from 1m to 24h: {value}").format(value=text))
     return seconds
+
+
+def cap_args(a):
+    """--up / --down of on, set, and protect as the arguments for the device, or a usage error."""
+    # The old form netcap set <host> 2 2 changed meaning. Do not silently do something else
+    if getattr(a, "values", None):
+        usage_error(_("values as positional arguments are no longer accepted ({given}).\n"
+                      "  cap this time only : netcap on {host} --up N --down N\n"
+                      "  change the default : netcap set {host} --up N --down N")
+                    .format(given=f"{a.cmd} {a.host} {' '.join(a.values)}", host=a.host))
+    # As with tailscale up, flags must describe the complete desired state
+    if (a.up is None) != (a.down is None):
+        usage_error(_("give --up and --down together (with only one, the other would silently "
+                      "stay at the default)"))
+    if a.cmd == "set" and a.up is None:
+        usage_error(_("usage: netcap set <host|all> --up N --down N"))
+    args = [a.up, a.down] if a.up is not None else []
+    bad = [v for v in args if not is_mbit(v)]
+    if bad:
+        usage_error(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
+    return args
 
 
 DOWN_NOTE = "* download is the value recorded at on, because dnctl on macOS cannot show the bandwidth of pipe 2 (the pipe itself was verified)"
@@ -387,9 +416,12 @@ def emit(rows, cols, as_json, verbose=0, footnote=DOWN_NOTE):
     return rc_of(rows)
 
 
-def apply_and_read(hosts, action, args, as_json, verbose):
-    """After changing the state, read back the real state instead of returning the requested values."""
-    changed = fan_out(hosts, action, args)
+def apply_and_read(jobs, as_json, verbose):
+    """Run each (host, action, args), then read back the real state instead of returning the requested values.
+    A device whose change failed shows the change's own result (why), not the old state it still has"""
+    hosts = [j[0] for j in jobs]
+    with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+        changed = list(ex.map(lambda j: run(*j), jobs))
     after = fan_out(hosts, "status")
     rows = []
     for c, s in zip(changed, after):
@@ -441,18 +473,11 @@ def cmd_use(a):
     unknown = [h for h in plan if h not in HOSTS]
     if unknown:
         sys.exit(_("the profile has unknown hosts: {names}").format(names=", ".join(unknown)))
-    hosts = [h for h in ORDER if h in plan]  # devices not listed are left untouched
-
-    def one(host):
-        action, args = parse_profile_value(host, plan[host])
-        return run(host, action, args)
-
-    with ThreadPoolExecutor(max_workers=len(hosts)) as ex:
-        list(ex.map(one, hosts))
-    rows = fan_out(hosts, "status")
+    # Every value is read before anything is sent: a bad one changes nothing. Devices not listed are left untouched
+    jobs = [(h, *parse_profile_value(h, plan[h])) for h in ORDER if h in plan]
     if not a.json:
         print(f"profile: {a.profile}")
-    return emit(rows, STATUS_COLS, a.json, a.verbose)
+    return apply_and_read(jobs, a.json, a.verbose)
 
 
 # --- protect --------------------------------------------------------------------------------------
@@ -563,37 +588,33 @@ def refuse_while_protecting(name):
 
 
 def cmd_protect(a):
+    if not a.off:  # the arguments first: a usage error is 2 whatever hosts and the state say
+        if a.host is None:
+            usage_error(_("usage: netcap protect <host> [--up N --down N], or netcap protect --off"))
+        if a.host == "all":
+            usage_error(_("protect one device: netcap protect <host>"))
+        args = cap_args(a)
+        load = 0
+        if a.load is not None:
+            if not (a.load.isdigit() and 1 <= int(a.load) <= 50):
+                usage_error(_("--load takes megabytes per device, 1 to 50: {value}").format(value=a.load))
+            load = int(a.load) * 1000000
     load_hosts()
     path = STATE_DIR / "protect.json"
     saved = read_state(path)
     if a.off:
         return protect_off(path, saved, a)
-    if a.host is None:
-        sys.exit(_("usage: netcap protect <host> [--up N --down N], or netcap protect --off"))
-    if a.host == "all":
-        sys.exit(_("protect one device: netcap protect <host>"))
     resolve(a.host)
     if saved:
         already_protecting(saved)
-    if (a.up is None) != (a.down is None):
-        sys.exit(_("give --up and --down together (with only one, the other would silently "
-                   "stay at the default)"))
-    args = [a.up, a.down] if a.up is not None else []
-    bad = [v for v in args if not is_mbit(v)]
-    if bad:
-        sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
-    load = 0
-    if a.load is not None:
-        if not (a.load.isdigit() and 1 <= int(a.load) <= 50):
-            sys.exit(_("--load takes megabytes per device, 1 to 50: {value}").format(value=a.load))
-        load = int(a.load) * 1000000
     others = [h for h in ORDER if h != a.host]
     if not others:
         sys.exit(_("no other device to cap (hosts has only {host})").format(host=a.host))
 
     rows = {r["host"]: r for r in fan_out(ORDER, "status")}
     if rows[a.host].get("reach") != "ok":
-        sys.exit(_("cannot reach {host}; changed nothing").format(host=a.host))
+        print(_("cannot reach {host}; changed nothing").format(host=a.host), file=sys.stderr)
+        return rc_of([rows[a.host]])
     if rows[a.host].get("state") == "on":
         say(_("{host} itself is capped. To lift it: netcap off {host}").format(host=a.host))
     targets = [h for h in others if cap_value(rows[h]) is not None]
@@ -615,10 +636,15 @@ def cmd_protect(a):
     except BaseException:  # stopped before capping anything (Ctrl-C): nothing to undo
         path.unlink(missing_ok=True)
         raise
-    fan_out(targets, "on", args)
-    after_rows = fan_out(others, "status")
+    changed = {r["host"]: r for r in fan_out(targets, "on", args)}
+    # A device that refused or failed on shows why, and is not recorded as capped: --off leaves it as it is unless
+    # someone changed it since (then it says how to undo that), as for any device protect did not cap
+    failed = [h for h in targets if changed[h].get("reach") != "ok"]
+    after_rows = [changed[r["host"]] if r["host"] in failed else r for r in fan_out(others, "status")]
     saved["applied"] = {r["host"]: cap_value(r) for r in after_rows if r["host"] in targets and cap_value(r)}
     write_state(path, saved)
+    if failed:
+        print(_("could not cap {hosts} (see the note)").format(hosts=", ".join(failed)), file=sys.stderr)
     after, *loaded_after = measure_under(a.host, targets, load)
     rc = rc_of(after_rows)
     verdict = latency_verdict(before, after) if load else None
@@ -772,8 +798,9 @@ def ps_quote(s):
 
 def detect_os(dest):
     p = ssh_plain(dest, "uname -s")
-    if p.returncode == 255:
-        sys.exit(_("cannot reach {dest} over ssh: {err}").format(dest=dest, err=p.err))
+    if p.returncode == 255:  # out of reach: try again later (3)
+        print(_("cannot reach {dest} over ssh: {err}").format(dest=dest, err=p.err), file=sys.stderr)
+        sys.exit(UNREACHABLE)
     if p.returncode == 0 and p.out in ("Darwin", "Linux"):
         return {"Darwin": "mac", "Linux": "linux"}[p.out]
     if "Win32NT" in powershell(dest, "[Environment]::OSVersion.Platform").out:
@@ -934,10 +961,12 @@ def ask_name(default):
 
 def check_name(name):
     if not NAME_RE.fullmatch(name) or name == "all":
-        sys.exit(_("cannot use {name!r} as a name (letters, digits, _ . -; not all)").format(name=name))
+        usage_error(_("cannot use {name!r} as a name (letters, digits, _ . -; not all)").format(name=name))
 
 
 def cmd_install(a):
+    if a.name is not None:
+        check_name(a.name)
     read_hosts()
     if a.name in HOSTS and a.ssh is None:  # reinstall (update) a registered device
         name, os_, dest = a.name, HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
@@ -989,9 +1018,9 @@ def others_use_the_agent(dest, os_):
 
 
 def cmd_uninstall(a):
-    load_hosts()
     if a.name == "all":
-        sys.exit(_("uninstall one device at a time"))
+        usage_error(_("uninstall one device at a time"))
+    load_hosts()
     resolve(a.name)
     refuse_while_protecting(a.name)
     os_, dest = HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
@@ -1027,11 +1056,11 @@ def cmd_uninstall(a):
 
 
 def cmd_rename(a):
+    check_name(a.new)
     load_hosts()
     if a.old not in HOSTS:
         sys.exit(_("unknown host: {host} (one of {names})").format(host=a.old, names=host_names()))
     refuse_while_protecting(a.old)
-    check_name(a.new)
     if a.new in HOSTS:
         sys.exit(_("{name} is already in hosts").format(name=a.new))
     old = re.escape(a.old)
@@ -1135,7 +1164,7 @@ def cmd_doctor(a):
                 print("  " + key_line(HOSTS[r["host"]]["os"], pub))
             elif r["key"] == "missing":
                 print("\n" + _("{host}: the netcap key is not registered there. Run: netcap install {host}").format(host=r["host"]))
-    return 0 if all(r["key"] in ("ok", "-") for r in rows) else 1
+    return rc_of(rows, ok=lambda r: r["key"] in ("ok", "-"))
 
 
 # --- export / import -----------------------------------------------------------------------------
@@ -1406,6 +1435,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "{host} は protect の後に変わっているので、触らずに残した。戻すには: {command}",
     "could not reach {hosts}; run netcap protect --off again when they are back":
         "{hosts} に届かなかった。戻ってきたら netcap protect --off をもう一度",
+    "could not cap {hosts} (see the note)": "{hosts} を絞れなかった (note を参照)",
     "could not put {hosts} back (see the note); run netcap protect --off again once that is fixed":
         "{hosts} を戻せなかった (note を参照)。直したら netcap protect --off をもう一度",
     "{hosts} not in hosts any more, so not put back; kept in {path}. Put the name back in hosts, then run netcap protect --off again":
@@ -1618,6 +1648,13 @@ def main():
     if a.cmd == "completion":
         print(completion_script(a.shell, sub), end="")
         return OK
+    if a.cmd in ("on", "set"):
+        args = cap_args(a)
+        if a.cmd == "on" and a.for_ is not None:
+            args += ["--for", str(parse_duration(a.for_))]
+    if a.cmd == "check" and a.bytes is not None and not (
+            a.bytes.isascii() and a.bytes.isdigit() and 1 <= int(a.bytes) <= 100000000):
+        usage_error(_("--bytes takes 1 to 100000000: {value}").format(value=a.bytes))  # the agent refuses more (#91)
     commands = {"protect": cmd_protect, "install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
                 "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor}
     if a.cmd in commands:
@@ -1625,32 +1662,14 @@ def main():
     load_hosts()
 
     if a.cmd in ("on", "set"):
-        # The old form netcap set <host> 2 2 changed meaning. Do not silently do something else
-        if a.values:
-            sys.exit(_("values as positional arguments are no longer accepted ({given}).\n"
-                       "  cap this time only : netcap on {host} --up N --down N\n"
-                       "  change the default : netcap set {host} --up N --down N")
-                     .format(given=f"{a.cmd} {a.host} {' '.join(a.values)}", host=a.host))
-        # As with tailscale up, flags must describe the complete desired state
-        if (a.up is None) != (a.down is None):
-            sys.exit(_("give --up and --down together (with only one, the other would silently "
-                       "stay at the default)"))
-        if a.cmd == "set" and a.up is None:
-            sys.exit(_("usage: netcap set <host|all> --up N --down N"))
-        args = [a.up, a.down] if a.up is not None else []
-        bad = [v for v in args if not is_mbit(v)]
-        if bad:
-            sys.exit(_("--up / --down must be positive numbers in Mbit/s: {values}").format(values=" ".join(bad)))
-        if a.cmd == "on" and a.for_ is not None:
-            args += ["--for", str(parse_duration(a.for_))]
-        rc = apply_and_read(resolve(a.host), a.cmd, args, a.json, a.verbose)
+        rc = apply_and_read([(h, a.cmd, args) for h in resolve(a.host)], a.json, a.verbose)
         if a.cmd == "on" and not a.json:
             # The way back is printed right where it is needed, in case the cap makes it hard to look up
             hint(_("to undo: netcap off {host}").format(host=a.host))
         return rc
 
     if a.cmd == "off":
-        return apply_and_read(resolve(a.host), "off", [], a.json, a.verbose)
+        return apply_and_read([(h, "off", []) for h in resolve(a.host)], a.json, a.verbose)
 
     if a.cmd == "status":
         return emit(fan_out(resolve(a.host, default_all=True), "status"), STATUS_COLS, a.json, a.verbose)
@@ -1666,9 +1685,6 @@ def main():
         return rc
 
     if a.cmd == "check":
-        # The agent refuses more than 100 MB (#91). Say so here, before anything is sent
-        if a.bytes is not None and not (a.bytes.isascii() and a.bytes.isdigit() and 1 <= int(a.bytes) <= 100000000):
-            sys.exit(_("--bytes takes 1 to 100000000: {value}").format(value=a.bytes))
         args = ["--bytes", a.bytes] if a.bytes else []
         return emit(fan_out(resolve(a.host, default_all=True), "check", args),
                     CHECK_COLS, a.json, a.verbose, footnote=None)

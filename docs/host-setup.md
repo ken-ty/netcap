@@ -152,7 +152,8 @@ would skip the forced command too.
 - Windows has no second gate like sudoers, so the forced command is the only gate
 - `netcap doctor` reads the file on each device reached over ssh and warns about a line for this machine's key that lacks
   `restrict` or the forced command (`unrestricted`), printing the line to put in its place. A device without the key
-  shows `missing`. It exits with 1 unless every device reached over ssh is `ok` (this machine shows `-`: it uses no key)
+  shows `missing`. It exits with 0 when every device reached over ssh is `ok` (this machine shows `-`: it uses no key),
+  3 when the only devices it could not check were out of reach, and 1 otherwise
 - Windows' sshd silently ignores `administrators_authorized_keys` if it is UTF-16 (what `>>` writes in Windows PowerShell 5)
   or writable by anyone but SYSTEM and Administrators. Write UTF-8, and give a new file
   `icacls <file> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"`
