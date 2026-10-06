@@ -58,7 +58,7 @@ netcap はこれを、ドメイン無しで、macOS・Linux・Windows にまた�
 - スマホ・ゲーム機・テレビなど、agent を入れられないものを絞る
 - Windows の下りを絞る
 - アプリ単位で絞る
-- 自前でスケジュールする (cron や launchd から `netcap use` を呼ぶ)
+- 繰り返しのスケジュールを自前で持つ (cron・launchd・タスクスケジューラから `netcap use` を呼ぶ)。自分で持つのは `on --for` の期限で外すことだけ
 
 パケットキャプチャを探しているなら、それは同じ名前の別プロジェクト [dreadl0ck/netcap](https://github.com/dreadl0ck/netcap)。
 
