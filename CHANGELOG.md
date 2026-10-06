@@ -8,6 +8,11 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Changed
+
+- The help writes what you fill in with angle brackets and what you type as is without: `netcap status [<host>|all]`,
+  `netcap uninstall <host>`. Before, `[host|all]` read as if `host` were a word to type (#107)
+
 ## [0.13.0] - 2026-10-06
 
 ### Added
