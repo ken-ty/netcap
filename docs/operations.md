@@ -13,7 +13,8 @@ So the controller being on or off does not change any device.
 
 One exception: while `netcap protect` is in effect, the controller keeps how each device was before, in
 `protect.json` under `$NETCAP_STATE_DIR`, or `$XDG_STATE_HOME/netcap` (`~/.local/state/netcap` if unset), for
-`netcap protect --off`. A device out of reach when `protect` runs is left alone. A device changed since, by hand,
+`netcap protect --off`. A device out of reach when `protect` runs is left alone. A device that refuses or fails the
+cap is reported, makes `protect` exit non-zero, and is not recorded as capped. A device changed since, by hand,
 a reboot, or another controller, is left as it is. A device with an `on --for` deadline gets the time still left
 back; if the deadline passed meanwhile, `--off` leaves it uncapped. A device `--off` could not put back (out of
 reach, or the device failed) stays in the file, and `--off` exits non-zero: run `netcap protect --off` again when
@@ -76,3 +77,7 @@ On Windows, the CLI runs day-to-day commands and `netcap install --ssh` (CI runs
 | 3 | The only failures were devices out of reach (ssh could not connect, or timed out). Try again later |
 
 With several devices, the other devices are still changed when one fails; the code says the worst that happened.
+`use` and `protect` judge each device by the change itself: one that refused it (`denied`, `no-sudo`) or failed
+counts as failed even though its status still reads. Flags, arguments, and every value of the profile `use` applies
+are checked before anything is sent: a bad one is 2 (or 1 for a value in profiles, which is a setting) and changes
+nothing.

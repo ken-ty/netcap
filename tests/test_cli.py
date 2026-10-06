@@ -33,6 +33,8 @@ FAKE_SSH = textwrap.dedent("""\
         cmd = "powershell " + base64.b64decode(cmd.split()[-1]).decode("utf-16-le")
     with open(os.environ["FAKE_SSH_LOG"], "a") as f:
         f.write(f"{host} {cmd}\\n")
+    if host == "h-unreachable":
+        print("ssh: Could not resolve hostname h-unreachable", file=sys.stderr); sys.exit(255)
     # What netcap install asks a new device (h-new, a Mac). authorized_keys lives under FAKE_REMOTE_HOME
     if cmd == "uname -s":
         print("Darwin"); sys.exit(0)
@@ -58,7 +60,8 @@ FAKE_SSH = textwrap.dedent("""\
     ok = "netshape state={s} up_mbit={u} down_mbit={u} down_src=applied pipes=2 rules=2"
     # Devices that keep their state in $FAKE_STATE/<host> ("off", "on UP DOWN", or "on UP DOWN left=SECONDS" for a
     # pending --for). check pings 40 ms when every other such device is capped, 400 ms otherwise. <host>.gone makes
-    # the device unreachable, <host>.fail makes on and off fail, and <host>.slow makes check take 3 seconds
+    # the device unreachable, <host>.fail makes on and off fail, <host>.deny makes the agent refuse on and off (a key
+    # allowed only status get check), and <host>.slow makes check take 3 seconds
     if host.startswith("h-s-"):
         state_dir = os.environ["FAKE_STATE"]
         st = os.path.join(state_dir, host)
@@ -68,6 +71,8 @@ FAKE_SSH = textwrap.dedent("""\
         verb, args = (words[1], words[2:]) if len(words) > 1 else ("", [])
         if verb in ("on", "off") and os.path.exists(st + ".fail"):
             print("netshape: could not change the cap", file=sys.stderr); sys.exit(1)
+        if verb in ("on", "off") and os.path.exists(st + ".deny"):
+            print(f"netcap-agent: not allowed for this key: {verb}", file=sys.stderr); sys.exit(77)
         if verb == "on":
             left = ""
             if "--for" in args:
@@ -297,18 +302,19 @@ class CLI(unittest.TestCase):
                           (["protect", "game", "--up", "0", "--down", "1"], "positive numbers")):
             with self.subTest(args=args):
                 p = self.netcap(*args)
-                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(p.returncode, 2)
                 self.assertIn(msg, p.stderr)
         self.assertEqual(self.netcap("protect", "game").returncode, 0)
         p = self.netcap("protect", "laptop")
-        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.returncode, 1)
         self.assertIn("already protecting game", p.stderr)
 
+    # docs/operations.md: Exit codes. Out of reach is 3, so a script can try again later
     def test_protect_stops_when_the_protected_device_is_unreachable(self):
         self.devices(game="off", laptop="off")
         (self.state / "h-s-game.gone").touch()
         p = self.netcap("protect", "game")
-        self.assertNotEqual(p.returncode, 0)
+        self.assertEqual(p.returncode, 3, p.stdout + p.stderr)
         self.assertIn("changed nothing", p.stderr)
         self.assertEqual(self.device("laptop"), "off")
 
@@ -335,7 +341,7 @@ class CLI(unittest.TestCase):
         for bad in ("0", "51", "x"):
             with self.subTest(bad=bad):
                 p = self.netcap("protect", "game", "--load", bad)
-                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(p.returncode, 2)
                 self.assertIn("--load", p.stderr)
         self.assertEqual(self.device("laptop"), "off")
 
@@ -345,7 +351,7 @@ class CLI(unittest.TestCase):
         for bad in ("0", "100000001", "1e9", "-5", "x"):
             with self.subTest(bad=bad):
                 p = self.netcap("check", "game", f"--bytes={bad}")
-                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(p.returncode, 2)
                 self.assertIn("--bytes", p.stderr)
         self.assertNotIn("check", self.log.read_text())
         self.assertEqual(self.netcap("check", "game", "--bytes", "100000000").returncode, 0)
@@ -534,6 +540,106 @@ class CLI(unittest.TestCase):
         self.assertEqual(self.netcap("status", "--bad").returncode, 2)
         self.assertEqual(self.netcap("on", "nosuchhost").returncode, 1)
 
+    # #90: docs/operations.md: Exit codes. 2 is a bad command, flag, or argument, and nothing was sent
+    def test_usage_errors_exit_2_and_send_nothing(self):
+        self.hosts("on", "off", profiles="p  on=1/1\n")
+        for args in (["on", "on", "--up", "2"], ["on", "on", "--up", "0", "--down", "1"], ["on", "on", "--for", "30s"],
+                     ["set", "on"], ["set", "on", "--up", "1"], ["on", "on", "2", "2"], ["set", "on", "2", "2"],
+                     ["protect"], ["protect", "all"], ["protect", "on", "--load", "99"], ["protect", "on", "--up", "2"],
+                     ["protect", "on", "--up", "x", "--down", "1"], ["check", "on", "--bytes", "0"],
+                     ["uninstall", "all"], ["rename", "on", "x y"], ["rename", "on", "all"], ["install", "a b"]):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertNotIn("Traceback", p.stderr)
+                self.assertEqual(self.log.read_text(), "")
+        self.assertEqual((self.conf / "hosts").read_text(), "on mac h-on\noff mac h-off\n")
+        # Found before the config is read: a missing hosts file does not turn them into 1
+        (self.conf / "hosts").unlink()
+        for args in (["on", "x", "--up", "2"], ["protect", "all"], ["uninstall", "all"], ["rename", "a", "x y"]):
+            with self.subTest(args=args, hosts="none"):
+                self.assertEqual(self.netcap(*args).returncode, 2)
+
+    # #90: a wrong host, profile, or setting, and a refusal, stay 1
+    def test_failures_that_are_not_usage_errors_exit_1(self):
+        self.hosts("on", "off", profiles="p  on=1/1\nq  nope=1/1\n")
+        for args in (["on", "nosuch"], ["use", "nosuch"], ["use", "q"], ["rename", "nosuch", "x"], ["rename", "on", "off"],
+                     ["uninstall", "nosuch"], ["protect", "nosuch"]):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+                self.assertNotIn("Traceback", p.stderr)
+        self.assertEqual(self.log.read_text(), "")
+        (self.conf / "hosts").unlink()
+        self.assertEqual(self.netcap("status", "all").returncode, 1)
+
+    # #90: use reports what on and off did on each device, not only the state read afterwards
+    def test_use_reports_a_device_that_refuses(self):
+        self.devices(game="off", laptop="off", server="off")
+        (self.conf / "profiles").write_text("p  game=2/2  laptop=3/3  server=off\n")
+        (self.state / "h-s-laptop.deny").touch()
+        p = self.netcap("use", "p")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r"(?m)^laptop\s+denied\s+\?\s.*not allowed for this key: on$")
+        self.assertRegex(p.stdout, r"(?m)^game\s+ok\s+on\s+2 Mbit/s")
+        self.assertEqual((self.device("game"), self.device("laptop")), ("on 2 2", "off"))
+        rows = {r["host"]: r["reach"] for r in json.loads(self.netcap("use", "p", "--json").stdout)}
+        self.assertEqual(rows, {"game": "ok", "laptop": "denied", "server": "ok"})
+        (self.state / "h-s-laptop.deny").unlink()
+        (self.state / "h-s-laptop.fail").touch()
+        self.assertEqual(self.netcap("use", "p").returncode, 1)
+        # Out of reach and nothing else: 3
+        (self.state / "h-s-laptop.fail").unlink()
+        (self.state / "h-s-laptop.gone").touch()
+        self.assertEqual(self.netcap("use", "p").returncode, 3)
+
+    # #90: docs/configuration.md: a bad value changes nothing. Every value is checked before anything is sent
+    def test_use_checks_every_value_before_sending(self):
+        self.devices(a="off", b="off")
+        for profile in ("p  a=2/2  b=0/2\n", "p  b=0/2  a=2/2\n", "p  a=2/2  b=fast\n", "p  a=2/2  nope=1/1\n"):
+            with self.subTest(profile=profile):
+                self.log.write_text("")
+                (self.state / "h-s-a").write_text("off")
+                (self.conf / "profiles").write_text(profile)
+                p = self.netcap("use", "p")
+                self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+                self.assertEqual(self.log.read_text(), "")
+                self.assertEqual(self.device("a"), "off")
+
+    # #90: protect reports a device that refused the cap, and does not record it as capped
+    def test_protect_reports_a_device_that_refuses(self):
+        self.devices(game="off", laptop="off", server="off")
+        (self.state / "h-s-laptop.deny").touch()
+        p = self.netcap("protect", "game", "--up", "2", "--down", "2")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r"(?m)^laptop\s+denied\s+\?\s.*not allowed for this key: on$")
+        self.assertRegex(p.stdout, r"(?m)^server\s+ok\s+on\s")
+        self.assertIn("could not cap laptop", p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server")), ("off", "on 2 2"))
+        self.assertEqual(json.loads(self.protect_state().read_text())["applied"], {"server": "2/2"})
+        # --off puts back what protect capped; laptop was never capped, so there is nothing to put back
+        (self.state / "h-s-laptop.deny").unlink()
+        self.log.write_text("")
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server")), ("off", "off"))
+        self.assertEqual([l.split()[2:] for l in self.log.read_text().splitlines() if l.startswith("h-s-laptop ")],
+                         [["status"]])
+        self.assertFalse(self.protect_state().exists())
+
+    def test_protect_json_reports_a_device_that_failed(self):
+        self.devices(game="off", laptop="off", server="off")
+        (self.state / "h-s-laptop.fail").touch()
+        p = self.netcap("protect", "game", "--json")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        rows = {r["host"]: r["reach"] for r in json.loads(p.stdout)["devices"]}
+        self.assertEqual(rows, {"laptop": "error", "server": "ok"})
+        # laptop was never capped: --off leaves it alone, even while it still fails
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server")), ("off", "off"))
+        self.assertFalse(self.protect_state().exists())
+
     # #69: completion scripts for bash and zsh, with the subcommands and the names in hosts
     def test_completion(self):
         self.hosts("gamepc", "laptop")
@@ -592,7 +698,7 @@ class CLI(unittest.TestCase):
         for bad in ("0m", "30", "1.5h", "25h", "30s", "m", ""):
             with self.subTest(bad=bad):
                 p = self.netcap("on", "on", "--for", bad)
-                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(p.returncode, 2)
                 self.assertIn("--for", p.stderr)
         self.assertNotIn("netcap-agent on", self.log.read_text())
 
@@ -630,10 +736,12 @@ class CLI(unittest.TestCase):
     # docs/configuration.md: a cap is a positive number. 0 would mean unlimited to dummynet on macOS
     def test_zero_is_refused(self):
         self.hosts("off", profiles="z  off=0/2\n")
-        for args in (["on", "off", "--up", "0", "--down", "2"], ["set", "off", "--up", "1", "--down", "0.0"], ["use", "z"]):
+        # A flag is a usage error (2); a value in profiles is a setting (1)
+        for args, rc in ((["on", "off", "--up", "0", "--down", "2"], 2), (["set", "off", "--up", "1", "--down", "0.0"], 2),
+                         (["use", "z"], 1)):
             with self.subTest(args=args):
                 p = self.netcap(*args)
-                self.assertNotEqual(p.returncode, 0)
+                self.assertEqual(p.returncode, rc)
                 self.assertIn("positive", p.stderr)
         self.assertFalse(self.log.exists() and "netcap-agent on" in self.log.read_text())
 
@@ -743,6 +851,13 @@ class CLI(unittest.TestCase):
         self.netcap("uninstall", "box", env=env)
         self.assertEqual(self.remote_keys(), ["ssh-ed25519 AAAAmine me@laptop"])
 
+    # #90: a device out of reach is 3, so a script can try again later
+    def test_install_out_of_reach(self):
+        p = self.netcap("install", "box", "--ssh", "h-unreachable", env=self.install_env())
+        self.assertEqual(p.returncode, 3, p.stdout + p.stderr)
+        self.assertIn("cannot reach h-unreachable over ssh", p.stderr)
+        self.assertFalse((self.conf / "hosts").exists())
+
     def test_install_name_taken(self):
         self.hosts("off")
         p = self.netcap("install", "off", "--ssh", "h-new", env=self.install_env())
@@ -825,9 +940,12 @@ class CLI(unittest.TestCase):
         (self.tmp / "remote" / "administrators_authorized_keys").write_text(
             load_netcap().key_line("win", self.PUB) + "\r\n")
         p = self.netcap("doctor", env=env)
-        self.assertEqual(p.returncode, 1)  # one device could not be checked
+        self.assertEqual(p.returncode, 3)  # the only device not checked was out of reach: try again later
         self.assertRegex(p.stdout, r"(?m)^gpc\s+ok\s+ok\s*$")
         self.assertRegex(p.stdout, r"(?m)^down\s+unreachable\s+\?\s")
+        # A device without the key is a failure whatever else is out of reach
+        (self.tmp / "remote" / "administrators_authorized_keys").write_text("")
+        self.assertEqual(self.netcap("doctor", env=env).returncode, 1)
 
     def test_doctor_without_a_key(self):
         self.hosts("off")

@@ -153,8 +153,8 @@ forced command を素通りするため。
 - `restrict` でシェル・pty・転送を切る。agent は引数を空白で区切るだけで、シェルとして解釈しない
 - Windows には sudoers に当たる二段目が無く、forced command が唯一の関門になる
 - `netcap doctor` は ssh で届く各端末のファイルを読み、この機械の鍵の行に `restrict` か forced command が欠けていれば
-  警告する (`unrestricted`)。置き換える行も表示する。鍵が無い端末は `missing` になる。ssh で届く全端末が `ok` で
-  なければ 1 で終わる (この端末は鍵を使わないので `-`)
+  警告する (`unrestricted`)。置き換える行も表示する。鍵が無い端末は `missing` になる。ssh で届く全端末が `ok` なら
+  0 (この端末は鍵を使わないので `-`)、確かめられなかったのが届かない端末だけなら 3、それ以外は 1 で終わる
 - Windows の sshd は、`administrators_authorized_keys` が UTF-16 (Windows PowerShell 5 の `>>` が書く形) だったり、
   SYSTEM と Administrators 以外が書けたりすると、黙って無視する。UTF-8 で書き、新しく作ったファイルには
   `icacls <ファイル> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"` をかける
