@@ -133,7 +133,7 @@ netcap get    [host|all] [--json]           read the settings (default, boot beh
 netcap on     <host|all> [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
 netcap off    <host|all>                    remove the cap (with boot=on, the default comes back at reboot)
 netcap set    <host|all> --up N --down N    change the default
-netcap check  [host|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer)
+netcap check  [host|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer, up to 100 MB)
 netcap use    <profile>                     apply a profile
 netcap profiles                             list profiles
 netcap protect <host> [--up N --down N] [--load MB]  cap every other device; show <host>'s check before and after

@@ -247,6 +247,22 @@ class E2E(unittest.TestCase):
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn("netcap-agent: ", p.stderr)
 
+    # A read-only key cannot make the device transfer more than 100 MB (#91). Both the agent and netcap-check refuse
+    def test_26_check_bytes_limit(self):
+        for cmd in ("check --bytes 100000001", "check --bytes 9999999999999999999999", "check --bytes 0"):
+            with self.subTest(cmd=cmd):
+                p = agent("--allow", "status get check", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} {cmd}"})
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("netcap-agent: check accepts only --bytes", p.stderr)
+        p = agent("--allow", "status get check", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} check --bytes 1000"})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertRegex(p.stdout, r"^netcheck .*bytes=1000$")
+        check = {"mac": ["/usr/local/bin/netcap-check"], "linux": ["/usr/local/bin/netcap-check"],
+                 "win": [*PS, r"C:\ProgramData\netcap\netcap-check.ps1"]}[OS]
+        p = sh(*check, "--bytes", "100000001")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, "")
+
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
         self.netcap("on", "self")

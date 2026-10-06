@@ -12,6 +12,10 @@ if ($args.Count -gt 0) {
   if ($args.Count -ne 2 -or $args[0] -ne '--bytes' -or $args[1] -notmatch '^[0-9]+$') {
     [Console]::Error.WriteLine('usage: netcap-check.ps1 [--bytes N]'); exit 2
   }
+  # 1 to 100 MB, as netcap-agent.ps1 allows (#91). Checked here too, for a caller that skips the agent
+  if ($args[1] -notmatch '^[0-9]{1,9}$' -or [int]$args[1] -lt 1 -or [int]$args[1] -gt 100000000) {
+    [Console]::Error.WriteLine("netcap-check.ps1: --bytes takes 1 to 100000000: $($args[1])"); exit 2
+  }
   $Bytes = [int]$args[1]
 }
 
