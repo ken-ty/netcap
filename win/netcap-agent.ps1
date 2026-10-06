@@ -52,9 +52,11 @@ if ($Verbs -notcontains $verb) { Deny "unknown verb: $verb" }
 if ($allowed -notcontains $verb) { Deny "not allowed for this key: $verb (allowed: $($allowed -join ' '))" }
 
 if ($verb -eq 'check') {
-  # The measurement accepts only --bytes <number>
-  if ($rest.Count -gt 0 -and ($rest.Count -ne 2 -or $rest[0] -ne '--bytes' -or $rest[1] -notmatch '^[0-9]+$')) {
-    Deny 'check accepts only --bytes <number>'
+  # The measurement accepts only --bytes <number>, from 1 to 100 MB: even a read-only key could otherwise make the
+  # device transfer as much as it asks (#91). At most 9 digits, so [int] cannot overflow
+  if ($rest.Count -gt 0 -and ($rest.Count -ne 2 -or $rest[0] -ne '--bytes' -or $rest[1] -notmatch '^[0-9]{1,9}$' -or
+                              [int]$rest[1] -lt 1 -or [int]$rest[1] -gt 100000000)) {
+    Deny 'check accepts only --bytes <number>, 1 to 100000000'
   }
   & (Join-Path $Dir 'netcap-check.ps1') @rest
   exit $LASTEXITCODE

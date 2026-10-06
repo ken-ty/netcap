@@ -55,9 +55,11 @@ case " $VERBS " in *" $verb "*) ;; *) deny "unknown verb: $verb" ;; esac
 case " $allowed " in *" $verb "*) ;; *) deny "not allowed for this key: $verb (allowed: $allowed)" ;; esac
 
 if [ "$verb" = check ]; then
-  # Measurement needs no root. Only --bytes <number> is accepted
+  # Measurement needs no root. Only --bytes <number> is accepted, from 1 to 100 MB: even a read-only key
+  # could otherwise make the device transfer as much as it asks (#91). At most 9 digits, so [ -le ] cannot overflow
   if [ $# -gt 0 ]; then
-    [ $# -eq 2 ] && [ "$1" = --bytes ] && [[ "$2" =~ ^[0-9]+$ ]] || deny "check accepts only --bytes <number>"
+    [ $# -eq 2 ] && [ "$1" = --bytes ] && [[ "$2" =~ ^[0-9]{1,9}$ ]] && [ "$2" -ge 1 ] && [ "$2" -le 100000000 ] ||
+      deny "check accepts only --bytes <number>, 1 to 100000000"
   fi
   exec "$CHECK" "$@"
 fi

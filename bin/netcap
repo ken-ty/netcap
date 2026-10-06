@@ -1191,7 +1191,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "remove the cap": "上限を外す",
     "change the default (survives reboots)": "既定値を変える (再起動後も残る)",
     "measure (curl up/down + ping)": "測る (curl の上り/下り + ping)",
-    "bytes to transfer; use less while capped": "転送するバイト数。上限をかけている間は少なめに",
+    "bytes to transfer, 1 to 100000000; use less while capped": "転送するバイト数 (1 から 100000000)。上限をかけている間は少なめに",
     "apply a profile to the devices it lists": "プロファイルを、書かれた端末に適用する",
     "list profiles": "プロファイルの一覧",
     "{path} does not exist. See {example} for the format\n"
@@ -1259,6 +1259,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "\nThe difference shows only if the other devices used the line while {host} was measured; netcap does not make that traffic. --load <MB> makes it":
         "\n差が出るのは、{host} を測っている間にほかの端末が回線を使っていたときだけ。netcap はその通信を作らない。作るには --load <MB>",
     "--load takes megabytes per device, 1 to 50: {value}": "--load には端末あたりの MB を 1 から 50 で渡す: {value}",
+    "--bytes takes 1 to 100000000: {value}": "--bytes には 1 から 100000000 のバイト数を渡す: {value}",
     "--load uses about {mb} MB of the line": "--load で回線を約 {mb} MB 使う",
     "latency on {host}: {verdict} (median {before} -> {after} ms)": "{host} の遅延: {verdict} (中央値 {before} -> {after} ms)",
     "meanwhile, transfer MB on each other device to load the line, and say whether latency improved":
@@ -1417,7 +1418,7 @@ def main():
     p.add_argument("values", nargs="*", help=argparse.SUPPRESS)
     p = sub.add_parser("check", help=_("measure (curl up/down + ping)"))
     add_target(p, optional=True)
-    p.add_argument("--bytes", metavar="N", help=_("bytes to transfer; use less while capped"))
+    p.add_argument("--bytes", metavar="N", help=_("bytes to transfer, 1 to 100000000; use less while capped"))
     p = sub.add_parser("use", help=_("apply a profile to the devices it lists"))
     p.add_argument("profile")
     sub.add_parser("profiles", help=_("list profiles"))
@@ -1517,6 +1518,9 @@ def main():
         return rc
 
     if a.cmd == "check":
+        # The agent refuses more than 100 MB (#91). Say so here, before anything is sent
+        if a.bytes is not None and not (a.bytes.isascii() and a.bytes.isdigit() and 1 <= int(a.bytes) <= 100000000):
+            sys.exit(_("--bytes takes 1 to 100000000: {value}").format(value=a.bytes))
         args = ["--bytes", a.bytes] if a.bytes else []
         return emit(fan_out(resolve(a.host, default_all=True), "check", args),
                     CHECK_COLS, a.json, a.verbose, footnote=None)
