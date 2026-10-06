@@ -44,7 +44,7 @@ On Windows the forced command is the only gate, so a netcap key line added by ha
 `restrict,command="…"` gives an elevated shell. `netcap install` writes the line for you; prefer it over editing by hand.
 
 The files that run as root live only in directories that root alone can write
-(`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`, and on Windows `C:\ProgramData\netcap` with its inheritance cut).
+(`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`, and on Windows `C:\ProgramData\netcap` with its inheritance cut and Administrators as its owner).
 The shaper reads its config as numbers and never runs it as a script. See [docs/design.md](docs/design.md).
 
 ### Out of scope
