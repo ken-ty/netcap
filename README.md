@@ -25,7 +25,8 @@ Each device enforces its own cap, so the router you already have (even the one y
 - Commands reach each device over ssh; what is allowed is decided by that device's `authorized_keys`
 - Unlike router QoS, it does not prioritize traffic. It caps the devices you choose, so the rest of the line stays free
 - The same verbs on every OS, instead of pf + dummynet on macOS, `tc` on Linux, and NetQosPolicy on Windows
-- Nothing keeps running on the devices: `netcap install` leaves small scripts that run only when called over ssh
+- Nothing keeps running on the devices: `netcap install` leaves small scripts that run only when netcap calls them.
+  The OS scheduler runs one only to lift a cap at its `--for` deadline, and at boot with `--boot on`
 
 ## Quick Start
 
@@ -62,7 +63,8 @@ netcap off me                            # remove it now
 > powershell -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netshape.ps1 off   # Windows, as Administrator
 > ```
 >
-> A reboot also clears the cap on macOS and Linux. Windows keeps it across reboots.
+> A reboot also clears the cap on macOS and Linux, unless the device was installed with `--boot on` (then the default cap
+> comes back). Windows keeps it across reboots.
 
 ### 3. Manage other devices
 
@@ -100,7 +102,8 @@ netcap protect --off                              # put each device back as it w
 
 Without `--load`, the difference shows only if the other devices happen to use the line during the measurement.
 `--load` makes that traffic, so it costs data: about 4 × MB × the other devices (it says how much first).
-The protected device itself sends about 4 MB either way. On Windows the others are capped on upload only.
+The protected device itself transfers about 4 MB either way (1 MB up and 1 MB down, before and after).
+On Windows the others are capped on upload only.
 
 Rename a device with `netcap rename me laptop`; remove one with `netcap uninstall gamepc`.
 For the file format, see [docs/configuration.md](docs/configuration.md); for what install sets up on a device, [docs/host-setup.md](docs/host-setup.md).
@@ -128,15 +131,15 @@ Feature by feature: [docs/platforms.md](docs/platforms.md).
 netcap status [host|all] [--json]           read the cap actually in effect
 netcap get    [host|all] [--json]           read the settings (default, boot behavior)
 netcap on     <host|all> [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
-netcap off    <host|all>                    remove the cap (default returns on reboot)
+netcap off    <host|all>                    remove the cap (with boot=on, the default comes back at reboot)
 netcap set    <host|all> --up N --down N    change the default
-netcap check  <host|all> [--json]           measure (curl up/down + ping)
+netcap check  [host|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer)
 netcap use    <profile>                     apply a profile
 netcap profiles                             list profiles
 netcap protect <host> [--up N --down N] [--load MB]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
-netcap install [name] [--ssh DEST]          install the agent on a device and register it
-netcap uninstall <name>                     remove this controller's key and registration (the agent goes with the last)
+netcap install [name] [--ssh DEST] [--boot on|off]  install the agent on a device and register it (--boot on: cap at boot)
+netcap uninstall <name> [--config-only]     remove this controller's key and registration (the agent goes with the last)
 netcap rename <old> <new>                   rename a device
 netcap export                               print hosts and profiles as JSON (no keys)
 netcap import <file|->                      read them back (--replace to overwrite)
