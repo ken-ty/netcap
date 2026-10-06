@@ -18,6 +18,9 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Fixed
 
+- On macOS, a cap with a decimal or a leading zero was not applied: `0.5` and `08` left the line unlimited and `010`
+  capped at 8 Mbit/s, while `status` showed the value asked for. The shaper now hands dummynet whole bit/s, and
+  refuses a value it cannot hold (above 2147.483647 Mbit/s) before changing anything (#96)
 - `netcap protect --off` deletes its state only when every device is back. A device it could not put back (out of
   reach, failed, or no longer in hosts) stays in the state, and `--off` exits non-zero and says so on stderr; before,
   a failed device stayed capped and a second `--off` said "nothing to undo" (#100)

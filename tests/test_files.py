@@ -130,6 +130,30 @@ class Sudoers(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
 
+class MacRate(unittest.TestCase):
+    """mac/netcap-netshape hands dnctl whole bit/s in base 10. dnctl reads bw with strtoul(base 0) into an int and
+    scales only on a K or M right after the digits, so 0.5Mbit/s would be unlimited, 08 unlimited, 010 octal (#86)"""
+
+    def rate(self, mbit):
+        body = re.search(r"^rate\(\) \{\n.*?^\}\n", read("mac/netcap-netshape"), re.M | re.S)
+        self.assertIsNotNone(body, "mac/netcap-netshape defines rate()")
+        return subprocess.run(["bash", "-c", body.group() + 'rate "$1"', "-", mbit], capture_output=True, text=True)
+
+    def test_whole_bits_in_base_10(self):
+        for mbit, want in (("0.5", "500000 0.5"), ("1", "1000000 1"), ("08", "8000000 8"), ("010", "10000000 10"),
+                           ("0.50", "500000 0.5"), ("1.1", "1100000 1.1"), ("0.000001", "1 0.000001"),
+                           ("2147.483647", "2147483647 2147.483647")):
+            with self.subTest(mbit=mbit):
+                p = self.rate(mbit)
+                self.assertEqual((p.returncode, p.stdout.strip()), (0, want), p.stderr)
+
+    def test_refuses_what_dnctl_cannot_hold(self):
+        # 0 bit/s is unlimited to dummynet; above 2^31-1 bit/s dnctl fails or wraps around
+        for mbit in ("0.0000004", "2147.483648", "2148", "4295", "99999999999999999999"):
+            with self.subTest(mbit=mbit):
+                self.assertNotEqual(self.rate(mbit).returncode, 0)
+
+
 class HostSetup(unittest.TestCase):
     """install.sh places, and uninstall.sh removes, the paths in the tables of docs/host-setup.md (and translations)"""
 

@@ -29,7 +29,7 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-A value is `up/down` in Mbit/s, `on` (the device's own default, as `netcap on <name>` without flags), or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is). A profile name follows the same rule as a device name.
+A value is `up/down` in Mbit/s, `on` (the device's own default, as `netcap on <name>` without flags), or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). On macOS a value can go up to 2147.483647 (dummynet holds the rate as bit/s in a 32-bit integer); the device refuses more. To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is). A profile name follows the same rule as a device name.
 
 ## Export and import
 
