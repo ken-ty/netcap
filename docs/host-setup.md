@@ -38,7 +38,7 @@ git clone https://github.com/ken-ty/netcap.git ~/.local/share/netcap
 
 # curl (without git)
 mkdir -p ~/.local/share/netcap
-curl -fsSL https://github.com/ken-ty/netcap/archive/refs/tags/v0.12.0.tar.gz \
+curl -fsSL https://github.com/ken-ty/netcap/archive/refs/tags/v0.13.0.tar.gz \
   | tar xz --strip-components 1 -C ~/.local/share/netcap
 
 # to use the CLI
@@ -48,9 +48,9 @@ ln -s ~/.local/share/netcap/bin/netcap ~/.local/bin/netcap
 Installed with curl, `netcap --version` prints `unknown`. curl and tar are also available on Windows out of the box.
 
 ```powershell
-curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.12.0.zip
+curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.13.0.zip
 tar -xf netcap.zip
-cd netcap-0.12.0
+cd netcap-0.13.0
 python bin\netcap --version   # to use it as the CLI
 ```
 
