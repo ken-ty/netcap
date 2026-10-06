@@ -18,7 +18,7 @@ gamepc   win  gamepc
 
 | 列 | 値 |
 | --- | --- |
-| 名前 | `netcap status <名前>` で指す名前。`all` は使えない |
+| 名前 | `netcap status <名前>` で指す名前。英数字と `_` `.` `-` で、英数字で始める。`all` は使えない |
 | OS | `mac` (pf + dummynet)、`linux` (tc)、`win` (NetQosPolicy) のどれか |
 | 経路 | ふだんの ssh の宛先 (`~/.ssh/config` の Host)。netcap を叩くこの機械自身なら `-`。`netcap install` がこの行を書く |
 
@@ -31,7 +31,7 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-値は Mbit/s の `上り/下り` か `off`。小数も使える (`0.5/2`)。`0` はエラーで、netcap は受け付けず何も変えない (macOS の dummynet は 0 を無制限と読むので、「遮断」の意味にはできない)。上限を外すなら `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。
+値は Mbit/s の `上り/下り` か `off`。小数も使える (`0.5/2`)。`0` はエラーで、netcap は受け付けず何も変えない (macOS の dummynet は 0 を無制限と読むので、「遮断」の意味にはできない)。上限を外すなら `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。プロファイルの名前も端末の名前と同じ決まりに従う。
 
 ## 書き出しと取り込み
 
@@ -48,7 +48,8 @@ netcap import netcap.json --replace  # 今ある hosts と profiles を上書き
   取り込んだ機械の `~/.ssh/config` が解決する。上限や既定値も入らない。それらは端末の側にある
 - **この機械 (経路 `-`) は別の機械に引き継がない。** 別の機械で取り込むとその機械自身を指してしまうので、
   取り込まずに (profiles からも外して) そう伝える。戻すなら `netcap install <名前> --ssh <宛先>`
-- **書き込む前に全部を検査する。** 名前、OS、経路、プロファイルの値。`-` で始まる経路は、ssh がオプションとして読む
-  (`-oProxyCommand=…` はコマンドを実行する) ので受け付けない。hosts を読むときも同じ検査をする
+- **書き込む前に全部を検査する。** 名前、OS、経路、プロファイルの値、`exported_from`。`-` で始まる経路は、ssh がオプションとして読む
+  (`-oProxyCommand=…` はコマンドを実行する) ので受け付けない。hosts と profiles を読むときも同じ検査をし、
+  決まりに合わない行はファイル名と行番号を添えて知らせる
 - hosts と profiles のコメントは引き継がない
 - 新しい管理する側では、端末ごとに `netcap install <名前>` を流して、その機械自身の鍵を登録する

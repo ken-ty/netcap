@@ -8,6 +8,18 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking** A name in hosts or profiles that breaks the name rule (letters, digits, `_ . -`, starting with a letter
+  or digit), such as one written by hand with other characters, now stops netcap with the file and line. Rename it in
+  the file (#PR)
+
+### Security
+
+- `netcap import` refuses an `exported_from` that is not a plain name: a newline in it added lines to hosts that were
+  never checked. The completion script passes only names that follow the name rule to `compgen`, which ran a name
+  like `$(…)` in hosts as a command when you pressed TAB (#PR)
+
 ## [0.12.0] - 2026-10-06
 
 ### Added

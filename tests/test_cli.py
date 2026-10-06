@@ -394,6 +394,26 @@ class CLI(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stderr)
         self.assertEqual(sorted(out.stdout.split()), ["all", "gamepc", "laptop"])
 
+    # #87: a name in hosts is never run as shell code when completing, whoever wrote the line.
+    # /bin/bash is 3.2 on macOS; compgen -W expands the words it is given
+    def test_completion_does_not_run_names(self):
+        pwned = self.tmp / "pwned"
+        (self.conf / "hosts").write_text(
+            "laptop mac h-laptop\n"
+            "$(echo${IFS}RAN-ON-TAB>&2) mac h-x\n"
+            f"$(touch${{IFS}}{pwned}) mac h-y\n"
+            "`touch${IFS}" + str(pwned) + "` mac h-z\n"
+            "* mac h-glob\n")
+        script = self.tmp / "completion.bash"
+        script.write_text(self.netcap("completion", "bash").stdout
+                          + 'COMP_WORDS=(netcap status ""); COMP_CWORD=2; _netcap; echo "${COMPREPLY[*]}"\n')
+        bash = "/bin/bash" if os.path.exists("/bin/bash") else shutil.which("bash")
+        out = subprocess.run([bash, str(script)], capture_output=True, text=True, env=self.env, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertNotIn("RAN-ON-TAB", out.stderr)
+        self.assertFalse(pwned.exists())
+        self.assertEqual(sorted(out.stdout.split()), ["all", "laptop"])
+
     # #29: on --for. The duration goes to the device in seconds, at the end of on
     def test_on_for(self):
         self.hosts("on")
@@ -739,6 +759,56 @@ class CLI(unittest.TestCase):
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn("cannot import", p.stderr)
                 self.assertFalse((other / "hosts").exists())
+
+    # #87: exported_from went into a comment line of hosts and profiles unchecked; a newline in it added a line
+    def test_import_refuses_a_bad_exported_from(self):
+        self.hosts("off", profiles="p  off=1/1\n")
+        data, f = self.export()
+        for bad in ("laptop\n$(echo${IFS}RAN-ON-TAB>&2) mac h-x-b", "a b", "", 3, None):
+            with self.subTest(bad=bad):
+                f.write_text(json.dumps({**data, "exported_from": bad}))
+                p, other = self.import_into(f, "--replace")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("cannot import", p.stderr)
+                self.assertFalse((other / "hosts").exists())
+
+    def test_import_writes_only_checked_lines(self):
+        self.hosts("off", profiles="p  off=1/1\n")
+        data, f = self.export(exported_from="laptop")
+        p, other = self.import_into(f)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((other / "hosts").read_text().splitlines()[0], "# written by netcap import from laptop")
+        f.write_text(json.dumps({k: v for k, v in data.items() if k != "exported_from"}))
+        p, other = self.import_into(f, "--replace")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((other / "hosts").read_text().splitlines()[0], "# written by netcap import")
+
+    # #87: hosts and profiles follow the same name rule as install, rename, and import, wherever the line came from
+    def test_hosts_refuses_a_bad_name(self):
+        for line in ("$(echo${IFS}X>&2) mac h-x", "-x mac h-x", "a/b mac h-x", "*  mac h-x"):
+            with self.subTest(line=line):
+                (self.conf / "hosts").write_text("off mac h-off\n" + line + "\n")
+                p = self.netcap("status", "all")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(f"{self.conf / 'hosts'}:2:", p.stderr)
+                self.assertIn("as a name", p.stderr)
+                self.assertEqual(self.log.read_text(), "")
+
+    def test_profiles_refuses_a_bad_name(self):
+        for line in ("$(x)  off=1/1", "p  $(x)=1/1", "-p  off=off"):
+            with self.subTest(line=line):
+                self.hosts("off", profiles="ok  off=off\n" + line + "\n")
+                p = self.netcap("profiles")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn(f"{self.conf / 'profiles'}:2:", p.stderr)
+                self.assertIn("as a name", p.stderr)
+
+    def test_example_config_still_loads(self):
+        shutil.copy(ROOT / "examples" / "hosts", self.conf / "hosts")
+        shutil.copy(ROOT / "examples" / "profiles", self.conf / "profiles")
+        p = self.netcap("profiles")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("game", p.stdout)
 
     def test_hosts_refuses_an_option_as_route(self):
         (self.conf / "hosts").write_text("x mac -oProxyCommand=sh\n")
