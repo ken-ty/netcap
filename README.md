@@ -130,22 +130,22 @@ Feature by feature: [docs/platforms.md](docs/platforms.md).
 ## Usage
 
 ```text
-netcap status [host|all] [--json]           read the cap actually in effect
-netcap get    [host|all] [--json]           read the settings (default, boot behavior)
-netcap on     <host|all> [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
-netcap off    <host|all>                    remove the cap (with boot=on, the default comes back at reboot)
-netcap set    <host|all> --up N --down N    change the default
-netcap check  [host|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer, up to 100 MB)
+netcap status [<host>|all] [--json]         read the cap actually in effect
+netcap get    [<host>|all] [--json]         read the settings (default, boot behavior)
+netcap on     <host>|all [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
+netcap off    <host>|all                    remove the cap (with boot=on, the default comes back at reboot)
+netcap set    <host>|all --up N --down N    change the default
+netcap check  [<host>|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer, up to 100 MB)
 netcap use    <profile> [--for 30m]         apply a profile (--for: each device it caps lifts it after that long)
 netcap profiles                             list profiles
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
-netcap install [name] [--ssh DEST] [--boot on|off]  install the agent on a device and register it (--boot on: cap at boot)
-netcap uninstall <name> [--config-only]     remove this controller's key and registration (the agent goes with the last)
+netcap install [<name>] [--ssh DEST] [--boot on|off]  install the agent on a device and register it (--boot on: cap at boot)
+netcap uninstall <host> [--config-only]     remove this controller's key and registration (the agent goes with the last)
 netcap rename <old> <new>                   rename a device
 netcap export                               print hosts and profiles as JSON (no keys)
 netcap import <file|->                      read them back (--replace to overwrite)
-netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
+netcap doctor [<host>|all] [--json]         check that each device's netcap key is pinned to its forced command
 netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
 netcap <command> -q                         print only the result: no progress, hints, or notes
 netcap help [<command>|exit-codes]          the same help as -h; exit-codes lists what each exit status means

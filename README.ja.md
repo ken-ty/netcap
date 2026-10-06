@@ -132,22 +132,22 @@ Windows の端末は上りしか絞れない。
 ## 使い方
 
 ```text
-netcap status [host|all] [--json]           実際にかかっている上限を読む
-netcap get    [host|all] [--json]           設定 (既定値・起動時の挙動) を読む
-netcap on     <host|all> [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
-netcap off    <host|all>                    上限を外す (boot=on なら再起動で既定の上限がかかり直す)
-netcap set    <host|all> --up N --down N    既定を書き換える
-netcap check  [host|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
+netcap status [<host>|all] [--json]         実際にかかっている上限を読む
+netcap get    [<host>|all] [--json]         設定 (既定値・起動時の挙動) を読む
+netcap on     <host>|all [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
+netcap off    <host>|all                    上限を外す (boot=on なら再起動で既定の上限がかかり直す)
+netcap set    <host>|all --up N --down N    既定を書き換える
+netcap check  [<host>|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
 netcap use    <profile> [--for 30m]         プロファイルを適用 (--for: 絞った各端末がその時間で外す)
 netcap profiles                             プロファイル一覧
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
-netcap install [name] [--ssh DEST] [--boot on|off]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
-netcap uninstall <name> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
+netcap install [<name>] [--ssh DEST] [--boot on|off]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
+netcap uninstall <host> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
 netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
 netcap import <file|->                      それを読み戻す (--replace で上書き)
-netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
+netcap doctor [<host>|all] [--json]         各端末の netcap の鍵が forced command に固定されているか確かめる
 netcap <command> -v                         表に出ない項目も表示する (-vv: 機器の生の出力も)
 netcap <command> -q                         結果だけを出す。進み具合・ヒント・注記は出さない
 netcap help [<command>|exit-codes]          -h と同じヘルプ。exit-codes は終了コードの意味の一覧

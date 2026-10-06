@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """netcap — one command for the WAN bandwidth caps of the devices you manage.
 
-  netcap status [host|all] [--json]           read the real state (pf pipes / tc classes / QoS policy)
-  netcap get    [host|all] [--json]           read the settings (default, boot behavior)
-  netcap on     <host|all> [--up N --down N] [--for 30m]
+  netcap status [<host>|all] [--json]         read the real state (pf pipes / tc classes / QoS policy)
+  netcap get    [<host>|all] [--json]         read the settings (default, boot behavior)
+  netcap on     <host>|all [--up N --down N] [--for 30m]
                                               apply a cap; flags apply this time only. --for: the device
                                               lifts it by itself after that long
-  netcap off    <host|all>                    remove the cap
-  netcap set    <host|all> --up N --down N    change the default (survives reboots)
-  netcap check  [host|all] [--bytes N] [--json]
+  netcap off    <host>|all                    remove the cap
+  netcap set    <host>|all --up N --down N    change the default (survives reboots)
+  netcap check  [<host>|all] [--bytes N] [--json]
                                               measure (curl up/down + ping). --bytes: how much to transfer
   netcap use    <profile> [--for 30m]         apply a profile to the devices it lists. --for: each device it
                                               caps lifts the cap by itself after that long
@@ -18,15 +18,15 @@
                                               --load: the others load the line meanwhile, and the result says
                                               whether latency improved. --for: as for on
   netcap protect --off                        put each device back as it was
-  netcap install [name] [--ssh DEST] [--boot on|off]
+  netcap install [<name>] [--ssh DEST] [--boot on|off]
                                               install the agent on a device and register it. --boot on
                                               (mac / linux): apply the default cap at boot
-  netcap uninstall <name> [--config-only]     remove this controller's key and registration (the agent goes
+  netcap uninstall <host> [--config-only]     remove this controller's key and registration (the agent goes
                                               with the last). --config-only: only forget it here
   netcap rename <old> <new>                   rename a device in hosts and profiles
   netcap export                               print hosts and profiles as JSON (no keys)
   netcap import <file|-> [--replace]          read them back, on this or another machine (--replace to overwrite)
-  netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
+  netcap doctor [<host>|all] [--json]         check that each device's netcap key is pinned to its forced command
   netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
   netcap <command> -q                         print only the result: no progress, hints, or notes
   netcap help [<command>|exit-codes]          the same help as -h; exit-codes lists what each exit status means
@@ -347,7 +347,7 @@ def cap_args(a):
         usage_error(_("give --up and --down together (with only one, the other would silently "
                       "stay at the default)"))
     if a.cmd == "set" and a.up is None:
-        usage_error(_("usage: netcap set <host|all> --up N --down N"))
+        usage_error(_("usage: netcap set <host>|all --up N --down N"))
     args = [a.up, a.down] if a.up is not None else []
     bad = [v for v in args if not is_mbit(v)]
     if bad:
@@ -778,7 +778,7 @@ def cmd_profiles(a):
 
 def add_target(p, optional=False):
     # The commands that take all are the ones with this argument; completion offers all only for them
-    p.add_argument("host", nargs="?" if optional else None, help=_("a name from hosts, or all")).takes_all = True
+    p.add_argument("host", nargs="?" if optional else None, metavar="<host>", help=_("a name from hosts, or all")).takes_all = True
 
 
 # --- install / uninstall / rename ---------------------------------------------------------------
@@ -1328,14 +1328,14 @@ def cmd_import(a):
 JA = {
     __doc__: """netcap — 管理している機器の WAN 帯域の上限を、1 コマンドで扱う。
 
-  netcap status [host|all] [--json]           実際の状態を読む (pf のパイプ / tc のクラス / QoS ポリシー)
-  netcap get    [host|all] [--json]           設定を読む (既定値、起動時の挙動)
-  netcap on     <host|all> [--up N --down N] [--for 30m]
+  netcap status [<host>|all] [--json]         実際の状態を読む (pf のパイプ / tc のクラス / QoS ポリシー)
+  netcap get    [<host>|all] [--json]         設定を読む (既定値、起動時の挙動)
+  netcap on     <host>|all [--up N --down N] [--for 30m]
                                               上限をかける。--up/--down は今回だけ有効。--for: その時間が
                                               経つと機器が自分で外す
-  netcap off    <host|all>                    上限を外す
-  netcap set    <host|all> --up N --down N    既定値を変える (再起動後も残る)
-  netcap check  [host|all] [--bytes N] [--json]
+  netcap off    <host>|all                    上限を外す
+  netcap set    <host>|all --up N --down N    既定値を変える (再起動後も残る)
+  netcap check  [<host>|all] [--bytes N] [--json]
                                               測る (curl の上り/下り + ping)。--bytes: 転送する量
   netcap use    <profile> [--for 30m]         プロファイルを、書かれた端末に適用する。--for: 絞った各端末が
                                               その時間が経つと自分で外す
@@ -1344,15 +1344,15 @@ JA = {
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
                                               ほかの端末が回線を埋め、遅延が良くなったかを言う。--for: on と同じ
   netcap protect --off                        各端末を元の状態に戻す
-  netcap install [name] [--ssh DEST] [--boot on|off]
+  netcap install [<name>] [--ssh DEST] [--boot on|off]
                                               機器に agent を入れて登録する。--boot on (mac / linux):
                                               起動時に既定の上限をかける
-  netcap uninstall <name> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)。
+  netcap uninstall <host> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)。
                                               --config-only: こちらの登録だけ消す
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
   netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
   netcap import <file|-> [--replace]          それを読み戻す (この機械でも別の機械でも。--replace で上書き)
-  netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
+  netcap doctor [<host>|all] [--json]         各端末の netcap の鍵が forced command に固定されているか確かめる
   netcap <command> -v                         表に出ない項目も表示する (-vv: 生の出力も)
   netcap <command> -q                         結果だけを出す。進み具合・ヒント・注記は出さない
   netcap help [<command>|exit-codes]          -h と同じヘルプ。exit-codes は終了コードの意味の一覧
@@ -1425,7 +1425,7 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "  既定値を変える       : netcap set {host} --up N --down N",
     "give --up and --down together (with only one, the other would silently stay at the default)":
         "--up と --down は一緒に渡す (片方だけだと、もう片方が黙って既定値のままになる)",
-    "usage: netcap set <host|all> --up N --down N": "使い方: netcap set <host|all> --up N --down N",
+    "usage: netcap set <host>|all --up N --down N": "使い方: netcap set <host>|all --up N --down N",
     "--up / --down must be positive numbers in Mbit/s: {values}": "--up / --down は Mbit/s の正の数で渡す: {values}",
     "to undo: netcap off {host}": "戻すには: netcap off {host}",
     DOWN_NOTE: "* 下りは on のときに記録した値。macOS の dnctl は pipe 2 の帯域を表示できないため (パイプ自体は確認済み)",
@@ -1657,7 +1657,7 @@ def main():
     p.add_argument("--for", dest="for_", metavar="TIME", help=_(FOR_EACH_HELP))
     sub.add_parser("profiles", help=_("list profiles"))
     p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
-    p.add_argument("host", nargs="?", help=_("the device to protect"))
+    p.add_argument("host", nargs="?", metavar="<host>", help=_("the device to protect"))
     p.add_argument("--up", metavar="MBIT", help=_("the cap for the others (default: each device's default)"))
     p.add_argument("--down", metavar="MBIT")
     p.add_argument("--off", action="store_true", help=_("put every device back as it was before protect"))
@@ -1665,16 +1665,16 @@ def main():
                                                   "and say whether latency improved"))
     p.add_argument("--for", dest="for_", metavar="TIME", help=_(FOR_EACH_HELP))
     p = sub.add_parser("install", help=_("install the agent on a device and register it (this machine without --ssh)"))
-    p.add_argument("name", nargs="?", help=_("the device's name in hosts (asked when omitted); a registered name updates it"))
+    p.add_argument("name", nargs="?", metavar="<name>", help=_("the device's name in hosts (asked when omitted); a registered name updates it"))
     p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))
     p.add_argument("--boot", choices=["on", "off"], default="off",
                    help=_("mac / linux: apply the default cap at boot (default: off)"))
     p = sub.add_parser("uninstall", help=_("remove the agent from a device and forget it"))
-    p.add_argument("name")
+    p.add_argument("name", metavar="<host>")
     p.add_argument("--config-only", action="store_true", help=_("only forget it here (for a device that is gone)"))
     p = sub.add_parser("rename", help=_("rename a device in hosts and profiles"))
-    p.add_argument("old")
-    p.add_argument("new")
+    p.add_argument("old", metavar="<old>")
+    p.add_argument("new", metavar="<new>")
     sub.add_parser("export", help=_("print hosts and profiles as JSON (no keys)"))
     p = sub.add_parser("import", help=_("read hosts and profiles from an export"))
     p.add_argument("file", help=_("a file from netcap export, or - for stdin"))
