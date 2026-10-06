@@ -19,8 +19,10 @@ with ssh as the only channel. It is not a replacement for router SQM; if you can
 - **Only internet traffic is capped.** LAN, VPN, ping, and DNS pass through, so the line stays usable and measurements stay honest
 - **Every cap can be undone**, including from the capped machine itself with no network
 - **One command per task.** Setting up a device, capping, and undoing are each one command
-- **Small.** The CLI is one Python file with the standard library; the device side is scripts, with nothing running between commands
-- **Leave to the OS what the OS does.** Scheduling is cron / launchd; the shaping is pf, tc, and NetQosPolicy
+- **Small.** The CLI is one Python file with the standard library. The device side is scripts: nothing of netcap's runs between
+  commands, except the OS running the shaper at boot with `boot=on` and at an `on --for` deadline
+- **Leave to the OS what the OS does.** Recurring schedules are cron, launchd, or Task Scheduler calling netcap; an `on --for`
+  deadline is the device's scheduler (launchd, a systemd timer, Task Scheduler); the shaping is pf, tc, and NetQosPolicy
 
 ## Ideal and current
 
@@ -36,7 +38,7 @@ Open gaps are tracked with the [`vision-gap`](https://github.com/ken-ty/netcap/l
 | Several controllers | Any controller works as any ssh user | export / import; sudoers allows each user who installed; uninstall takes back one controller's part | None |
 | Device decides | A second gate behind the forced command | sudoers per verb on macOS / Linux; forced command only on Windows | Accepted: no built-in second gate on Windows |
 | Visible state | `status` reads the real state | Done; macOS download shows the value recorded at `on` | Accepted: dnctl does not report it |
-| Schedules | Cap at night, and so on | cron / launchd call `netcap use` | None: left to the OS |
+| Schedules | Cap at night, and so on | cron, launchd, or Task Scheduler call `netcap use` | None: left to the OS |
 
 ## Non-goals
 
