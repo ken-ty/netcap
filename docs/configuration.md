@@ -46,7 +46,7 @@ netcap import netcap.json --replace  # overwrite existing hosts and profiles (ke
   resolved by the importing machine's own `~/.ssh/config`. Caps and defaults are not exported either; they live on the devices
 - **This machine (route `-`) is not taken over elsewhere.** Imported on another machine, it would point at that machine,
   so it is skipped (and removed from profiles) with a message. Add it back with `netcap install <name> --ssh <dest>`
-- **An export is checked before anything is written**: names, OS, routes, profile values, and `exported_from`. A route that starts with `-`
+- **An export is checked before anything is written**: names, OS, routes, and profile values; the exporting machine's name is written only if it follows the name rule. A route that starts with `-`
   is refused, because ssh would read it as an option (`-oProxyCommand=…` runs a command). hosts and profiles are checked the same way
   when netcap reads them, with the file and line of anything that breaks a rule
 - Comments in hosts and profiles are not kept

@@ -16,8 +16,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Security
 
-- `netcap import` refuses an `exported_from` that is not a plain name: a newline in it added lines to hosts that were
-  never checked. The completion script passes only names that follow the name rule to `compgen`, which ran a name
+- `netcap import` writes the exporting machine's name into hosts and profiles only if it is a plain name: a newline in
+  it added lines that were never checked. The completion script passes only names that follow the name rule to `compgen`, which ran a name
   like `$(…)` in hosts as a command when you pressed TAB (#97)
 
 ## [0.12.0] - 2026-10-06

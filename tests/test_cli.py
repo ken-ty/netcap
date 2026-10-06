@@ -764,13 +764,27 @@ class CLI(unittest.TestCase):
     def test_import_refuses_a_bad_exported_from(self):
         self.hosts("off", profiles="p  off=1/1\n")
         data, f = self.export()
-        for bad in ("laptop\n$(echo${IFS}RAN-ON-TAB>&2) mac h-x-b", "a b", "", 3, None):
+        for bad in (3, None, ["laptop"]):
             with self.subTest(bad=bad):
                 f.write_text(json.dumps({**data, "exported_from": bad}))
                 p, other = self.import_into(f, "--replace")
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn("cannot import", p.stderr)
                 self.assertFalse((other / "hosts").exists())
+
+    # A machine's own name may break the name rule (a Japanese Windows host name): import it, but never write it
+    def test_import_keeps_an_odd_exported_from_out_of_the_files(self):
+        self.hosts("off", profiles="p  off=1/1\n")
+        data, f = self.export()
+        for odd in ("laptop\n$(echo${IFS}RAN-ON-TAB>&2) mac h-x-b", "戸倉のPC", "a b", ""):
+            with self.subTest(odd=odd):
+                f.write_text(json.dumps({**data, "exported_from": odd}))
+                p, other = self.import_into(f, "--replace")
+                self.assertEqual(p.returncode, 0, p.stderr)
+                for name in ("hosts", "profiles"):
+                    text = (other / name).read_text()
+                    self.assertEqual(text.splitlines()[0], "# written by netcap import")
+                    self.assertNotIn("RAN-ON-TAB", text)
 
     def test_import_writes_only_checked_lines(self):
         self.hosts("off", profiles="p  off=1/1\n")

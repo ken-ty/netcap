@@ -1054,7 +1054,7 @@ def check_import(data):
         hosts.append((name, os_, route))
     # It goes into a comment line of hosts and profiles, so it follows the name rule too (a newline would add a line)
     origin = data.get("exported_from", "")
-    if "exported_from" in data and not (isinstance(origin, str) and NAME_RE.fullmatch(origin)):
+    if not isinstance(origin, str):
         import_error(_("bad exported_from: {value!r}").format(value=origin))
     profiles = data.get("profiles", {})
     if not isinstance(profiles, dict):
@@ -1104,8 +1104,10 @@ def cmd_import(a):
     for p in existing:
         shutil.copy2(p, p.with_name(p.name + ".bak"))
         say(_("kept the old {path} as {bak}").format(path=p, bak=p.name + ".bak"))
-    origin = data.get("exported_from")  # checked by check_import
-    head = "# written by netcap import" + (f" from {origin}" if origin else "") + "\n"
+    # The exporting machine's name is only shown, and only if it follows the name rule: a host name may not (a Japanese
+    # Windows name), and anything else could add a line to the files (#87)
+    origin = data.get("exported_from") or ""
+    head = "# written by netcap import" + (f" from {origin}" if NAME_RE.fullmatch(origin) else "") + "\n"
     paths[0].write_text(head + "".join(f"{n:<8} {o:<5} {r or '-'}\n" for n, o, r in hosts), encoding="utf-8")
     paths[1].write_text(head + "".join(f"{p}  " + "  ".join(f"{h}={v}" for h, v in plan.items()) + "\n"
                                        for p, plan in profiles.items()), encoding="utf-8")
