@@ -13,7 +13,7 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - The agent refuses `check --bytes` outside 1 to 100000000 (100 MB), so a key allowed only `status get check` can no
   longer make a device transfer as much as it asks; `netcap check --bytes` says so before sending. This narrows what
   the agent accepts, but the CLI never sends what it refuses, so the oldest agent the CLI works with does not change.
-  Update each device with `netcap install <name>` to get the limit there (#PR)
+  Update each device with `netcap install <name>` to get the limit there (#98)
 
 ## [0.12.0] - 2026-10-06
 
