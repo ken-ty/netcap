@@ -70,6 +70,7 @@ if ($verb -eq 'on' -and $rest.Count -ge 2 -and $rest[-2] -eq '--for') {
   $rest = @($rest | Select-Object -First ($rest.Count - 2))
 }
 # Only on / set take numbers. The other verbs take no arguments
+if ($verb -notin 'on', 'set' -and $rest.Count -gt 0) { Deny "$verb takes no arguments" }
 foreach ($a in $rest) {
   if ($a -notmatch '^[0-9]+([.][0-9]+)?$') { Deny "arguments must be numbers: $a" }
   # 0 is refused on every OS, as the CLI does

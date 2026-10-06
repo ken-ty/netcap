@@ -71,7 +71,9 @@ if [ "$verb" = on ] && [ $# -ge 2 ] && [ "${*: -2:1}" = --for ]; then
   for_args=(--for "${*: -1}")
   set -- "${@:1:$(($# - 2))}"
 fi
-# Only on / set take numbers. The other verbs take no arguments
+# Only on / set take numbers. The other verbs take no arguments: sudoers would refuse them, and that reads as a password
+# prompt (no-sudo) instead of a refusal
+case $verb in on | set) ;; *) [ $# -eq 0 ] || deny "$verb takes no arguments" ;; esac
 for a in "$@"; do
   [[ "$a" =~ ^[0-9]+([.][0-9]+)?$ ]] || deny "arguments must be numbers: $a"
   # 0 is refused: dummynet reads bw 0 as unlimited, so "0" would silently lift the cap
