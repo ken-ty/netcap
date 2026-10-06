@@ -142,7 +142,10 @@ netcap export                               print hosts and profiles as JSON (no
 netcap import <file|->                      read them back (--replace to overwrite)
 netcap doctor [host|all] [--json]           check that each device's netcap key is pinned to its forced command
 netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
-netcap --version                            also -V
+netcap <command> -q                         print only the result: no progress, hints, or notes
+netcap help [<command>|exit-codes]          the same help as -h; exit-codes lists what each exit status means
+netcap completion bash|zsh                  print a completion script, e.g. eval "$(netcap completion zsh)"
+netcap --version                            also -V, or netcap version
 ```
 
 Values are Mbit/s and may be decimals. `0` is an error (nothing changes); to lift a cap, use `off`.
