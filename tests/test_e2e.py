@@ -661,16 +661,24 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
     # removes the link, and leaves the folder it points to as it was
     @unittest.skipUnless(OS == "win", "junctions")
     def test_97_uninstall_leaves_what_a_link_points_to(self):
-        target, link = Path(tempfile.mkdtemp()), r"C:\ProgramData\netcap\elsewhere"
-        (target / "keep.txt").write_text("x")
-        self.assertEqual(sh("cmd", "/c", "mklink", "/J", link, str(target)).returncode, 0)
+        d = r"C:\ProgramData\netcap"
+        links = {"junction": ("/J", d + r"\elsewhere"), "symlink": ("/D", d + r"\sub\elsewhere")}  # sub: one level down
+        targets = {}
+        os.makedirs(d + r"\sub", exist_ok=True)
+        for kind, (flag, link) in links.items():
+            targets[kind] = Path(tempfile.mkdtemp())
+            (targets[kind] / "keep.txt").write_text("x")
+            p = sh("cmd", "/c", "mklink", flag, link, str(targets[kind]))
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         try:
             p = uninstall()
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-            self.assertTrue((target / "keep.txt").exists(), "uninstall.ps1 deleted what the link points to")
-            self.assertFalse(Path(r"C:\ProgramData\netcap").exists())
+            for kind, target in targets.items():
+                self.assertTrue((target / "keep.txt").exists(), f"uninstall.ps1 deleted what the {kind} points to")
+            self.assertFalse(Path(d).exists())
         finally:
-            sh("cmd", "/c", "rmdir", link)
+            for _, link in links.values():
+                sh("cmd", "/c", "rmdir", link)
             p = install()
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
