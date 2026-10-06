@@ -18,7 +18,7 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
 | ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
-| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (measured) | ✅ (measured) | ⚠️ LAN passes (measured), DNS from the rules; ICMPv6 ❓ |
+| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (measured) | ✅ (measured) | ✅ (measured; upload only, as for IPv4) |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
 | `netcap install --ssh` from a controller | ✅ | ✅ | ✅ (the ssh user must be an Administrator) |
@@ -29,7 +29,9 @@ On macOS and Windows, IPv6 to the LAN was measured on real machines on 2026-10-0
 On macOS, IPv6 to the internet was measured on 2026-10-04 over a phone's tethering: at a 1/1 Mbit/s cap, IPv6 download
 fell from 28.7 to 0.89 Mbit/s and upload held at 0.62. While that download filled the cap, new TCP connections over IPv6
 waited 0.8 to 1.8 s, but ping6 stayed at 31 ms and DNS queries over IPv6 at 26 to 52 ms, as without a cap.
-The rest of the Windows row comes from reading the rules: its line had no IPv6 to the internet.
+On Windows, measured on 2026-10-06 on the same tethering: at a 1/1 cap, IPv6 upload fell from 11.3 to 0.92 Mbit/s. While
+that upload filled the cap, new TCP connections over IPv6 took 1.0 to 1.3 s, but ping6 stayed at 18 to 61 ms and DNS over
+IPv6 at 30 to 38 ms, as without a cap: nothing names ICMPv6, yet the throttling policy does not hold it back.
 
 ## As a controller (the CLI)
 
