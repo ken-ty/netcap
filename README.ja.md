@@ -144,7 +144,10 @@ netcap export                               hosts と profiles を JSON で出�
 netcap import <file|->                      それを読み戻す (--replace で上書き)
 netcap doctor [host|all] [--json]           各端末の netcap の鍵が forced command に固定されているか確かめる
 netcap <command> -v                         表に出ない項目も表示する (-vv: 機器の生の出力も)
-netcap --version                            -V でも可
+netcap <command> -q                         結果だけを出す。進み具合・ヒント・注記は出さない
+netcap help [<command>|exit-codes]          -h と同じヘルプ。exit-codes は終了コードの意味の一覧
+netcap completion bash|zsh                  補完スクリプトを出す。例: eval "$(netcap completion zsh)"
+netcap --version                            -V、netcap version でも可
 ```
 
 値は Mbit/s で、小数も使える。`0` はエラー (何も変わらない)。上限を外すなら `off`。

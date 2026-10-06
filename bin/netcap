@@ -189,6 +189,30 @@ class VersionAction(argparse.Action):
 
 
 VERBOSE_HELP = "also show what the table leaves out; -vv also shows the raw output from the device"
+QUIET_HELP = "print only the result: no progress, hints, or notes"
+QUIET = False  # set by -q: hint() and say() print nothing
+
+# docs/operations.md: Exit codes. 3 lets a script tell "try again later" from a real failure
+OK, FAIL, USAGE, UNREACHABLE = 0, 1, 2, 3
+EXIT_CODES = """\
+0  success
+1  failure (a device refused or failed, or a bad host or setting)
+2  usage error (bad command, flags, or arguments)
+3  the only failures were devices out of reach (ssh could not connect, or timed out): try again later
+"""
+
+
+def hint(msg):
+    """A line that helps a person but is not the result (how to undo, what to try). -q drops it."""
+    if not QUIET:
+        print(msg)
+
+
+def rc_of(rows):
+    bad = [r for r in rows if r.get("reach") != "ok"]
+    if not bad:
+        return OK
+    return UNREACHABLE if all(r.get("reach") in ("unreachable", "timeout") for r in bad) else FAIL
 
 
 def config_lines(name):
@@ -256,7 +280,7 @@ def print_table(rows, cols, footnote=None):
     for r in rows:
         vals = [f(r) for _, _, f in cols]
         print("  ".join(f"{v:<{w}}" if w else v for v, (_, w, _) in zip(vals, cols)))
-    if footnote and any(r.get("down_src") == "applied" for r in rows):
+    if footnote and not QUIET and any(r.get("down_src") == "applied" for r in rows):
         print(_(footnote))
 
 
@@ -349,7 +373,7 @@ def emit(rows, cols, as_json, verbose=0, footnote=DOWN_NOTE):
         print_table(rows, cols, footnote)
         if verbose:
             print_details(rows, verbose)
-    return 0 if all(r.get("reach") == "ok" for r in rows) else 1
+    return rc_of(rows)
 
 
 def apply_and_read(hosts, action, args, as_json, verbose):
@@ -503,7 +527,7 @@ def cmd_protect(a):
     saved["applied"] = {r["host"]: cap_value(r) for r in after_rows if r["host"] in targets and cap_value(r)}
     path.write_text(json.dumps(saved, indent=2))
     after, *loaded_after = measure_under(a.host, targets, load)
-    rc = 0 if all(r.get("reach") == "ok" for r in after_rows) else 1
+    rc = rc_of(after_rows)
     verdict = latency_verdict(before, after) if load else None
     if a.json:
         print(json.dumps({"protected": a.host, "devices": after_rows, "before": before, "after": after,
@@ -520,9 +544,9 @@ def cmd_protect(a):
         if a.verbose:
             print_details(loaded_before + loaded_after, a.verbose)
     else:
-        print(_("\nThe difference shows only if the other devices used the line while {host} was measured; "
+        hint(_("\nThe difference shows only if the other devices used the line while {host} was measured; "
                 "netcap does not make that traffic. --load <MB> makes it").format(host=a.host))
-    print(_("to undo: netcap protect --off"))
+    hint(_("to undo: netcap protect --off"))
     return rc
 
 
@@ -559,7 +583,7 @@ def protect_off(path, saved, a):
         path.unlink()
     if restore:
         emit(fan_out(restore, "status"), STATUS_COLS, a.json, a.verbose)
-    return 1 if left else 0
+    return rc_of([now[h] for h in left]) if left else OK
 
 
 def cmd_profiles(a):
@@ -587,7 +611,8 @@ THIS_OS = {"darwin": "mac", "linux": "linux", "win32": "win"}.get(sys.platform)
 
 
 def say(msg):
-    print(f"==> {msg}", flush=True)
+    if not QUIET:
+        print(f"==> {msg}", flush=True)
 
 
 def ssh_plain(dest, cmd, tty=False, input=None, capture=True):
@@ -813,7 +838,7 @@ def cmd_install(a):
         say(_("added {name} to {path}").format(name=name, path=path))
     rc = emit([run(name, "get")], GET_COLS, a.json, a.verbose)
     if not a.json:
-        print(_("\nTry it:  netcap on {name} --up 2 --down 2 --for 10m\nUndo:    netcap off {name}").format(name=name))
+        hint(_("\nTry it:  netcap on {name} --up 2 --down 2 --for 10m\nUndo:    netcap off {name}").format(name=name))
     return rc
 
 
@@ -1132,6 +1157,16 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
 書式は examples/ を参照。どちらも 1 行 1 項目のテキストで、# 以降はコメント。
 """,
     "print the version and exit": "バージョンを表示して終了する",
+    "print only the result: no progress, hints, or notes": "結果だけを出す。進み具合・ヒント・注記は出さない",
+    "show help for a command, or a topic: exit-codes": "コマンドのヘルプ、またはトピック (exit-codes) を出す",
+    "print the version": "バージョンを表示する",
+    "print a completion script: eval \"$(netcap completion bash)\"": "補完スクリプトを出す: eval \"$(netcap completion bash)\"",
+    EXIT_CODES: """\
+0  成功
+1  失敗 (端末が拒んだ・失敗した、またはホストや設定の誤り)
+2  使い方の誤り (コマンド・フラグ・引数の誤り)
+3  失敗は届かない端末だけだった (ssh がつながらない、または時間切れ): 後でやり直す
+""",
     "print in machine-readable form": "機械が読める形で出力する",
     VERBOSE_HELP: "表に出ない項目も表示する。-vv で機器の生の出力も表示する",
     "this controller": "管理する側 (この機械)",
@@ -1295,6 +1330,39 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
 }
 
 
+def completion_script(shell, sub):
+    """bash / zsh completion without a dependency: subcommands, their flags, and the names in hosts at the time.
+    A word starting with - completes flags; any other word completes what the command takes."""
+    flags = {name: sorted(s for x in p._actions for s in x.option_strings) for name, p in sub.choices.items()}
+    args = {name: "$(_netcap_hosts)" for name, p in sub.choices.items()
+            if any(x.dest in ("host", "name", "old") for x in p._actions)}
+    args["help"] = " ".join([*sub.choices, "exit-codes"])
+    args["completion"] = "bash zsh"
+    cases = "\n".join(f'    {k}) f="{" ".join(v)}"; a="{args.get(k, "")}" ;;' for k, v in flags.items())
+    script = f"""_netcap_hosts() {{
+  local d=${{NETCAP_CONFIG_DIR:-${{XDG_CONFIG_HOME:-$HOME/.config}}/netcap}}
+  [ -f "$d/hosts" ] && sed -e 's/#.*//' "$d/hosts" | awk 'NF {{ print $1 }}'
+  echo all
+}}
+_netcap() {{
+  local cur=${{COMP_WORDS[COMP_CWORD]}} f a
+  if [ "$COMP_CWORD" -eq 1 ]; then
+    f="-h --help -V --version --json -v --verbose -q --quiet"; a="{' '.join(sub.choices)}"
+  else
+    case ${{COMP_WORDS[1]}} in
+{cases}
+    esac
+  fi
+  case $cur in -*) ;; *) [ -n "$a" ] && f=$a ;; esac
+  COMPREPLY=($(compgen -W "$f" -- "$cur"))
+}}
+complete -F _netcap netcap
+"""
+    if shell == "zsh":
+        script = "autoload -U +X bashcompinit && bashcompinit\n" + script
+    return script
+
+
 def main():
     argparse._ = _  # argparse's own words (usage:, options:, errors) go through the same table
     ap = argparse.ArgumentParser(prog="netcap", description=_(__doc__),
@@ -1302,6 +1370,7 @@ def main():
     ap.add_argument("-V", "--version", action=VersionAction)
     ap.add_argument("--json", action="store_true", help=_("print in machine-readable form"))
     ap.add_argument("-v", "--verbose", action="count", default=0, help=_(VERBOSE_HELP))
+    ap.add_argument("-q", "--quiet", action="store_true", help=_(QUIET_HELP))
     # Also accept these after the subcommand, so the README form (netcap status all --json) works.
     # Without SUPPRESS, the subcommand's default False would overwrite a --json given before it
     out = argparse.ArgumentParser(add_help=False)
@@ -1309,6 +1378,7 @@ def main():
     # A count would start over in the subcommand, so -v before and after it are added up below
     out.add_argument("-v", "--verbose", action="count", dest="verbose_after", default=argparse.SUPPRESS,
                      help=_(VERBOSE_HELP))
+    out.add_argument("-q", "--quiet", action="store_true", default=argparse.SUPPRESS, help=_(QUIET_HELP))
     sub = ap.add_subparsers(dest="cmd", required=True)
     _add = sub.add_parser
     sub.add_parser = lambda *a, **k: _add(*a, parents=[out], **k)
@@ -1361,9 +1431,30 @@ def main():
     p.add_argument("--replace", action="store_true", help=_("overwrite existing hosts and profiles (keeps .bak copies)"))
     p = sub.add_parser("doctor", help=_("check that each device's netcap key is pinned to its forced command"))
     add_target(p, optional=True)
+    p = sub.add_parser("help", help=_("show help for a command, or a topic: exit-codes"))
+    p.add_argument("topic", nargs="?")
+    sub.add_parser("version", help=_("print the version"))
+    p = sub.add_parser("completion", help=_("print a completion script: eval \"$(netcap completion bash)\""))
+    p.add_argument("shell", choices=["bash", "zsh"])
 
     a = ap.parse_args()
     a.verbose += getattr(a, "verbose_after", 0)
+    global QUIET
+    QUIET = a.quiet
+    if a.cmd == "help":
+        if a.topic == "exit-codes":
+            print(_(EXIT_CODES), end="")
+        elif a.topic:
+            ap.parse_args([a.topic, "-h"])  # an unknown name is a usage error (exit 2)
+        else:
+            ap.print_help()
+        return OK
+    if a.cmd == "version":
+        print(f"netcap {version()}")
+        return OK
+    if a.cmd == "completion":
+        print(completion_script(a.shell, sub), end="")
+        return OK
     commands = {"protect": cmd_protect, "install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
                 "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor}
     if a.cmd in commands:
@@ -1392,7 +1483,7 @@ def main():
         rc = apply_and_read(resolve(a.host), a.cmd, args, a.json, a.verbose)
         if a.cmd == "on" and not a.json:
             # The way back is printed right where it is needed, in case the cap makes it hard to look up
-            print(_("to undo: netcap off {host}").format(host=a.host))
+            hint(_("to undo: netcap off {host}").format(host=a.host))
         return rc
 
     if a.cmd == "off":
@@ -1407,7 +1498,7 @@ def main():
         # Point out agents that differ from this CLI (only for a release CLI; a clone's version has a git suffix)
         old = [r["host"] for r in rows if r.get("reach") == "ok" and r.get("agent") != version()]
         if old and not a.json and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version()):
-            print(_("\nThe agent differs from this CLI ({version}) on: {hosts}. Update with: netcap install <name>")
+            hint(_("\nThe agent differs from this CLI ({version}) on: {hosts}. Update with: netcap install <name>")
                   .format(version=version(), hosts=", ".join(old)))
         return rc
 

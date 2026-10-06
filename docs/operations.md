@@ -56,3 +56,16 @@ on the device for the same login, and goes with the last one. To remove everythi
 (Linux: `linux/uninstall.sh`; Windows: `C:\ProgramData\netcap\uninstall.ps1`) on the device ([host-setup.md](host-setup.md)).
 
 On Windows, the CLI runs day-to-day commands and `netcap install --ssh` (CI runs both there, the latter to a Windows device).
+
+## Exit codes
+
+`netcap help exit-codes` prints the same list.
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success: every device answered and did what was asked |
+| 1 | Failure: a device refused or failed, or a host or setting is wrong |
+| 2 | Usage error: a bad command, flag, or argument. Nothing was sent |
+| 3 | The only failures were devices out of reach (ssh could not connect, or timed out). Try again later |
+
+With several devices, the other devices are still changed when one fails; the code says the worst that happened.

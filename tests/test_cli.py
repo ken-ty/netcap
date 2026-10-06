@@ -150,7 +150,8 @@ class CLI(unittest.TestCase):
         for args in (["status", "off", "--json"], ["status", "all", "--json"], ["get", "off", "--json"],
                      ["on", "off", "--up", "1", "--down", "2"], ["off", "off"],
                      ["set", "off", "--up", "1", "--down", "2"], ["use", "p"], ["profiles"],
-                     ["status", "off", "-v"], ["--version"], ["-V"], ["protect", "--off"]):
+                     ["status", "off", "-v"], ["--version"], ["-V"], ["protect", "--off"], ["help"], ["help", "on"],
+                     ["help", "exit-codes"], ["version"], ["completion", "bash"], ["status", "off", "-q"]):
             with self.subTest(args=args):
                 p = self.netcap(*args)
                 self.assertNotIn("unrecognized arguments", p.stderr)
@@ -338,6 +339,60 @@ class CLI(unittest.TestCase):
         p = self.netcap("protect", "game")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("no other device", p.stderr)
+
+    # #69: help and version are subcommands too, like -h and --version
+    def test_help_and_version_subcommands(self):
+        self.hosts("on")
+        p = self.netcap("help")
+        self.assertEqual((p.returncode, p.stdout), (0, self.netcap("-h").stdout))
+        p = self.netcap("help", "on")
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("--for", p.stdout)
+        self.assertEqual(self.netcap("help", "nosuch").returncode, 2)
+        self.assertEqual(self.netcap("version").stdout, self.netcap("--version").stdout)
+        p = self.netcap("help", "exit-codes")
+        self.assertEqual(p.returncode, 0)
+        for code in ("0", "1", "2", "3"):
+            self.assertRegex(p.stdout, rf"(?m)^{code} ")
+
+    # #69: -q drops hints and notes, before or after the subcommand; the table and errors stay
+    def test_quiet(self):
+        self.hosts("on")
+        self.assertIn("to undo: netcap off on", self.netcap("on", "on").stdout)
+        for args in (["-q", "on", "on"], ["on", "on", "-q"], ["on", "on", "--quiet"]):
+            with self.subTest(args=args):
+                out = self.netcap(*args).stdout
+                self.assertNotIn("to undo", out)
+                self.assertNotIn("* download is", out)
+                self.assertRegex(out, r"(?m)^on\s+ok\s+on\s")
+
+    # #69: docs/operations.md: Exit codes. 3 when every failure is a device out of reach, so a script can retry
+    def test_exit_codes(self):
+        for names, rc in ((["on"], 0), (["on", "unreachable"], 3), (["unreachable", "nosudo"], 1), (["denied"], 1)):
+            with self.subTest(names=names):
+                self.hosts(*names)
+                self.assertEqual(self.netcap("status", "all").returncode, rc)
+        self.assertEqual(self.netcap("status", "--bad").returncode, 2)
+        self.assertEqual(self.netcap("on", "nosuchhost").returncode, 1)
+
+    # #69: completion scripts for bash and zsh, with the subcommands and the names in hosts
+    def test_completion(self):
+        self.hosts("gamepc", "laptop")
+        for shell in ("bash", "zsh"):
+            with self.subTest(shell=shell):
+                p = self.netcap("completion", shell)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertIn("complete -F _netcap netcap", p.stdout)
+                for word in ("status", "protect", "--json", "--quiet", "exit-codes"):
+                    self.assertIn(word, p.stdout)
+                if shell == "zsh":
+                    self.assertIn("bashcompinit", p.stdout)
+        script = self.netcap("completion", "bash").stdout
+        # The host names come from hosts when completing, not when the script was printed
+        out = subprocess.run(["bash", "-c", script + '\nCOMP_WORDS=(netcap on ""); COMP_CWORD=2; _netcap; echo "${COMPREPLY[*]}"'],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(sorted(out.stdout.split()), ["all", "gamepc", "laptop"])
 
     # #29: on --for. The duration goes to the device in seconds, at the end of on
     def test_on_for(self):
