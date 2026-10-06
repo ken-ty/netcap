@@ -11,7 +11,8 @@ each CLI release works with.
 - Before 1.0, a minor release (0.x.0) may need a newer agent. A patch release (0.x.y) does not
 - When a release needs a newer agent, it raises the minimum in the table below and says so in its tag message.
   Update each device with `netcap install <name>`
-- The `agent` column of `netcap get` shows each device's version, and `netcap get` points out agents that differ from the CLI
+- The `agent` column of `netcap get` shows each device's version. A release CLI (a plain `x.y.z` version) also points out
+  agents that differ from it; a CLI run from a clone does not, since its version carries a git suffix
 
 Raise the minimum when a release changes any of these:
 

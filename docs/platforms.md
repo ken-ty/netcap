@@ -39,15 +39,18 @@ IPv6 at 30 to 38 ms, as without a cap: nothing names ICMPv6, yet the throttling 
 | --- | --- | --- | --- |
 | `status` `get` `on` `off` `set` `check` `use` `profiles` | ✅ | ✅ | ✅ |
 | `install` / `uninstall` / `rename` for this machine | ✅ | ✅ | ✅ |
-| `install` / `uninstall` with `--ssh` to other devices | ✅ | ✅ | ✅ |
+| `install --ssh`, and `uninstall` of a device reached over ssh | ✅ | ✅ | ✅ |
+| `doctor` | ✅ | ✅ | ✅ |
+| `protect` | ✅ | ✅ | ❓ |
 | `export` / `import` | ✅ | ✅ | ✅ |
 | Install with brew | ✅ | ✅ (Homebrew on Linux) | ❌ (curl or zip, see [host-setup.md](host-setup.md#where-the-scripts-are)) |
 | Help and errors in Japanese under a Japanese locale | ✅ | ✅ | ⚠️ English unless `LANG` / `LC_ALL` is set |
+| Shell completion (`completion`) | ✅ bash, zsh | ✅ bash, zsh | ⚠️ bash and zsh only (no PowerShell) |
 
 The CLI needs only Python 3 and the OpenSSH client.
 
-CI tests `--ssh` from Linux to Linux and from Windows to Windows by connecting each runner to itself through a real sshd
-(`tests/test_e2e_ssh.py`). On Windows it runs twice: with sshd's default shell (`cmd.exe`) and with PowerShell.
+CI tests `--ssh` (install, the forced command, `doctor`, `on` / `off`, and uninstall) from Linux to Linux and from Windows
+to Windows by connecting each runner to itself through a real sshd (`tests/test_e2e_ssh.py`). On Windows it runs twice: with sshd's default shell (`cmd.exe`) and with PowerShell.
 The same test, run by hand from a Windows 11 controller to a macOS 26.3 device on 2026-10-01, showed install, the forced
-command, `doctor`, `on` / `off`, and uninstall working. It needs a version after 0.10.0, which sends the device side
+command, `doctor`, `on` / `off`, and uninstall working. It needs 0.11.0 or later, which sends the device side
 with LF from a Windows git clone (#65). macOS to Windows is in daily use.

@@ -9,12 +9,15 @@
 ## 状態はどこにあるか
 
 **上限は各端末の側にある。** netcap を動かす機械 (管理する側) が持つのは設定だけ:
-`~/.config/netcap/` (hosts、profiles) と鍵 `~/.ssh/netcap`。コマンドとコマンドの間は、どちらの側でも何も動いていない。
+`~/.config/netcap/` (hosts、profiles) と鍵 `~/.ssh/netcap`。コマンドとコマンドの間、管理する側では何も動いていない。
+端末の側で OS が netcap の本体を自分から動かすのは、`boot=on` での起動時と、`on --for` の上限を期限に外すときだけ。
 だから管理する側の電源が入っていてもいなくても、端末は何も変わらない。
 
 例外が 1 つある。`netcap protect` をかけている間、管理する側は各端末の前の状態を
-`~/.local/state/netcap/protect.json` (`$XDG_STATE_HOME` があればその下) に持つ。`netcap protect --off` で戻すため。
-その後に手作業・再起動・ほかの管理する側で変わった端末には触らない。
+`$NETCAP_STATE_DIR`、または `$XDG_STATE_HOME/netcap` (無ければ `~/.local/state/netcap`) の下の `protect.json` に持つ。
+`netcap protect --off` で戻すため。`protect` のときに届かなかった端末には触らない。
+その後に手作業・再起動・ほかの管理する側で変わった端末にも触らない。`--off` のときに届かなかった端末はファイルに
+残るので、戻ってきたら `netcap protect --off` をもう一度流す。
 
 ## 電源断と再起動
 

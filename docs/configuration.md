@@ -18,7 +18,7 @@ gamepc   win  gamepc
 | --- | --- |
 | name | The name you pass to `netcap status <name>`: letters, digits, `_`, `.`, and `-`, starting with a letter or digit. `all` is reserved |
 | OS | One of `mac` (pf + dummynet), `linux` (tc), `win` (NetQosPolicy) |
-| route | Your usual ssh destination (a Host from `~/.ssh/config`). `-` for the machine running netcap itself. `netcap install` writes this line |
+| route | Your usual ssh destination: a Host from `~/.ssh/config`, or `user@host`. `-` for the machine running netcap itself. `netcap install` writes this line |
 
 ## profiles
 
@@ -29,7 +29,7 @@ quiet   laptop=1/1  server=1/1
 none    laptop=off  server=off  gamepc=off
 ```
 
-A value is `up/down` in Mbit/s or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is). A profile name follows the same rule as a device name.
+A value is `up/down` in Mbit/s, `on` (the device's own default, as `netcap on <name>` without flags), or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is). A profile name follows the same rule as a device name.
 
 ## Export and import
 

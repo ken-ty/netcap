@@ -21,8 +21,10 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 - **絞るのはインターネット宛てだけ。** LAN・VPN・ping・DNS は素通しにして、回線を使える状態に保ち、測定を歪めない
 - **どの上限も戻せる。** 絞られた機械自身から、回線が無くても戻せる
 - **1 つの作業に 1 つのコマンド。** 端末の導入、絞る、戻す、がそれぞれ 1 コマンド
-- **小さく。** CLI は標準ライブラリだけの Python 1 ファイル。端末側はスクリプトで、コマンドの間は何も動いていない
-- **OS がやることは OS に任せる。** スケジュールは cron / launchd、帯域の制御は pf・tc・NetQosPolicy
+- **小さく。** CLI は標準ライブラリだけの Python 1 ファイル。端末側はスクリプトで、コマンドの間は netcap のものは何も動いていない。
+  例外は、`boot=on` の起動時と `on --for` の期限に OS が本体を動かすことだけ
+- **OS がやることは OS に任せる。** 繰り返しのスケジュールは cron・launchd・タスクスケジューラから netcap を呼ぶ。`on --for` の期限は端末の
+  スケジューラ (launchd、systemd のタイマー、タスクスケジューラ) が持つ。帯域の制御は pf・tc・NetQosPolicy
 
 ## あるべき姿と現在
 
@@ -38,7 +40,7 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 | 管理する側が複数 | どの ssh ユーザーで入っても管理できる | export / import。sudoers はインストールした各ユーザーを許し、uninstall は 1 つの管理する側の分だけ戻す | なし |
 | 端末が決める | forced command の後ろにもう一段の関門 | macOS / Linux は動詞ごとの sudoers。Windows は forced command のみ | 受け入れる: Windows には標準の二段目が無い |
 | 状態が見える | `status` が実物から読む | 達成。macOS の下りだけ `on` のとき記録した値 | 受け入れる: dnctl が値を出さない |
-| スケジュール | 夜だけ絞る、など | cron / launchd から `netcap use` を呼ぶ | なし: OS に任せる |
+| スケジュール | 夜だけ絞る、など | cron・launchd・タスクスケジューラから `netcap use` を呼ぶ | なし: OS に任せる |
 
 ## やらないこと
 

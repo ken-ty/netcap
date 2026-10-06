@@ -1,7 +1,7 @@
 # Devices netcap manages. One device per line: "name OS route"
 #   name   used as in netcap status <name>. "all" is reserved
 #   OS     one of mac (pf + dummynet), linux (tc), win (NetQosPolicy)
-#   route  a Host name from ~/.ssh/config, or - for the machine running netcap itself
+#   route  a Host name from ~/.ssh/config or user@host, or - for the machine running netcap itself
 #
 # netcap install adds lines here; you can also write them by hand.
 laptop   mac  -

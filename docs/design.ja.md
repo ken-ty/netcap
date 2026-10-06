@@ -49,8 +49,10 @@ pipe 番号は機械全体で共有なので、pipe 1 / 2 を使う Network Link
 
 ## tc は自分の qdisc だけ触る (Linux)
 
-- 既定の経路のインターフェースの root qdisc を自分の HTB (handle `ca9:`) に差し替え、`off` で消して既定に戻す。
-  他の道具が root に qdisc を置いていれば、差し替えずに止まる
+- インターネットへの IPv4 の経路 (`ip -4 route get 1.1.1.1`) のインターフェースの root qdisc を自分の HTB
+  (handle `ca9:`) に差し替え、`off` で消してカーネルの既定に戻す。差し替えずに止まるのは、他の道具が root に
+  帯域を制御する qdisc (htb、hfsc、cake、tbf、prio、drr、qfq、cbq、ets) を置いているときだけ。既定の `fq_codel` や
+  `noqueue` のような素の root qdisc は差し替える
 - 既定の経路が無ければ、`on` は諦める前に最大 3 秒待つ。Ubuntu 24.04 の systemd-networkd は起動後最初の `on` で
   落ちることがあり、再起動する間だけ DHCP の経路が消える ([#42](https://github.com/ken-ty/netcap/issues/42))
 - 下りは受信を `ifb-netcap` に折り返して、そこの HTB で絞る。受信側に他の道具のフィルタがあれば止まる
@@ -96,9 +98,8 @@ macOS の端末 1 台、4G 相当の回線、`scripts/measure.sh` (2026-09-21)�
 
 ## 成り立ち
 
-作者の FWA (5G のホームルーター) 回線で、別の端末のダウンロードがLoLの遅延を 500〜1,600ms に
-押し上げた。快適にLoLをやる為に都度他のPCの電源を落とすのは馬鹿げている。
+作者の FWA (5G のホームルーター) 回線で、別の端末のダウンロードが League of Legends (LoL) の遅延を
+500〜1,600 ms に押し上げた。快適に遊ぶためだけに、そのたびにほかの PC の電源を落とすのは馬鹿げている。
 ルーターに QoS が無いので端末の側で絞ることにし、その端末を上下 1 Mbit/s にすると
-遅延は中央値 44ms に戻った。これが netcap が生まれた経緯だ。
-このおかげで、 gamePCでLoLをやりながら、serverは止まることなく動き続けるし、
-別端末ではclaudeを回し続けることができている。
+遅延は中央値 44 ms に戻った。これが netcap が生まれた経緯だ。
+おかげで今は、ゲーム用の PC で LoL をやりながらサーバーは止まらずに動き続け、別の端末では Claude を回し続けられている。
