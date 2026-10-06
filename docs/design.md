@@ -45,6 +45,10 @@ used Homebrew, `/usr/local/sbin` can be like that).
 
 - Rules are loaded into the anchor `com.apple/netcap-netshape`; `/etc/pf.conf` is never replaced
 - `off` flushes the anchor and deletes only pipes 1 / 2. Enabling pf is counted with the `pfctl -E` token, and only our own reference is released
+- If something else disables pf (`pfctl -d`), the rules stay loaded but do nothing: `status` shows `partial`, and `on`
+  enables pf again with a new token
+- At boot, `com.apple.pfctl` may load `/etc/pf.conf` after the boot job (`--boot on`) starts. The job waits up to a
+  minute for it; a command you run stops at once
 
 Pipe numbers are shared by the whole machine, so netcap cannot be used together with tools that use pipes 1 / 2, such as Network Link Conditioner.
 
@@ -75,7 +79,7 @@ So the policy is kept in the persistent store.
 
 The device keeps the deadline and hands it to the OS scheduler, so it works with the controller off. A later `on` or `off`
 cancels it; `set` keeps it. If the timer cannot be started, `on --for` lifts the cap again and fails: a cap meant to end
-is never left without its timer.
+is never left without its timer. If lifting the cap fails at the deadline, macOS and Linux try again a minute later.
 
 | | Scheduler | After sleep | After a reboot |
 | --- | --- | --- | --- |
