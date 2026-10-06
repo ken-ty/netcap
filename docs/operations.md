@@ -8,7 +8,8 @@ What happens on reboots and power loss, and when more than one machine runs netc
 
 **The cap lives on each device.** The machine running netcap (the controller) keeps only its settings:
 `~/.config/netcap/` (hosts, profiles) and the key `~/.ssh/netcap`. Nothing runs on the controller between commands.
-On a device, the OS runs netcap's shaper on its own only at boot with `boot=on`, and to lift an `on --for` cap at its deadline.
+On a device, the OS runs netcap's shaper on its own only at boot with `boot=on`, and to lift an `on --for` cap at its deadline
+(`use --for` and `protect --for` send each device `on --for` too).
 So the controller being on or off does not change any device.
 
 One exception: while `netcap protect` is in effect, the controller keeps how each device was before, in
@@ -21,6 +22,13 @@ reach, or the device failed) stays in the file, and `--off` exits non-zero: run 
 it is back. Until then, `netcap rename` and `netcap uninstall` refuse the devices in the file. If the file cannot be
 read, netcap says so instead of guessing: check each device with `netcap status`, put back by hand what protect
 capped, then delete the file. The same goes for a device that is gone for good.
+
+With `protect --for`, each device protect capped gets the deadline itself, and the file keeps it too. Before it,
+`--off` works as above. After it, each device has lifted protect's cap by itself, so `--off` takes a device it finds
+uncapped as expected, not as changed: it puts back the cap the device had before, with the time still left of that
+cap's own `on --for`, and leaves the device uncapped if that deadline has passed as well. A device that still shows
+protect's cap (`due, lifting soon`) is put back the same way. The file stays until `--off` runs, so run
+`netcap protect --off` after the deadline as well; until then, another `netcap protect` refuses to start.
 
 ## Power loss and reboots
 

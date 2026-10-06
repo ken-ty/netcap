@@ -89,6 +89,7 @@ none    me=off  gamepc=off
 
 ```bash
 netcap use game      # apply a recipe to its devices
+netcap use game --for 2h   # the same; each device it caps lifts the cap by itself after 2 hours
 netcap use none      # remove all caps
 ```
 
@@ -97,6 +98,7 @@ Or name only the device to protect: netcap caps every other one and measures it 
 ```bash
 netcap protect gamepc --up 2 --down 2             # cap everything but gamepc; show gamepc's check before and after
 netcap protect gamepc --up 2 --down 2 --load 5    # the others also transfer 5 MB each meanwhile; says whether latency improved
+netcap protect gamepc --up 2 --down 2 --for 1h    # the others lift their caps by themselves after an hour
 netcap protect --off                              # put each device back as it was
 ```
 
@@ -134,9 +136,9 @@ netcap on     <host|all> [--up N --down N] [--for 30m]  apply a cap (flags apply
 netcap off    <host|all>                    remove the cap (with boot=on, the default comes back at reboot)
 netcap set    <host|all> --up N --down N    change the default
 netcap check  [host|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer, up to 100 MB)
-netcap use    <profile>                     apply a profile
+netcap use    <profile> [--for 30m]         apply a profile (--for: each device it caps lifts it after that long)
 netcap profiles                             list profiles
-netcap protect <host> [--up N --down N] [--load MB]  cap every other device; show <host>'s check before and after
+netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
 netcap install [name] [--ssh DEST] [--boot on|off]  install the agent on a device and register it (--boot on: cap at boot)
 netcap uninstall <name> [--config-only]     remove this controller's key and registration (the agent goes with the last)

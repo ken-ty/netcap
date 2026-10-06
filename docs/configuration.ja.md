@@ -33,6 +33,8 @@ none    laptop=off  server=off  gamepc=off
 
 値は Mbit/s の `上り/下り`、`on` (その端末自身の既定値。フラグなしの `netcap on <名前>` と同じ)、`off` のどれか。小数も使える (`0.5/2`)。`0` はエラーで、netcap は受け付けず何も変えない (macOS の dummynet は 0 を無制限と読むので、「遮断」の意味にはできない)。macOS で使える値は 2147.483647 まで (dummynet は帯域を bit/s の 32 ビット整数で持つ) で、それより大きい値は端末が受け付けない。上限を外すなら `off`。書かなかった端末は触らない (`quiet` は `gamepc` をそのままにする)。プロファイルの名前も端末の名前と同じ決まりに従う。
 
+`netcap use <profile> --for 30m` は `netcap on --for` と同じ時間を受け付ける (1m から 24h)。プロファイルが絞る各端末 (`上り/下り` か `on`) には `on … --for` を送り、各端末は管理する側がいなくなっても期限に自分で上限を外す。`off` の端末はその場で外す。0.11.0 より古い agent は `--for` を断って何も変えず、その端末は失敗として表示される。
+
 ## 書き出しと取り込み
 
 `netcap export` はこの機械の hosts と profiles を JSON で出し、`netcap import` がそれを読み戻す。

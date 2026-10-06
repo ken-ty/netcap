@@ -8,6 +8,14 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Added
+
+- `netcap protect <host> --for 30m` and `netcap use <profile> --for 30m` (the same times as `on --for`): each device
+  they cap lifts the cap by itself after that long, even with the controller off. The table and `--json` show the time
+  left. After protect's deadline, `netcap protect --off` puts back each device's cap from before protect, or leaves it
+  uncapped if that cap's own `on --for` deadline has passed too; run it after the deadline as well. Agents from 0.11.0
+  on support it (#103)
+
 ### Changed
 
 - **Breaking** A name in hosts or profiles that breaks the name rule (letters, digits, `_ . -`, starting with a letter

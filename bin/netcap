@@ -10,12 +10,13 @@
   netcap set    <host|all> --up N --down N    change the default (survives reboots)
   netcap check  [host|all] [--bytes N] [--json]
                                               measure (curl up/down + ping). --bytes: how much to transfer
-  netcap use    <profile>                     apply a profile to the devices it lists
+  netcap use    <profile> [--for 30m]         apply a profile to the devices it lists. --for: each device it
+                                              caps lifts the cap by itself after that long
   netcap profiles                             list profiles
-  netcap protect <host> [--up N --down N] [--load MB]
+  netcap protect <host> [--up N --down N] [--load MB] [--for 30m]
                                               cap every other device; show <host>'s check before and after.
                                               --load: the others load the line meanwhile, and the result says
-                                              whether latency improved
+                                              whether latency improved. --for: as for on
   netcap protect --off                        put each device back as it was
   netcap install [name] [--ssh DEST] [--boot on|off]
                                               install the agent on a device and register it. --boot on
@@ -197,6 +198,7 @@ class VersionAction(argparse.Action):
         parser.exit()
 
 
+FOR_EACH_HELP = "each device it caps lifts the cap by itself after this long: 30m, 2h, 1h30m (1m to 24h)"
 VERBOSE_HELP = "also show what the table leaves out; -vv also shows the raw output from the device"
 QUIET_HELP = "print only the result: no progress, hints, or notes"
 QUIET = False  # set by -q: hint() and say() print nothing
@@ -479,6 +481,8 @@ def cmd_use(a):
         sys.exit(_("the profile has unknown hosts: {names}").format(names=", ".join(unknown)))
     # Every value is read before anything is sent: a bad one changes nothing. Devices not listed are left untouched
     jobs = [(h, *parse_profile_value(h, plan[h])) for h in ORDER if h in plan]
+    # --for goes with each on; off needs no deadline. The agent takes --for only at the end of on (0.11.0 and later)
+    jobs = [(h, action, args + a.for_args if action == "on" else args) for h, action, args in jobs]
     if not a.json:
         print(f"profile: {a.profile}")
     return apply_and_read(jobs, a.json, a.verbose)
@@ -546,7 +550,8 @@ def read_state(path):
     if not (isinstance(saved, dict) and isinstance(saved.get("protected"), str)
             and all(isinstance(saved.get(k, {}), dict) for k in ("before", "applied", "until")) and "before" in saved
             and all(map(is_cap_value, saved["before"].values()))
-            and all(isinstance(v, (int, float)) for v in saved.get("until", {}).values())):
+            and all(isinstance(v, (int, float)) for v in saved.get("until", {}).values())
+            and isinstance(saved.get("applied_until", 0), (int, float))):
         sys.exit(_("{path} is not a protect state netcap can read. Check each device with netcap status, put back "
                    "by hand what protect capped, then delete the file").format(path=path))
     saved.setdefault("applied", {})
@@ -592,9 +597,11 @@ def refuse_while_protecting(name):
 
 
 def cmd_protect(a):
+    if a.off and a.for_args:
+        usage_error(_("--for goes with netcap protect <host>, not with --off"))
     if not a.off:  # the arguments first: a usage error is 2 whatever hosts and the state say
         if a.host is None:
-            usage_error(_("usage: netcap protect <host> [--up N --down N], or netcap protect --off"))
+            usage_error(_("usage: netcap protect <host> [--up N --down N] [--for 30m], or netcap protect --off"))
         if a.host == "all":
             usage_error(_("protect one device: netcap protect <host>"))
         args = cap_args(a)
@@ -640,7 +647,9 @@ def cmd_protect(a):
     except BaseException:  # stopped before capping anything (Ctrl-C): nothing to undo
         path.unlink(missing_ok=True)
         raise
-    changed = {r["host"]: r for r in fan_out(targets, "on", args)}
+    if a.for_args:  # protect's own deadline, in this machine's clock: past it, --off finds the devices uncapped
+        saved["applied_until"] = round(time.time()) + int(a.for_args[1])
+    changed = {r["host"]: r for r in fan_out(targets, "on", args + a.for_args)}
     # A device that refused or failed on shows why, and is not recorded as capped: --off leaves it as it is unless
     # someone changed it since (then it says how to undo that), as for any device protect did not cap
     failed = [h for h in targets if changed[h].get("reach") != "ok"]
@@ -680,6 +689,9 @@ def protect_off(path, saved, a):
             print("[]")
         return OK
     until = saved["until"]
+    # protect --for: each device lifts protect's cap by itself at this deadline. A timer on the device may be protect's
+    timed = "applied_until" in saved
+    expired = timed and time.time() >= saved["applied_until"]
 
     def goal(h):
         """What to put h back to: its value before, and the time left of its --for, if it had one."""
@@ -698,10 +710,12 @@ def protect_off(path, saved, a):
         was, seconds = goal(h)
         if cur is None:
             unreachable.append(h)  # try again later
+        elif timed and cur == set_to:
+            restore.append(h)  # what protect left, timer and all: put back what was there, with its own deadline
         elif cur == was and (seconds is None or now[h].get("left", "-").isdigit()):
             continue
-        elif cur == set_to:
-            restore.append(h)
+        elif cur == set_to or (expired and cur == "off" and h in saved["applied"]):
+            restore.append(h)  # past protect's deadline, off is what protect left
         else:
             undo = f"netcap off {h}" if was == "off" else f"netcap on {h}" if was == "on" else \
                 "netcap on {} --up {} --down {}".format(h, *was.split("/"))
@@ -1323,11 +1337,12 @@ JA = {
   netcap set    <host|all> --up N --down N    既定値を変える (再起動後も残る)
   netcap check  [host|all] [--bytes N] [--json]
                                               測る (curl の上り/下り + ping)。--bytes: 転送する量
-  netcap use    <profile>                     プロファイルを、書かれた端末に適用する
+  netcap use    <profile> [--for 30m]         プロファイルを、書かれた端末に適用する。--for: 絞った各端末が
+                                              その時間が経つと自分で外す
   netcap profiles                             プロファイルの一覧
-  netcap protect <host> [--up N --down N] [--load MB]
+  netcap protect <host> [--up N --down N] [--load MB] [--for 30m]
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
-                                              ほかの端末が回線を埋め、遅延が良くなったかを言う
+                                              ほかの端末が回線を埋め、遅延が良くなったかを言う。--for: on と同じ
   netcap protect --off                        各端末を元の状態に戻す
   netcap install [name] [--ssh DEST] [--boot on|off]
                                               機器に agent を入れて登録する。--boot on (mac / linux):
@@ -1443,8 +1458,10 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "\nTry it:  netcap on {name} --up 2 --down 2 --for 10m\nUndo:    netcap off {name}":
         "\n試す:    netcap on {name} --up 2 --down 2 --for 10m\n戻す:    netcap off {name}",
     "removing the agent from {where}": "{where} から agent を外す",
-    "usage: netcap protect <host> [--up N --down N], or netcap protect --off":
-        "使い方: netcap protect <host> [--up N --down N]、または netcap protect --off",
+    "usage: netcap protect <host> [--up N --down N] [--for 30m], or netcap protect --off":
+        "使い方: netcap protect <host> [--up N --down N] [--for 30m]、または netcap protect --off",
+    "--for goes with netcap protect <host>, not with --off": "--for は netcap protect <host> に付ける。--off には付けない",
+    FOR_EACH_HELP: "絞った各端末が、この時間が経つと自分で上限を外す: 30m、2h、1h30m (1m から 24h)",
     "protect one device: netcap protect <host>": "守る端末を 1 台だけ指定する: netcap protect <host>",
     "already protecting {host}. First: netcap protect --off": "{host} を守っている最中。先に: netcap protect --off",
     "no other device to cap (hosts has only {host})": "絞る相手がいない (hosts は {host} だけ)",
@@ -1637,6 +1654,7 @@ def main():
     p.add_argument("--bytes", metavar="N", help=_("bytes to transfer, 1 to 100000000; use less while capped"))
     p = sub.add_parser("use", help=_("apply a profile to the devices it lists"))
     p.add_argument("profile")
+    p.add_argument("--for", dest="for_", metavar="TIME", help=_(FOR_EACH_HELP))
     sub.add_parser("profiles", help=_("list profiles"))
     p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
     p.add_argument("host", nargs="?", help=_("the device to protect"))
@@ -1645,6 +1663,7 @@ def main():
     p.add_argument("--off", action="store_true", help=_("put every device back as it was before protect"))
     p.add_argument("--load", metavar="MB", help=_("meanwhile, transfer MB on each other device to load the line, "
                                                   "and say whether latency improved"))
+    p.add_argument("--for", dest="for_", metavar="TIME", help=_(FOR_EACH_HELP))
     p = sub.add_parser("install", help=_("install the agent on a device and register it (this machine without --ssh)"))
     p.add_argument("name", nargs="?", help=_("the device's name in hosts (asked when omitted); a registered name updates it"))
     p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))
@@ -1686,10 +1705,10 @@ def main():
     if a.cmd == "completion":
         print(completion_script(a.shell, sub), end="")
         return OK
+    # on, use, and protect: the same --for, sent to each device as on … --for <seconds>
+    a.for_args = ["--for", str(parse_duration(a.for_))] if getattr(a, "for_", None) is not None else []
     if a.cmd in ("on", "set"):
-        args = cap_args(a)
-        if a.cmd == "on" and a.for_ is not None:
-            args += ["--for", str(parse_duration(a.for_))]
+        args = cap_args(a) + a.for_args
     if a.cmd == "check" and a.bytes is not None and not (
             a.bytes.isascii() and a.bytes.isdigit() and 1 <= int(a.bytes) <= 100000000):
         usage_error(_("--bytes takes 1 to 100000000: {value}").format(value=a.bytes))  # the agent refuses more (#91)
