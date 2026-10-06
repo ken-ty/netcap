@@ -58,6 +58,39 @@ def agent(*args, env=None):
     return sh(*(PS if OS == "win" else []), AGENT, *args, env=env)
 
 
+# Windows PowerShell started from the CI runner fails to load Microsoft.PowerShell.Security, where Get-Acl lives
+# (CouldNotAutoloadMatchingModule), so the tests read ACLs through .NET: (Get-Item …).GetAccessControl()
+def ps(script):
+    enc = base64.b64encode(script.encode("utf-16-le")).decode()  # no quoting layer for the script
+    return sh("powershell", "-NoProfile", "-EncodedCommand", enc)
+
+
+# Bits that let a principal change a file or folder: write data, append, write attributes and extended attributes,
+# delete (also children), change permissions, take ownership, and generic all / write
+WIN_WRITE = 0x500D0156
+
+
+def win_acl(d):
+    """One line per entry under d ("entry <name>"), and one per problem: an owner other than Administrators, or a
+    principal other than SYSTEM and Administrators that may write ("bad <name> …"). d itself is named ."""
+    p = ps(f"""$d = '{d}'
+foreach ($i in @(Get-Item -LiteralPath $d -Force) + @(Get-ChildItem -LiteralPath $d -Force -Recurse)) {{
+  $name = $i.FullName.Substring($d.Length).TrimStart('\\'); if (-not $name) {{ $name = '.' }}
+  "entry $name"
+  $acl = $i.GetAccessControl()
+  $owner = $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value
+  if ($owner -ne 'S-1-5-32-544') {{ "bad $name owner $owner" }}
+  foreach ($r in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {{
+    $sid = $r.IdentityReference.Value
+    if ($r.AccessControlType -eq 'Allow' -and ([int64]$r.FileSystemRights -band {WIN_WRITE}) -and
+        $sid -notin 'S-1-5-18', 'S-1-5-32-544') {{ "bad $name $sid $($r.FileSystemRights)" }}
+  }}
+}}
+""")
+    assert p.returncode == 0, p.stdout + p.stderr
+    return p.stdout.splitlines()
+
+
 @unittest.skipUnless(os.environ.get("NETCAP_E2E") and OS, "only with NETCAP_E2E=1 (rewrites the machine's settings)")
 class E2E(unittest.TestCase):
     @classmethod
@@ -247,6 +280,22 @@ class E2E(unittest.TestCase):
                 self.assertNotEqual(p.returncode, 0)
                 self.assertIn("netcap-agent: ", p.stderr)
 
+    # A read-only key cannot make the device transfer more than 100 MB (#91). Both the agent and netcap-check refuse
+    def test_26_check_bytes_limit(self):
+        for cmd in ("check --bytes 100000001", "check --bytes 9999999999999999999999", "check --bytes 0"):
+            with self.subTest(cmd=cmd):
+                p = agent("--allow", "status get check", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} {cmd}"})
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("netcap-agent: check accepts only --bytes", p.stderr)
+        p = agent("--allow", "status get check", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} check --bytes 1000"})
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertRegex(p.stdout, r"^netcheck .*bytes=1000$")
+        check = {"mac": ["/usr/local/bin/netcap-check"], "linux": ["/usr/local/bin/netcap-check"],
+                 "win": [*PS, r"C:\ProgramData\netcap\netcap-check.ps1"]}[OS]
+        p = sh(*check, "--bytes", "100000001")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertEqual(p.stdout, "")
+
     # --- docs/design.md ---
     def test_30_touches_only_its_own(self):
         self.netcap("on", "self")
@@ -274,14 +323,62 @@ class E2E(unittest.TestCase):
 
     def test_31_root_only(self):
         if OS == "win":
-            acl = sh("powershell", "-NoProfile", "-Command",
-                     r"(Get-Acl C:\ProgramData\netcap).Access | Where-Object { $_.IdentityReference -match 'Users$' } | "
-                     "ForEach-Object { $_.FileSystemRights }").stdout
-            self.assertNotRegex(acl, r"Write|Modify|FullControl")
+            acl = ps(r"(Get-Item C:\ProgramData\netcap).GetAccessControl().Access | "
+                     r"Where-Object { $_.IdentityReference -match 'Users$' } | ForEach-Object { $_.FileSystemRights }")
+            self.assertIn("ReadAndExecute", acl.stdout, acl.stderr)  # it was read, and Users may still read
+            self.assertNotRegex(acl.stdout, r"Write|Modify|FullControl")
         else:
             body = AGENT.replace("netcap-agent", "netcap-netshape")
             st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
             self.assertEqual(st.stdout.strip(), "0 755")
+
+    # #89: Users can create C:\ProgramData\netcap before the install, so install.ps1 may find a folder someone else owns,
+    # with entries of their own on it and on files in it. Afterwards only SYSTEM and Administrators may write, and
+    # Administrators own the folder and everything in it
+    @unittest.skipUnless(OS == "win", "C:\\ProgramData is where Users can create folders")
+    def test_33_install_takes_over_an_existing_folder(self):
+        d = r"C:\ProgramData\netcap"
+        planted = [d + r"\netshape.ps1", d + r"\planted.ps1", d + r"\sub\planted.ps1"]
+        setup = (f"$d = '{d}'; New-Item -ItemType Directory -Force \"$d\\sub\" | Out-Null\n"
+                 "Set-Content -LiteralPath \"$d\\planted.ps1\" -Value x; Set-Content -LiteralPath \"$d\\sub\\planted.ps1\" -Value x\n"
+                 "function run { & icacls.exe @args | Out-Null; if ($LASTEXITCODE) { throw \"icacls $($args -join ' ') failed ($LASTEXITCODE)\" } }\n"
+                 # Everyone may change the folders, and the files carry only that entry (inheritance cut)
+                 "foreach ($p in $d, \"$d\\sub\") { run $p /grant '*S-1-1-0:(OI)(CI)F' }\n"
+                 + "".join(f"run '{p}' /inheritance:r /grant '*S-1-1-0:F'\n" for p in planted)
+                 # owned by Users, a principal other than Administrators
+                 + "".join(f"run '{p}' /setowner '*S-1-5-32-545'\n" for p in [d, d + r"\sub", *planted]))
+        p = ps(setup)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        try:
+            before = win_acl(d)
+            self.assertIn(r"bad sub\planted.ps1 owner S-1-5-32-545", before)
+            self.assertIn("bad . S-1-1-0 FullControl", before)
+            p = install()
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            after = win_acl(d)
+            self.assertIn(r"entry sub\planted.ps1", after)  # taken over, not skipped
+            self.assertEqual([l for l in after if l.startswith("bad ")], [], "\n".join(after))
+            self.assertEqual(self.row()["reach"], "ok")
+        finally:
+            ps(f"Remove-Item -Recurse -Force -LiteralPath '{d}\\sub', '{d}\\planted.ps1'")
+
+    # A link in the folder would send the copy or the new ACL somewhere else: install refuses it and changes nothing there
+    @unittest.skipUnless(OS == "win", "C:\\ProgramData is where Users can create folders")
+    def test_34_install_refuses_a_link(self):
+        target, link = tempfile.mkdtemp(), r"C:\ProgramData\netcap\elsewhere"
+        self.assertEqual(sh("cmd", "/c", "mklink", "/J", link, target).returncode, 0)
+        sddl = f"(Get-Item -LiteralPath '{target}').GetAccessControl().Sddl"
+        try:
+            before = ps(sddl).stdout
+            self.assertIn("D:", before)
+            p = install()
+            self.assertNotEqual(p.returncode, 0, p.stdout)
+            self.assertIn(f"{link} is a link", p.stderr)
+            self.assertEqual(ps(sddl).stdout, before)
+        finally:
+            sh("cmd", "/c", "rmdir", link)
+        p = install()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
 
     # The default route can be gone for a moment: systemd-networkd drops it while it restarts (#42). on waits for it
     @unittest.skipUnless(OS == "linux", "the route lookup with a wait is in the Linux shaper")

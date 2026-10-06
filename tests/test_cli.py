@@ -327,6 +327,18 @@ class CLI(unittest.TestCase):
                 self.assertIn("--load", p.stderr)
         self.assertEqual(self.device("laptop"), "off")
 
+    # #91: check --bytes is capped at 100 MB, and a bad value is refused before anything is sent
+    def test_check_bytes_range(self):
+        self.devices(game="off")
+        for bad in ("0", "100000001", "1e9", "-5", "x"):
+            with self.subTest(bad=bad):
+                p = self.netcap("check", "game", f"--bytes={bad}")
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("--bytes", p.stderr)
+        self.assertNotIn("check", self.log.read_text())
+        self.assertEqual(self.netcap("check", "game", "--bytes", "100000000").returncode, 0)
+        self.assertIn("check --bytes 100000000", self.log.read_text())
+
     def test_latency_verdict(self):
         verdict = load_netcap().latency_verdict
         for before, after, want in (("400", "40", "improved"), ("40", "400", "worse"), ("40", "35", "no clear change"),

@@ -38,7 +38,9 @@ Linux には例外が 1 つある。1 パケットに収まらない大きさの
 - macOS: 本体は `/Library/PrivilegedHelperTools`、設定は `/etc`。`install.sh` が `/` まで所有者と
   権限を検査する。設定は source せず、数値の key=value として読む
 - Linux: 本体は `/usr/libexec/netcap`、設定は `/etc`。検査は macOS と同じ
-- Windows: `C:\ProgramData` は Users が書けるので、`install.ps1` が継承を切る
+- Windows: `C:\ProgramData` は Users が書けるので、`install.ps1` が継承を切る。インストール前に Users が
+  `C:\ProgramData\netcap` を作っておくこともできるので、フォルダとその中身の所有者を Administrators にし、
+  フォルダには SYSTEM・Administrators・Users (読み取り) だけを残し、中身には独自のエントリを残さない。中にリンクがあれば拒否する
 
 ## pf と dnctl は自分の分だけ触る
 
