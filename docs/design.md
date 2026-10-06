@@ -89,6 +89,9 @@ is never left without its timer. If lifting the cap fails at the deadline, macOS
 
 Linux needs systemd for `--for`; without it, `on --for` changes nothing.
 
+`use --for` and `protect --for` send the same `on … --for <seconds>` to each device they cap, so each device keeps its
+own deadline; the agent is unchanged since 0.11.0.
+
 ## Measurements
 
 One macOS device, a 4G-class line, `scripts/measure.sh` (2026-09-21).

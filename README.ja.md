@@ -91,6 +91,7 @@ none    me=off  gamepc=off
 
 ```bash
 netcap use game      # レシピを適用する
+netcap use game --for 2h   # 同じ。絞った各端末が 2 時間後に自分で外す
 netcap use none      # 全部外す
 ```
 
@@ -99,6 +100,7 @@ netcap use none      # 全部外す
 ```bash
 netcap protect gamepc --up 2 --down 2             # gamepc 以外を全部絞り、gamepc の check を前後で見せる
 netcap protect gamepc --up 2 --down 2 --load 5    # その間ほかの端末も 5 MB ずつ転送し、遅延が良くなったかを言う
+netcap protect gamepc --up 2 --down 2 --for 1h    # ほかの端末は 1 時間後に自分で上限を外す
 netcap protect --off                              # 各端末を元の状態に戻す
 ```
 
@@ -136,9 +138,9 @@ netcap on     <host|all> [--up N --down N] [--for 30m]  上限をかける (flag
 netcap off    <host|all>                    上限を外す (boot=on なら再起動で既定の上限がかかり直す)
 netcap set    <host|all> --up N --down N    既定を書き換える
 netcap check  [host|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
-netcap use    <profile>                     プロファイルを適用
+netcap use    <profile> [--for 30m]         プロファイルを適用 (--for: 絞った各端末がその時間で外す)
 netcap profiles                             プロファイル一覧
-netcap protect <host> [--up N --down N] [--load MB]  ほかの全端末を絞り、<host> の check を前後で見せる
+netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
 netcap install [name] [--ssh DEST] [--boot on|off]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
 netcap uninstall <name> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)

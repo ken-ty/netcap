@@ -32,7 +32,7 @@ Open gaps are tracked with the [`vision-gap`](https://github.com/ken-ty/netcap/l
 | --- | --- | --- | --- |
 | Only internet traffic | LAN, VPN, ping, DNS pass through over IPv4 and IPv6 | IPv4 and IPv6 alike; measured on Linux, macOS, and Windows | None |
 | Protecting what matters | Name the device to protect; netcap caps the others and shows whether it worked | `netcap protect --load` caps the others, loads the line from them before and after, and says whether the protected device's latency improved | None |
-| Undo | A cap cannot be left on by accident | `off` works locally, `on` prints how to undo, `boot` defaults to off; `on --for` lifts a cap on the device itself | None |
+| Undo | A cap cannot be left on by accident | `off` works locally, `on` prints how to undo, `boot` defaults to off; `on --for`, `use --for`, and `protect --for` lift each cap on the device itself | None |
 | Platforms | Upload and download on all three OS | Windows caps upload only | Accepted: download on Windows needs a driver, beyond netcap's size |
 | Setup | One command per device | `netcap install`; `--ssh` tested in CI (Linux, Windows) and measured from Windows to macOS | None |
 | Several controllers | Any controller works as any ssh user | export / import; sudoers allows each user who installed; uninstall takes back one controller's part | None |

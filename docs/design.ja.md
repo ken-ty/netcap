@@ -90,6 +90,9 @@ macOS の `dnctl` は 2 本目の pipe の帯域を表示できない (macOS 26)
 
 Linux の `--for` には systemd が要る。無ければ `on --for` は何も変えない。
 
+`use --for` と `protect --for` は、絞る各端末に同じ `on … --for <秒>` を送るので、期限は各端末がそれぞれ持つ。
+agent は 0.11.0 から変えていない。
+
 ## 実測
 
 macOS の端末 1 台、4G 相当の回線、`scripts/measure.sh` (2026-09-21)。

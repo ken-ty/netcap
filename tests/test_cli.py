@@ -64,7 +64,8 @@ FAKE_SSH = textwrap.dedent("""\
     # Devices that keep their state in $FAKE_STATE/<host> ("off", "on UP DOWN", or "on UP DOWN left=SECONDS" for a
     # pending --for). check pings 40 ms when every other such device is capped, 400 ms otherwise. <host>.gone makes
     # the device unreachable, <host>.fail makes on and off fail, <host>.deny makes the agent refuse on and off (a key
-    # allowed only status get check), and <host>.slow makes check take 3 seconds
+    # allowed only status get check), <host>.oldfor makes it refuse on --for (an agent from before 0.11.0), and
+    # <host>.slow makes check take 3 seconds
     if host.startswith("h-s-"):
         state_dir = os.environ["FAKE_STATE"]
         st = os.path.join(state_dir, host)
@@ -76,6 +77,8 @@ FAKE_SSH = textwrap.dedent("""\
             print("netshape: could not change the cap", file=sys.stderr); sys.exit(1)
         if verb in ("on", "off") and os.path.exists(st + ".deny"):
             print(f"netcap-agent: not allowed for this key: {verb}", file=sys.stderr); sys.exit(77)
+        if verb == "on" and "--for" in args and os.path.exists(st + ".oldfor"):  # an agent from before --for
+            print("netcap-agent: arguments must be numbers: --for", file=sys.stderr); sys.exit(77)
         if verb == "on":
             left = ""
             if "--for" in args:
@@ -551,7 +554,9 @@ class CLI(unittest.TestCase):
                      ["set", "on"], ["set", "on", "--up", "1"], ["on", "on", "2", "2"], ["set", "on", "2", "2"],
                      ["protect"], ["protect", "all"], ["protect", "on", "--load", "99"], ["protect", "on", "--up", "2"],
                      ["protect", "on", "--up", "x", "--down", "1"], ["check", "on", "--bytes", "0"],
-                     ["uninstall", "all"], ["rename", "on", "x y"], ["rename", "on", "all"], ["install", "a b"]):
+                     ["uninstall", "all"], ["rename", "on", "x y"], ["rename", "on", "all"], ["install", "a b"],
+                     ["use", "p", "--for", "30s"], ["protect", "off", "--for", "25h"], ["protect", "off", "--for", ""],
+                     ["protect", "--off", "--for", "30m"]):
             with self.subTest(args=args):
                 p = self.netcap(*args)
                 self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
@@ -560,7 +565,8 @@ class CLI(unittest.TestCase):
         self.assertEqual((self.conf / "hosts").read_text(), "on mac h-on\noff mac h-off\n")
         # Found before the config is read: a missing hosts file does not turn them into 1
         (self.conf / "hosts").unlink()
-        for args in (["on", "x", "--up", "2"], ["protect", "all"], ["uninstall", "all"], ["rename", "a", "x y"]):
+        for args in (["on", "x", "--up", "2"], ["protect", "all"], ["uninstall", "all"], ["rename", "a", "x y"],
+                     ["use", "p", "--for", "0m"], ["protect", "x", "--for", "1d"]):
             with self.subTest(args=args, hosts="none"):
                 self.assertEqual(self.netcap(*args).returncode, 2)
 
@@ -743,6 +749,109 @@ class CLI(unittest.TestCase):
         p = self.netcap("on", "oldfor", "--for", "30m")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("this agent does not know --for (nothing changed). Update it: netcap install oldfor", p.stdout)
+
+    # #94: protect --for. Each other device gets the deadline itself, so the caps lift even if this machine goes away
+    def test_protect_for(self):
+        self.devices(game="off", laptop="off", server="on 3 3")
+        start = time.time()
+        p = self.netcap("protect", "game", "--up", "2", "--down", "2", "--for", "30m")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = self.log.read_text()
+        for h in ("laptop", "server"):
+            self.assertIn(f"h-s-{h} /Library/PrivilegedHelperTools/netcap-agent on 2 2 --for 1800", log)
+            self.assertEqual(self.device(h), "on 2 2 left=1800")
+            self.assertRegex(p.stdout, rf"(?m)^{h}\s+ok\s+on\s+2 Mbit/s\s+2 Mbit/s\*\s+off in 30m$")
+        self.assertNotIn("h-s-game /Library/PrivilegedHelperTools/netcap-agent on", log)
+        saved = json.loads(self.protect_state().read_text())
+        self.assertTrue(start + 1800 - 2 <= saved["applied_until"] <= time.time() + 1800 + 2, saved)
+        self.assertEqual(saved["applied"], {"laptop": "2/2", "server": "2/2"})
+        # --json shows the time left on each device, as status does
+        self.netcap("protect", "--off")
+        out = json.loads(self.netcap("protect", "game", "--for", "1h", "--json").stdout)
+        self.assertEqual({r["host"]: r["left"] for r in out["devices"]}, {"laptop": "3600", "server": "3600"})
+
+    def test_protect_off_before_the_deadline(self):
+        self.devices(game="off", laptop="off", server="on 3 3", nas="off")
+        self.netcap("protect", "game", "--for", "30m")
+        (self.state / "h-s-nas").write_text("off")  # lifted by hand meanwhile
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server"), self.device("nas")), ("off", "on 3 3", "off"))
+        self.assertNotIn("changed since protect", p.stdout)  # nas was off before protect too
+        self.assertFalse(self.protect_state().exists())
+        # Before the deadline, a device protect capped that is off now was changed by someone
+        self.netcap("protect", "game", "--for", "30m")
+        (self.state / "h-s-server").write_text("off")
+        p = self.netcap("protect", "--off")
+        self.assertIn("server changed since protect; left as is. To undo: netcap on server --up 3 --down 3", p.stdout)
+        self.assertEqual(self.device("server"), "off")
+
+    # docs/operations.md: after protect's deadline, each device has lifted the cap by itself; --off puts back what was
+    # there before, and leaves off a device whose own earlier deadline has passed too
+    def test_protect_off_after_the_deadline(self):
+        self.devices(game="off", laptop="off", server="on 3 3", nas="on 4 4 left=600", tv="on 5 5 left=7200",
+                     box="off")
+        self.netcap("protect", "game", "--up", "1", "--down", "1", "--for", "30m")
+        saved = json.loads(self.protect_state().read_text())
+        # 31 minutes later: the devices lifted protect's caps by themselves; box's scheduler has not run yet
+        later = 31 * 60
+        saved["applied_until"] -= later
+        saved["until"] = {h: t - later for h, t in saved["until"].items()}
+        self.protect_state().write_text(json.dumps(saved))
+        for h in ("laptop", "server", "nas", "tv"):
+            (self.state / f"h-s-{h}").write_text("off")
+        (self.state / "h-s-box").write_text("on 1 1 left=0")
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("changed since protect", p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server"), self.device("nas"), self.device("box")),
+                         ("off", "on 3 3", "off", "off"))
+        self.assertRegex(self.device("tv"), r"^on 5 5 left=53[0-4][0-9]$")  # its own deadline, 89 minutes left
+        self.assertFalse(self.protect_state().exists())
+
+    def test_protect_for_with_an_old_agent(self):
+        self.devices(game="off", laptop="off", server="off")
+        (self.state / "h-s-laptop.oldfor").touch()
+        p = self.netcap("protect", "game", "--for", "30m")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("this agent does not know --for (nothing changed). Update it: netcap install laptop", p.stdout)
+        self.assertIn("could not cap laptop", p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server")), ("off", "on 1 1 left=1800"))
+        self.assertEqual(json.loads(self.protect_state().read_text())["applied"], {"server": "1/1"})
+
+    # #94: use --for. Every device the profile caps gets on --for; one it sets to off gets off
+    def test_use_for(self):
+        self.devices(game="off", laptop="off", server="on 2 2")
+        (self.conf / "profiles").write_text("p  game=2/3  laptop=on  server=off\n")
+        p = self.netcap("use", "p", "--for", "1h30m")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        log = self.log.read_text()
+        self.assertIn("h-s-game /Library/PrivilegedHelperTools/netcap-agent on 2 3 --for 5400", log)
+        self.assertIn("h-s-laptop /Library/PrivilegedHelperTools/netcap-agent on --for 5400", log)
+        self.assertIn("h-s-server /Library/PrivilegedHelperTools/netcap-agent off\n", log)
+        self.assertRegex(p.stdout, r"(?m)^game\s+ok\s+on\s+2 Mbit/s\s+3 Mbit/s\*\s+off in 1h30m$")
+        rows = {r["host"]: r.get("left") for r in json.loads(self.netcap("use", "p", "--for", "2h", "--json").stdout)}
+        self.assertEqual(rows, {"game": "7200", "laptop": "7200", "server": "-"})
+        # Without --for, nothing is sent with it
+        self.log.write_text("")
+        self.netcap("use", "p")
+        self.assertNotIn("--for", self.log.read_text())
+
+    def test_use_for_with_an_old_agent(self):
+        self.devices(game="off", laptop="off")
+        (self.conf / "profiles").write_text("p  game=2/2  laptop=2/2\n")
+        (self.state / "h-s-laptop.oldfor").touch()
+        p = self.netcap("use", "p", "--for", "30m")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("this agent does not know --for (nothing changed). Update it: netcap install laptop", p.stdout)
+        self.assertEqual((self.device("game"), self.device("laptop")), ("on 2 2 left=1800", "off"))
+
+    def test_help_mentions_for(self):
+        self.hosts("on")
+        for cmd in ("use", "protect"):
+            with self.subTest(cmd=cmd):
+                self.assertIn("--for", self.netcap("help", cmd).stdout)
+                self.assertRegex(self.netcap("-h").stdout, rf"(?m)^  netcap {cmd} .*--for")
 
     # docs/configuration.md: devices not listed are left untouched
     def test_use_leaves_unlisted_hosts(self):

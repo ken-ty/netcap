@@ -31,6 +31,8 @@ none    laptop=off  server=off  gamepc=off
 
 A value is `up/down` in Mbit/s, `on` (the device's own default, as `netcap on <name>` without flags), or `off`. Decimals work (`0.5/2`). `0` is an error: netcap refuses it and changes nothing (dummynet on macOS reads 0 as unlimited, so it cannot mean "cut off"). On macOS a value can go up to 2147.483647 (dummynet holds the rate as bit/s in a 32-bit integer); the device refuses more. To lift a cap, use `off`. Devices not listed are left untouched (`quiet` leaves `gamepc` as it is). A profile name follows the same rule as a device name.
 
+`netcap use <profile> --for 30m` takes the same times as `netcap on --for` (1m to 24h): each device the profile caps (`up/down` or `on`) gets `on … --for`, and lifts the cap by itself at the deadline, even if the controller is gone. A device set to `off` is lifted at once. An agent older than 0.11.0 refuses `--for` and changes nothing; that device shows as failed.
+
 ## Export and import
 
 `netcap export` prints this machine's hosts and profiles as JSON; `netcap import` reads them back.
