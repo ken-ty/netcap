@@ -13,14 +13,18 @@ CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を�
 中身の説明と、手で入れるときのためにある。
 
 1. OS を判定する (`uname`、Windows なら PowerShell)
-2. `mac/`、`linux/`、`win/` を向こうの一時ディレクトリへ送る。agent には CLI の版を書き込む
-3. インストーラを流す: `sudo bash …/install.sh --boot off` (向こうの sudo パスワード)、Windows なら `install.ps1`
-   (ssh のユーザーが管理者であること)。終わったら一時ディレクトリを消す
-4. 手元に `~/.ssh/netcap` が無ければ作り、向こうに forced command の行
-   ([下](#許可は操作される側が決める)) を足す。鍵がもうあれば足さない
-5. `hosts` に端末を足す。名前を 1 回聞く
+2. 端末側一式を向こうの一時ディレクトリへ送る。agent には CLI の版を書き込む。Windows なら `win/`、
+   macOS と Linux なら `mac/` と `linux/` の両方 (Linux のインストーラは agent を `mac/` から取る)
+3. インストーラを流す: `sudo bash …/install.sh --boot off` (`netcap install --boot on` なら `--boot on`。向こうの
+   sudo パスワード)、Windows なら `install.ps1` (ssh のユーザーが管理者であること)。終わったら一時ディレクトリを消す
+4. `--ssh` で届く端末のときだけ: 手元に `~/.ssh/netcap` が無ければ作り、向こうに forced command の行
+   ([下](#許可は操作される側が決める)) を足す。鍵がもうあれば足さない。
+   この端末には鍵は要らない。netcap が agent を直接動かす
+5. `hosts` に端末を足す。コマンドラインで名前を渡さなければ、端末から流したときだけ 1 回聞く。そうでなければ
+   `me` か ssh の宛先を名前にする
 
-更新は `netcap install <名前>` をもう一度流す。`netcap get` の `agent` 列に各端末の版が出る。
+更新は `netcap install <名前>` をもう一度流す。起動時の挙動も設定し直す (渡さなければ `--boot off`) ので、
+`--boot on` だった端末には `--boot on` を付ける。`netcap get` の `agent` 列に各端末の版が出る。
 CLI の各リリースがどの版の agent と動くかは [compatibility.ja.md](compatibility.ja.md) にある。
 `netcap uninstall <名前>` で、この管理する側が足したものを戻す。agent は最後の管理する側と一緒に外れる
 ([operations.ja.md](operations.ja.md#管理する側が複数))。`--config-only` はもう無い端末の登録だけ消す。
@@ -64,6 +68,7 @@ sudo bash mac/install.sh --boot on|off
 | `/Library/PrivilegedHelperTools/netcap-netshape` | 本体 (root で動く。pf + dummynet) |
 | `/usr/local/bin/netcap-check` | 実測 (curl と ping だけなので root 不要) |
 | `/etc/pf.anchors/netcap-netshape` | pf のルール |
+| `/etc/netcap-netshape.conf` | 既定の上限。`netcap set` が書く。無ければ既定は 1/1 |
 | `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/Library/LaunchDaemons/netcap-netshape.plist` | `--boot on` のときだけ |
 | `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | `on --for` が読み込み、期限に上限を外すジョブ。起動時には読み込まれない |
@@ -86,10 +91,12 @@ sudo bash linux/install.sh --boot on|off
 | `/usr/libexec/netcap/netcap-agent` | netcap が叩く入口。forced command にも使う |
 | `/usr/libexec/netcap/netcap-netshape` | 本体 (root で動く。tc) |
 | `/usr/local/bin/netcap-check` | 実測 (root 不要) |
+| `/etc/netcap-netshape.conf` | 既定の上限。macOS と同じ |
 | `/etc/sudoers.d/netcap-netshape` | インストーラを流した各ユーザーに、本体の決まった動詞だけ NOPASSWD |
 | `/etc/systemd/system/netcap-netshape.service` | `--boot on` のときだけ |
 
-- 既定の経路のインターフェースを絞る。下りは `ifb` で受信を折り返して絞る
+- インターネットへの IPv4 の経路のインターフェース (`ip -4 route get 1.1.1.1`) を絞る。下りは `ifb` で受信を
+  折り返して絞る。`tc` と `ip` (iproute2) が要る
 - `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh` (1 人だけなら `--user`)
 
 ## Windows
@@ -100,7 +107,14 @@ sudo bash linux/install.sh --boot on|off
 powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
 ```
 
-`C:\ProgramData\netcap\` に入る。外すのは `C:\ProgramData\netcap\uninstall.ps1`。
+`C:\ProgramData\netcap\` に入る。agent、本体 (`netshape.ps1`)、`netcap-check.ps1`、`uninstall.ps1` の 4 つ。
+`netcap set` は既定の上限をそこの `netshape.conf` に書く。`on --for` は期限をそこの `until` に書き、
+期限に上限を外すスケジュールタスク `\netcap\expire` を登録する (期限に電源が切れていた場合に備えて、起動時にも動く)。
+外すには、管理者の PowerShell で:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\uninstall.ps1
+```
 
 mac との違いは 2 つ。下りは絞れない (表では `unsupported`)。`on` / `off` の状態は再起動しても残る (`boot=keep`)。
 
@@ -138,8 +152,9 @@ forced command を素通りするため。
 - `--allow` に並べた動詞しか通らない。読むだけにしたい端末は `'status get check'` にする
 - `restrict` でシェル・pty・転送を切る。agent は引数を空白で区切るだけで、シェルとして解釈しない
 - Windows には sudoers に当たる二段目が無く、forced command が唯一の関門になる
-- `netcap doctor` は各端末のファイルを読み、この機械の鍵の行に `restrict` か forced command が欠けていれば警告する
-  (`unrestricted`)。置き換える行も表示する。全端末が `ok` でなければ 0 以外で終わる
+- `netcap doctor` は ssh で届く各端末のファイルを読み、この機械の鍵の行に `restrict` か forced command が欠けていれば
+  警告する (`unrestricted`)。置き換える行も表示する。鍵が無い端末は `missing` になる。ssh で届く全端末が `ok` で
+  なければ 1 で終わる (この端末は鍵を使わないので `-`)
 - Windows の sshd は、`administrators_authorized_keys` が UTF-16 (Windows PowerShell 5 の `>>` が書く形) だったり、
   SYSTEM と Administrators 以外が書けたりすると、黙って無視する。UTF-8 で書き、新しく作ったファイルには
   `icacls <ファイル> /inheritance:r /grant:r "*S-1-5-18:F" "*S-1-5-32-544:F"` をかける
@@ -164,7 +179,7 @@ forced command を素通りするため。
 | --- | --- |
 | `on` | 上限がかかっている |
 | `off` | かかっていない |
-| `partial` | pf のルールと dnctl の pipe が食い違っている (mac)。`on` か `off` を打ち直せば揃う |
+| `partial` | 上限の一部だけが残っている。pf のルールと dnctl の pipe が食い違っている (mac)、上りと下りのクラスの片方だけが残っている (linux)、netcap の QoS ポリシーの一部だけが残っている (win)。`on` か `off` を打ち直せば揃う |
 | `?` | reach が `ok` でないので読めていない |
 
 ### agent — agent の版 (`get` のみ)
@@ -172,6 +187,10 @@ forced command を素通りするため。
 `netcap install` が書き込む。この列より前に入れた agent は `-`、clone から手で入れたものは `unknown`。
 CLI と違っていたら `netcap install <名前>` を流す。
 
-### note — うまくいかなかった理由
+### note — うまくいかなかった理由、または上限が外れる時刻
 
 reach が `ok` でないとき、端末から返った出力の最後の 1 行。全文は `--json` の `raw` にある。
+
+reach が `ok` で、`on --for` でかけた上限が残っているときは残り時間 (`あと 25m で外れる`。英語では `off in 25m`)。
+期限を過ぎて端末がまだ外していなければ `期限を過ぎた。まもなく外れる` (`due, lifting soon`)。
+`--for` より前の agent はこれを拒むので、そのことと更新の仕方 (`netcap install <名前>`) を出す。

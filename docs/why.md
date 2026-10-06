@@ -56,7 +56,7 @@ The full list, and what netcap should become, is in [vision.md](vision.md).
 - Cap phones, consoles, TVs, or anything without the agent
 - Cap download on Windows
 - Limit per application
-- Schedule by itself (call `netcap use` from cron or launchd)
+- Run recurring schedules by itself (call `netcap use` from cron, launchd, or Task Scheduler); it only lifts a cap at an `on --for` deadline
 
 Looking for packet capture? That is a different project with the same name: [dreadl0ck/netcap](https://github.com/dreadl0ck/netcap).
 

@@ -7,7 +7,8 @@ English · [日本語](SECURITY.ja.md)
 Please report it privately: on GitHub, the **Security** tab → **Report a vulnerability**.
 If that is not available, open an issue asking for a private contact, and leave the details out of it.
 
-Fixes go into the latest release. To update, `brew upgrade netcap`, then `netcap install <name>` for each device.
+Fixes go into the latest release. To update, `brew upgrade netcap`, then `netcap install <name>` for each device
+(add `--boot on` for a device that had it: reinstalling sets the boot behavior again).
 
 ## Threat model
 
@@ -25,7 +26,8 @@ and protect the controller as you would protect any machine that can reach all t
 The key is pinned to the agent on each device (`restrict,command="… netcap-agent --allow '…'"`), so it runs
 the verbs in `--allow` and nothing else: no shell, no pty, no forwarding. With the default verbs, a holder of the key can:
 
-- Read the state and settings of each device (`status`, `get`) and run a measurement (`check`)
+- Read the state and settings of each device (`status`, `get`) and run a measurement (`check`). `check --bytes N` sets how
+  much the measurement transfers, and the agent checks only that `N` is a whole number: there is no upper limit today
 - Change or lift caps (`on`, `off`, `set`)
 
 **It cannot cut a device off:** `0` is refused on every OS. It can, however, set a very small cap such as
@@ -35,8 +37,8 @@ the verbs in `--allow` and nothing else: no shell, no pty, no forwarding. With t
 
 | OS | First gate | Second gate |
 | --- | --- | --- |
-| macOS, Linux | The forced command: only the verbs in `--allow`, numeric arguments only (and `--for <seconds>` at the end of `on`) | sudoers: only the shaper's fixed verbs, without a password |
-| Windows | The forced command | None. An Administrator's ssh session runs elevated |
+| macOS, Linux | The forced command: only the verbs in `--allow`, numeric arguments only (plus `--for <seconds>` at the end of `on`, and `--bytes <number>` for `check`) | sudoers: only the shaper's fixed verbs, without a password |
+| Windows | The forced command, with the same checks | None. An Administrator's ssh session runs elevated |
 
 On Windows the forced command is the only gate, so a netcap key line added by hand without
 `restrict,command="…"` gives an elevated shell. `netcap install` writes the line for you; prefer it over editing by hand.
