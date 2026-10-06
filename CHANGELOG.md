@@ -14,6 +14,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   or digit), such as one written by hand with other characters, now stops netcap with the file and line. Rename it in
   the file (#97)
 
+### Fixed
+
+- On macOS, a cap with a decimal or a leading zero was not applied: `0.5` and `08` left the line unlimited and `010`
+  capped at 8 Mbit/s, while `status` showed the value asked for. The shaper now hands dummynet whole bit/s, and
+  refuses a value it cannot hold (above 2147.483647 Mbit/s) before changing anything (#96)
+
 ### Security
 
 - `netcap import` writes the exporting machine's name into hosts and profiles only if it is a plain name: a newline in
