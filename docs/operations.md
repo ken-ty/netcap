@@ -14,8 +14,12 @@ So the controller being on or off does not change any device.
 One exception: while `netcap protect` is in effect, the controller keeps how each device was before, in
 `protect.json` under `$NETCAP_STATE_DIR`, or `$XDG_STATE_HOME/netcap` (`~/.local/state/netcap` if unset), for
 `netcap protect --off`. A device out of reach when `protect` runs is left alone. A device changed since, by hand,
-a reboot, or another controller, is left as it is. A device out of reach at `--off` stays in the file: run
-`netcap protect --off` again when it is back.
+a reboot, or another controller, is left as it is. A device with an `on --for` deadline gets the time still left
+back; if the deadline passed meanwhile, `--off` leaves it uncapped. A device `--off` could not put back (out of
+reach, or the device failed) stays in the file, and `--off` exits non-zero: run `netcap protect --off` again when
+it is back. Until then, `netcap rename` and `netcap uninstall` refuse the devices in the file. If the file cannot be
+read, netcap says so instead of guessing: check each device with `netcap status`, put back by hand what protect
+capped, then delete the file. The same goes for a device that is gone for good.
 
 ## Power loss and reboots
 

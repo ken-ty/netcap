@@ -10,10 +10,12 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -54,8 +56,9 @@ FAKE_SSH = textwrap.dedent("""\
                 print(open(f).read(), end="")
             sys.exit(0)
     ok = "netshape state={s} up_mbit={u} down_mbit={u} down_src=applied pipes=2 rules=2"
-    # Devices that keep their state in $FAKE_STATE/<host> ("off" or "on UP DOWN"). check pings 40 ms when every
-    # other such device is capped, 400 ms otherwise. <host>.gone makes the device unreachable
+    # Devices that keep their state in $FAKE_STATE/<host> ("off", "on UP DOWN", or "on UP DOWN left=SECONDS" for a
+    # pending --for). check pings 40 ms when every other such device is capped, 400 ms otherwise. <host>.gone makes
+    # the device unreachable, <host>.fail makes on and off fail, and <host>.slow makes check take 3 seconds
     if host.startswith("h-s-"):
         state_dir = os.environ["FAKE_STATE"]
         st = os.path.join(state_dir, host)
@@ -63,17 +66,26 @@ FAKE_SSH = textwrap.dedent("""\
             print(f"ssh: connect to host {host}: Operation timed out", file=sys.stderr); sys.exit(255)
         words = cmd.split()
         verb, args = (words[1], words[2:]) if len(words) > 1 else ("", [])
+        if verb in ("on", "off") and os.path.exists(st + ".fail"):
+            print("netshape: could not change the cap", file=sys.stderr); sys.exit(1)
         if verb == "on":
-            open(st, "w").write("on " + (" ".join(args) or "1 1"))
+            left = ""
+            if "--for" in args:
+                left = " left=" + args[args.index("--for") + 1]
+                args = args[:args.index("--for")]
+            open(st, "w").write("on " + (" ".join(args) or "1 1") + left)
         elif verb == "off":
             open(st, "w").write("off")
         elif verb == "status":
             s = open(st).read().split() if os.path.exists(st) else ["off"]
             if s[0] == "on":
-                print(f"netshape state=on up_mbit={s[1]} down_mbit={s[2]} down_src=applied")
+                timer = " until=1900000000 " + s[3] if len(s) > 3 else " until=- left=-"
+                print(f"netshape state=on up_mbit={s[1]} down_mbit={s[2]} down_src=applied" + timer)
             else:
-                print("netshape state=off up_mbit=- down_mbit=- down_src=applied")
+                print("netshape state=off up_mbit=- down_mbit=- down_src=applied until=- left=-")
         elif verb == "check":
+            if os.path.exists(st + ".slow"):
+                time.sleep(3)
             others = [f for f in os.listdir(state_dir) if f.startswith("h-s-") and "." not in f and f != host]
             capped = all(open(os.path.join(state_dir, f)).read().startswith("on") for f in others)
             ms = 40 if capped else 400
@@ -273,7 +285,7 @@ class CLI(unittest.TestCase):
         (self.state / "h-s-laptop.gone").touch()
         p = self.netcap("protect", "--off")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("run netcap protect --off again", p.stdout)
+        self.assertIn("run netcap protect --off again", p.stderr)
         (self.state / "h-s-laptop.gone").unlink()
         self.assertEqual(self.netcap("protect", "--off").returncode, 0)
         self.assertEqual(self.device("laptop"), "off")
@@ -351,6 +363,141 @@ class CLI(unittest.TestCase):
         p = self.netcap("protect", "game")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("no other device", p.stderr)
+
+    # #88: what protect writes down is kept until every device is back, and never lost or overwritten
+    def protect_state(self):
+        return self.tmp / "netcap-state" / "protect.json"
+
+    def test_protect_off_keeps_a_device_it_could_not_put_back(self):
+        self.devices(game="off", laptop="off", server="off")
+        self.assertEqual(self.netcap("protect", "game").returncode, 0)
+        (self.state / "h-s-laptop.fail").touch()
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server")), ("on 1 1", "off"))
+        self.assertIn("could not put laptop back", p.stderr)
+        self.assertEqual(list(json.loads(self.protect_state().read_text())["before"]), ["laptop"])
+        (self.state / "h-s-laptop.fail").unlink()
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.device("laptop"), "off")
+        self.assertFalse(self.protect_state().exists())
+
+    def test_protect_off_exits_3_when_only_unreachable_devices_are_left(self):
+        self.devices(game="off", laptop="off", server="off")
+        self.netcap("protect", "game")
+        (self.state / "h-s-laptop.gone").touch()
+        self.assertEqual(self.netcap("protect", "--off").returncode, 3)
+        self.assertEqual(self.device("server"), "off")
+
+    def test_protect_with_nothing_to_cap(self):
+        self.devices(game="off", laptop="off", server="off")
+        for n in ("laptop", "server"):
+            (self.state / f"h-s-{n}.gone").touch()
+        p = self.netcap("protect", "game")
+        self.assertEqual(p.returncode, 3, p.stdout + p.stderr)
+        self.assertNotIn("Traceback", p.stderr)
+        self.assertIn("no other device can be capped", p.stderr)
+        self.assertFalse(self.protect_state().exists())
+        self.assertNotIn(" check", self.log.read_text())  # nothing measured either
+
+    def test_rename_and_uninstall_refuse_a_device_protect_has_capped(self):
+        self.devices(game="off", laptop="off")
+        self.netcap("protect", "game")
+        for args in (["rename", "laptop", "lap"], ["uninstall", "laptop", "--config-only"]):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("First: netcap protect --off", p.stderr)
+        self.assertIn("laptop", (self.conf / "hosts").read_text())
+        self.netcap("protect", "--off")
+        self.assertEqual(self.netcap("rename", "laptop", "lap").returncode, 0)
+
+    def test_protect_off_keeps_a_device_no_longer_in_hosts(self):
+        self.devices(game="off", laptop="off", server="off")
+        self.netcap("protect", "game")
+        hosts = self.conf / "hosts"
+        hosts.write_text(hosts.read_text().replace("laptop ", "lap "))  # renamed by hand
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("laptop", p.stderr)
+        self.assertEqual((self.device("laptop"), self.device("server")), ("on 1 1", "off"))
+        self.assertEqual(list(json.loads(self.protect_state().read_text())["before"]), ["laptop"])
+        hosts.write_text(hosts.read_text().replace("lap ", "laptop "))
+        self.assertEqual(self.netcap("protect", "--off").returncode, 0)
+        self.assertEqual(self.device("laptop"), "off")
+
+    def test_protect_claims_the_state_before_it_measures(self):
+        self.devices(game="off", laptop="off")
+        (self.state / "h-s-game.slow").touch()
+        first = subprocess.Popen([sys.executable, str(NETCAP), "protect", "game"], env=self.env,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(first.wait)
+        for _ in range(40):
+            if self.protect_state().exists():
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.protect_state().exists(), "no state while the first protect measures")
+        self.assertIsNone(first.poll())
+        self.assertEqual(self.device("laptop"), "off")  # still measuring before
+        p = self.netcap("protect", "laptop")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("already protecting game", p.stderr)
+        out, err = first.communicate(timeout=30)
+        self.assertEqual(first.returncode, 0, out + err)
+        self.assertEqual(json.loads(self.protect_state().read_text())["protected"], "game")
+        self.assertEqual([f.name for f in self.protect_state().parent.iterdir()], ["protect.json"])  # no temp files
+
+    def test_protect_stopped_before_capping_leaves_no_state(self):
+        self.devices(game="off", laptop="off")
+        (self.state / "h-s-game.slow").touch()
+        first = subprocess.Popen([sys.executable, str(NETCAP), "protect", "game"], env=self.env,
+                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        for _ in range(40):
+            if self.protect_state().exists():
+                break
+            time.sleep(0.05)
+        first.send_signal(signal.SIGINT)
+        first.communicate(timeout=30)
+        self.assertNotEqual(first.returncode, 0)
+        self.assertFalse(self.protect_state().exists())
+        self.assertEqual(self.device("laptop"), "off")
+
+    def test_protect_off_brings_back_the_time_left(self):
+        self.devices(game="off", laptop="on 2 2 left=1740", server="on 3 3 left=0")
+        self.netcap("protect", "game", "--up", "1", "--down", "1")
+        self.assertEqual((self.device("laptop"), self.device("server")), ("on 1 1", "on 1 1"))
+        p = self.netcap("protect", "--off")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertRegex(self.device("laptop"), r"^on 2 2 left=17[0-4][0-9]$")
+        self.assertEqual(self.device("server"), "off")  # its deadline passed meanwhile: left lifted
+
+    def test_protect_reports_a_corrupt_state(self):
+        self.devices(game="off", laptop="off")
+        self.protect_state().parent.mkdir(parents=True)
+        for text in (b"{not json", b"[]", b'{"protected": "game"}', b"\xff\xfe"):
+            self.protect_state().write_bytes(text)
+            for args in (["protect", "game"], ["protect", "--off"]):
+                with self.subTest(text=text, args=args):
+                    p = self.netcap(*args)
+                    self.assertEqual(p.returncode, 1)
+                    self.assertNotIn("Traceback", p.stderr)
+                    self.assertIn(str(self.protect_state()), p.stderr)
+                    self.assertIn("netcap status", p.stderr)
+        self.assertEqual(self.device("laptop"), "off")
+
+    def test_protect_json_prints_only_json(self):
+        self.devices(game="on 5 5", laptop="off", server="off")
+        p = self.netcap("protect", "game", "--json")
+        self.assertEqual(json.loads(p.stdout)["protected"], "game")
+        self.assertIn("game itself is capped", p.stderr)
+        (self.state / "h-s-server").write_text("on 5 5")  # changed by hand: --off says so
+        p = self.netcap("protect", "--off", "--json")
+        self.assertEqual([r["host"] for r in json.loads(p.stdout)], ["laptop"])
+        self.assertIn("server changed since protect", p.stderr)
+        p = self.netcap("protect", "--off", "--json")
+        self.assertEqual(json.loads(p.stdout), [])
+        self.assertIn("nothing to undo", p.stderr)
 
     # #69: help and version are subcommands too, like -h and --version
     def test_help_and_version_subcommands(self):
