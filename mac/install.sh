@@ -106,9 +106,12 @@ USERS=$(sed -n 's/ ALL=(root) NOPASSWD: NETSHAPE$//p' "$SUDOERS" | paste -sd, - 
 
 if [ "$BOOT" = on ]; then
   install -o root -g wheel -m 0644 netcap-netshape.plist "$PLIST"
-  launchctl bootout system/netcap-netshape 2>/dev/null || true
-  launchctl bootstrap system "$PLIST"
-  sleep 1
+  # Loading the job runs on at once (RunAtLoad), which would replace the cap in effect and cancel its --for. Already
+  # loaded, launchd reads the new plist at the next boot, as systemctl enable --now leaves an active unit on Linux
+  if ! launchctl print system/netcap-netshape >/dev/null 2>&1; then
+    launchctl bootstrap system "$PLIST"
+    sleep 1
+  fi
 else
   launchctl bootout system/netcap-netshape 2>/dev/null || true
   rm -f "$PLIST"

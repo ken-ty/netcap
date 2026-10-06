@@ -42,15 +42,16 @@ try {
   New-Item -ItemType File $stop | Out-Null
   $pings = @(Receive-Job -Wait -AutoRemoveJob $job | ForEach-Object { [double]$_ } | Sort-Object)
 
+  # A machine reads these numbers, so they never follow the current culture (0,5 under de-DE)
+  $c = [Globalization.CultureInfo]::InvariantCulture
   $n = $pings.Count
   if ($n -eq 0) { $med = '-'; $p95 = '-'; $max = '-' }
   else {
-    $med = '{0:F1}' -f $pings[[int][math]::Floor(($n + 1) / 2) - 1]
+    $med = $pings[[int][math]::Floor(($n + 1) / 2) - 1].ToString('F1', $c)
     $i95 = [int][math]::Floor($n * 0.95); if ($i95 -lt 1) { $i95 = 1 }
-    $p95 = '{0:F1}' -f $pings[$i95 - 1]
-    $max = '{0:F1}' -f $pings[$n - 1]
+    $p95 = $pings[$i95 - 1].ToString('F1', $c)
+    $max = $pings[$n - 1].ToString('F1', $c)
   }
-  $c = [Globalization.CultureInfo]::InvariantCulture
   $d = ([double]$down * 8 / 1000000).ToString('F2', $c)
   $u = ([double]$up * 8 / 1000000).ToString('F2', $c)
   "netcheck down_mbit=$d up_mbit=$u ping_med=$med ping_p95=$p95 ping_max=$max ping_n=$n bytes=$Bytes"

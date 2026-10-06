@@ -9,6 +9,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -45,8 +46,10 @@ FAKE_SSH = textwrap.dedent("""\
         sys.exit(subprocess.run(["sh", "-s"], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
     if "sudo bash" in cmd:
         sys.exit(0)
-    # What netcap doctor reads: the device's keys file, served from FAKE_REMOTE_HOME
-    if host != "h-unreachable" and cmd.startswith("cat ~/.ssh/authorized_keys"):
+    # What netcap doctor reads: the device's keys file, served from FAKE_REMOTE_HOME. h-keysfail cannot read it
+    if host == "h-keysfail" and "cat ~/.ssh/authorized_keys" in cmd:
+        print("cat: /home/x/.ssh/authorized_keys: Permission denied", file=sys.stderr); sys.exit(1)
+    if host != "h-unreachable" and "~/.ssh/authorized_keys" in cmd:
         import subprocess
         sys.exit(subprocess.run(["sh", "-c", cmd], env={**os.environ, "HOME": os.environ["FAKE_REMOTE_HOME"]}).returncode)
     if cmd.startswith("powershell "):
@@ -153,8 +156,9 @@ class CLI(unittest.TestCase):
         (self.conf / "profiles").write_text(profiles)
 
     def netcap(self, *args, env=None):
+        # No terminal on stdin, whoever runs the tests: install asks for a name only on a terminal
         return subprocess.run([sys.executable, str(NETCAP), *args], capture_output=True, text=True,
-                              env=env or self.env, timeout=30)
+                              env=env or self.env, timeout=30, stdin=subprocess.DEVNULL)
 
     def status_row(self, name):
         p = self.netcap("status", name, "--json")
@@ -679,6 +683,29 @@ class CLI(unittest.TestCase):
         self.assertFalse(pwned.exists())
         self.assertEqual(sorted(out.stdout.split()), ["all", "laptop"])
 
+    def complete(self, script, *words):
+        """What the bash completion offers for netcap <words>, the last one being the word under the cursor."""
+        line = " ".join(shlex.quote(w) for w in ("netcap", *words))
+        out = subprocess.run(["bash", "-c", script + f'\nCOMP_WORDS=({line}); COMP_CWORD={len(words)}; _netcap; '
+                              'echo "${COMPREPLY[*]}"'],
+                             capture_output=True, text=True, env=self.env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return sorted(out.stdout.split())
+
+    # #92: global options before the command, profile names for use, and all only where the command takes it
+    def test_completion_words(self):
+        self.hosts("gamepc", "laptop", profiles="# a comment\ngame  gamepc=off\nwork  laptop=2/2\n")
+        script = self.netcap("completion", "bash").stdout
+        hosts, every = ["gamepc", "laptop"], ["all", "gamepc", "laptop"]
+        for words, want in ((["-q", "on", ""], every), (["--json", "status", ""], every), (["-v", "-q", "off", ""], every),
+                            (["on", ""], every), (["doctor", ""], every),
+                            (["protect", ""], hosts), (["uninstall", ""], hosts), (["rename", ""], hosts),
+                            (["use", ""], ["game", "work"]), (["-q", "use", "w"], ["work"])):
+            with self.subTest(words=words):
+                self.assertEqual(self.complete(script, *words), want)
+        self.assertIn("status", self.complete(script, "-q", ""))
+        self.assertIn("--up", self.complete(script, "-q", "on", "--"))
+
     # #29: on --for. The duration goes to the device in seconds, at the end of on
     def test_on_for(self):
         self.hosts("on")
@@ -1122,6 +1149,94 @@ class CLI(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual((other / "hosts.bak").read_text(), "mine mac -\n")
         self.assertIn("off", (other / "hosts").read_text())
+
+    # #92: install --ssh takes only a route hosts accepts. Before, ssh://h-new:2222 was installed and registered, and then
+    # every command stopped on that hosts line, uninstall included
+    def test_install_refuses_a_route_hosts_would_refuse(self):
+        env = self.install_env()
+        for dest in ("ssh://h-new:2222", "-", "h new"):
+            with self.subTest(dest=dest):
+                p = self.netcap("install", "box", f"--ssh={dest}", env=env)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertIn("as a route", p.stderr)
+                self.assertEqual(self.log.read_text(), "")
+                self.assertFalse((self.conf / "hosts").exists())
+
+    # #92: without a terminal, the name defaults to the host part of user@host, which follows the name rule
+    def test_install_without_a_terminal_names_it_after_the_host(self):
+        p = self.netcap("install", "--ssh", "me@h-new", env=self.install_env())
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.conf / "hosts").read_text().split(), ["h-new", "mac", "me@h-new"])
+
+    # #92: Windows PowerShell 5.1 writes a UTF-8 BOM (Set-Content -Encoding utf8). hosts, profiles, and an export read
+    # the same with one
+    def test_config_with_a_bom(self):
+        bom = "﻿"
+        (self.conf / "hosts").write_text(bom + "off mac h-off\non mac h-on\n", encoding="utf-8")
+        (self.conf / "profiles").write_text(bom + "p  off=1/1\n", encoding="utf-8")
+        p = self.netcap("status", "off", "--json")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout)[0]["host"], "off")
+        self.assertRegex(self.netcap("profiles").stdout, r"(?m)^p +off=1/1$")
+        self.assertEqual(self.netcap("rename", "off", "zz").returncode, 0)
+        self.assertEqual((self.conf / "hosts").read_text(encoding="utf-8").split()[:3], ["zz", "mac", "h-off"])
+        self.assertIn("zz=1/1", (self.conf / "profiles").read_text(encoding="utf-8"))
+        data, f = self.export()
+        f.write_text(bom + json.dumps(data), encoding="utf-8")
+        p, other = self.import_into(f)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("zz", (other / "hosts").read_text())
+        # and the completion script reads the first name too
+        script = self.netcap("completion", "bash").stdout
+        (self.conf / "hosts").write_text(bom + "off mac h-off\n", encoding="utf-8")
+        self.assertEqual(self.complete(script, "status", ""), ["all", "off"])
+
+    # #92: a profile name twice is refused, as a host name twice is; netcap profiles shows every entry
+    def test_profiles_refuses_a_name_twice_and_shows_every_entry(self):
+        self.hosts("off", profiles="p  off=1/1\nq  off=off\np  off=2/2\n")
+        p = self.netcap("profiles")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn(f"{self.conf / 'profiles'}:3: p appears twice", p.stderr)
+        self.hosts("off", profiles="p  gone=1/1  off=off\n")
+        p = self.netcap("profiles")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertRegex(p.stdout, r"(?m)^p +off=off  gone=1/1$")
+        self.assertIn("not in hosts: gone", p.stdout)
+        self.assertNotIn("not in hosts", self.netcap("profiles", "-q").stdout)
+
+    # #92: when the keys file on the device cannot be read, uninstall does not guess that no other controller is left
+    def test_uninstall_keeps_the_agent_when_the_keys_cannot_be_read(self):
+        env = self.install_env()
+        (self.conf / "hosts").write_text("box mac h-keysfail\n")
+        p = self.netcap("uninstall", "box", env=env)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("could not read the keys on h-keysfail", p.stderr)
+        self.assertIn("netcap uninstall box --config-only", p.stderr)
+        self.assertNotIn("uninstall.sh", self.log.read_text())
+        self.assertIn("box", (self.conf / "hosts").read_text())
+
+    # #92: on Windows, administrators_authorized_keys cannot be read without Administrator. That is an error, not a
+    # traceback, and not "no other controller"
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads any file")
+    def test_others_use_the_agent_when_the_local_keys_cannot_be_read(self):
+        mod = load_netcap()
+        keys = self.tmp / "ProgramData" / "ssh" / "administrators_authorized_keys"
+        keys.parent.mkdir(parents=True)
+        keys.write_text("restrict,command=\"powershell … netcap-agent.ps1\" ssh-ed25519 AAAAother netcap@other\n")
+        keys.chmod(0)
+        self.addCleanup(keys.chmod, 0o600)
+        with mock.patch.dict(os.environ, ProgramData=str(self.tmp / "ProgramData")):
+            self.assertIsNone(mod.others_use_the_agent(None, "win"))
+            keys.chmod(0o600)
+            self.assertTrue(mod.others_use_the_agent(None, "win"))
+
+    # #92: running from a clone, the version is git describe without the v (no str.removeprefix: Python 3.8)
+    def test_version_from_git(self):
+        mod = load_netcap()
+        done = subprocess.CompletedProcess([], 0, stdout="v0.12.0-3-gabc1234\n", stderr="")
+        with mock.patch.object(mod.subprocess, "run", return_value=done):
+            self.assertEqual(mod.version(), "0.12.0-3-gabc1234")
+        self.assertNotIn(".removeprefix(", NETCAP.read_text(encoding="utf-8"))
 
     # CONTRIBUTING.md: Language. Messages for people follow LC_ALL, LC_MESSAGES, LANG in that order
     def test_japanese_messages(self):

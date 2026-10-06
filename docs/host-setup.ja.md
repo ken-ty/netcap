@@ -73,7 +73,8 @@ sudo bash mac/install.sh --boot on|off
 | `/Library/LaunchDaemons/netcap-netshape.plist` | `--boot on` のときだけ |
 | `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | `on --for` が読み込み、期限に上限を外すジョブ。起動時には読み込まれない |
 
-- `--boot on` は起動時に既定の上限 (初期値 1/1。`netcap set` で変える) をかける。`off` は素のまま
+- `--boot on` は起動時に既定の上限 (初期値 1/1。`netcap set` で変える) をかける。`off` は素のまま。
+  初めての `--boot on` はその場でもかける。インストーラーをもう一度動かしても、かかっている上限とその `--for` はそのまま
 - sudoers は `sudo` を呼んだユーザーに、本体の決まった動詞だけを許す。別のユーザーなら `NETCAP_USER=<user>`。
   別のユーザーで流し直すと、そのユーザーが足され、ほかのユーザーは残る
 - 外すのは `sudo bash mac/uninstall.sh`。1 人だけ外すなら `sudo bash mac/uninstall.sh --user`
@@ -97,7 +98,8 @@ sudo bash linux/install.sh --boot on|off
 
 - インターネットへの IPv4 の経路のインターフェース (`ip -4 route get 1.1.1.1`) を絞る。下りは `ifb` で受信を
   折り返して絞る。`tc` と `ip` (iproute2) が要る
-- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。外すのは `sudo bash linux/uninstall.sh` (1 人だけなら `--user`)
+- `--boot`・sudoers・`NETCAP_USER` は macOS と同じ。`--boot on` には systemd が要る。無いとき (コンテナなど) は
+  `--boot off` にする。外すのは `sudo bash linux/uninstall.sh` (1 人だけなら `--user`)
 
 ## Windows
 

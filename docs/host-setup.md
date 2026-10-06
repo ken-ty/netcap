@@ -71,7 +71,9 @@ sudo bash mac/install.sh --boot on|off
 | `/Library/LaunchDaemons/netcap-netshape.plist` | Only with `--boot on` |
 | `/Library/PrivilegedHelperTools/netcap-netshape-expire.plist` | The job `on --for` loads to lift the cap at the deadline. Not loaded at boot |
 
-- `--boot on` applies the default cap at boot (initially 1/1; change it with `netcap set`). `off` leaves the device as is
+- `--boot on` applies the default cap at boot (initially 1/1; change it with `netcap set`). `off` leaves the device as is.
+  The first `--boot on` also applies it now; running the installer again leaves the cap in effect, and its `--for`, as
+  they are
 - sudoers allows only the shaper's fixed verbs, for the user who ran `sudo`. For a different user, pass `NETCAP_USER=<user>`.
   Running it again as another user adds that user and keeps the others
 - To remove: `sudo bash mac/uninstall.sh`. To remove only one user: `sudo bash mac/uninstall.sh --user`
@@ -95,7 +97,8 @@ sudo bash linux/install.sh --boot on|off
 
 - Caps the interface of the IPv4 route to the internet (`ip -4 route get 1.1.1.1`). Download is capped by redirecting
   ingress through `ifb`. Needs `tc` and `ip` (iproute2)
-- `--boot`, sudoers, and `NETCAP_USER` work as on macOS. To remove: `sudo bash linux/uninstall.sh` (`--user` for one user)
+- `--boot`, sudoers, and `NETCAP_USER` work as on macOS. `--boot on` needs systemd; without it (a container, for
+  example), use `--boot off`. To remove: `sudo bash linux/uninstall.sh` (`--user` for one user)
 
 ## Windows
 

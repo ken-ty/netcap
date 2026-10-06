@@ -158,6 +158,10 @@ netcap --version                            -V、netcap version でも可
 
 ヘルプとエラーはロケール (`LANG`) に従い、日本語でも出る。英語で見たいときは `LC_ALL=C netcap -h`。
 
+補完を使うには、`~/.bashrc` に `eval "$(netcap completion bash)"` を足す。zsh では `~/.zshrc` の
+`autoload -Uz compinit && compinit` より後に `eval "$(netcap completion zsh)"` を足す (無いと zsh が
+`compdef: command not found` を出す)。
+
 ## ドキュメント
 
 - [docs/why.ja.md](docs/why.ja.md) — ルーターの QoS や他のツールとの比較。netcap を選ぶとき

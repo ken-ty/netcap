@@ -76,7 +76,8 @@ $Until = Join-Path $Dir 'until'
 function Now { [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() }
 
 function Read-Until {
-  if (Test-Path $Until) { $u = (Get-Content -Raw $Until).Trim(); if ($u -match '^[0-9]+$') { return [int64]$u } }
+  # Get-Content -Raw returns $null for an empty file (a write cut short): no deadline, not an error
+  if (Test-Path $Until) { $u = "$(Get-Content -Raw $Until)".Trim(); if ($u -match '^[0-9]+$') { return [int64]$u } }
   return $null
 }
 
@@ -142,7 +143,8 @@ function Status {
   $wan = $ours | Where-Object Name -eq 'netcap-wan'
   $expected = $Local.Count + 2
   $up = '-'
-  if ($wan) { $up = '{0:G}' -f ($wan.ThrottleRate / 1000000) }
+  # A machine reads this: not the current culture's format (0,5 under de-DE)
+  if ($wan) { $up = ($wan.ThrottleRate / 1000000).ToString('G', [Globalization.CultureInfo]::InvariantCulture) }
   if ($wan -and $ours.Count -eq $expected) { $state = 'on' }
   elseif ($ours.Count -eq 0) { $state = 'off' }
   else { $state = 'partial' }  # only some are left. Run on or off again

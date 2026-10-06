@@ -37,6 +37,10 @@ USER_NAME=${NETCAP_USER:-${SUDO_USER:-}}
 [[ "$USER_NAME" =~ ^[a-z_][a-z0-9_.-]*$ ]] || { echo "cannot parse the user name: $USER_NAME" >&2; exit 1; }
 id "$USER_NAME" >/dev/null 2>&1 || { echo "no such user: $USER_NAME" >&2; exit 1; }
 command -v tc >/dev/null && command -v ip >/dev/null || { echo "tc and ip (iproute2) are required" >&2; exit 1; }
+# The test systemd itself uses (sd_booted). Without it (a container, WSL without systemd) there is no boot job to manage
+SYSTEMD=0
+[ ! -d /run/systemd/system ] || SYSTEMD=1
+[ "$BOOT" = off ] || [ "$SYSTEMD" = 1 ] || { echo "--boot on needs systemd; nothing changed" >&2; exit 1; }
 
 # Every directory from dir up to / must be root-owned and not writable by group / other
 require_root_only() {
@@ -79,7 +83,7 @@ if [ "$BOOT" = on ]; then
 else
   systemctl disable netcap-netshape >/dev/null 2>&1 || true
   rm -f "$UNIT"
-  systemctl daemon-reload
+  [ "$SYSTEMD" = 0 ] || systemctl daemon-reload
 fi
 
 echo "installed (boot=${BOOT}, sudoers for ${USERS})"

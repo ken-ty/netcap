@@ -21,6 +21,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   checked before anything is read or sent. A script that treats 1 as "bad arguments" should check for 2 (#101)
 - `netcap doctor`, `netcap protect` when the protected device is out of reach, and `netcap install --ssh` when ssh
   cannot connect exit 3 instead of 1 when the only failures are devices out of reach (#101)
+- **Breaking** A profile name that appears twice in profiles now stops netcap with the file and line, as a name twice in
+  hosts does; before, the later line silently won. Remove or rename one of them (#102)
 
 ### Fixed
 
@@ -42,6 +44,34 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   afterwards and exited 0. `protect` does not record such a device as capped, so `--off` leaves it as it is (#101)
 - `netcap use` checks every value in the profile before sending anything: a bad value no longer leaves the devices
   before it capped (#101)
+- `netcap install --ssh` refuses a destination that hosts would refuse, such as `ssh://host:2222`, with exit 2 before
+  anything is installed. Before, it installed and registered the device, and then every command stopped on that hosts
+  line, `uninstall` included (#102)
+- Without a terminal, `netcap install --ssh user@host` names the device `host`; before, it took `user@host`, which the
+  name rule refuses (#102)
+- hosts, profiles, and a file for `netcap import` that start with a UTF-8 BOM, as Windows PowerShell 5.1 writes them,
+  are read correctly (#102)
+- Completion finds the command after a global option (`netcap -q on <TAB>`, `netcap --json status <TAB>`), completes
+  profile names for `use`, and no longer offers `all` to `protect`, `uninstall`, and `rename`, which refuse it. The
+  README says zsh needs `compinit` before the completion script (#102)
+- `netcap profiles` shows entries for devices that are not in hosts, and names them; before, it hid them (#102)
+- `netcap uninstall` keeps the agent when it cannot read the keys file on the device, and says so; before, it took a
+  failed read for "no other controller" and removed an agent another controller may still use (#102)
+- Running the CLI from a clone works on Python 3.8, which has no `str.removeprefix` (#102)
+- The agent refuses arguments to verbs that take none (`status 5`) instead of passing them to sudo, which netcap showed
+  as `no-sudo` (#102)
+- On macOS, the boot job of `--boot on` waits up to a minute for `/etc/pf.conf` when it starts before `com.apple.pfctl`
+  loads it; before, it failed and left the device uncapped until the next `on`. When something else disables pf
+  (`pfctl -d`), `status` says `partial` instead of `on`, and `on` enables pf again. Installing again with `--boot on`
+  keeps the cap in effect and its `--for`, as on Linux; before, it applied the default and cancelled the deadline (#102)
+- On Linux, `install.sh --boot off` works without systemd (a container, for example), and `--boot on` says it needs
+  systemd before changing anything. A failed `expire` at the `--for` deadline is tried again a minute later, instead of
+  leaving the cap on (#102)
+- On Windows, `status` and `check` print numbers the way the CLI reads them (`0.5`, not `0,5` under de-DE), `status`
+  works with an empty deadline file, and `uninstall.ps1` removes links in its folder before deleting the folder, so it
+  never deletes what they point to (#102)
+- The device-side fixes above need each device updated with `netcap install <name>` (add `--boot on` for a device that
+  has it). None of them changes what the CLI sends, so the oldest agent the CLI works with does not change (#102)
 
 ### Security
 
