@@ -190,6 +190,24 @@ class E2E(unittest.TestCase):
         self.netcap("use", "none")
         self.assertCap("off")
 
+    # docs/configuration.md: decimals work. macOS dnctl read 0.5 as unlimited and 08 as 0 (#86)
+    def test_12_decimal_and_zero_padded(self):
+        try:
+            for value, want in (("0.5", "0.5"), ("08", "8")):
+                with self.subTest(value=value):
+                    p = agent("on", value, value)
+                    self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                    r = self.row()
+                    print(f"\n  on {value} {value}: state={r['state']} up_mbit={r['up_mbit']} down_mbit={r['down_mbit']}")
+                    self.assertCap("on", want, want)
+            if OS == "mac":  # dummynet holds bit/s in a 32-bit int: refused before anything changes
+                p = agent("on", "2148", "1")
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertIn("2147.483647", p.stderr)
+                self.assertCap("on", "8", "8")
+        finally:
+            agent("off")
+
     # docs/configuration.md: Export and import (on this machine, "self" is kept)
     def test_15_export_import(self):
         out = self.netcap("export")
