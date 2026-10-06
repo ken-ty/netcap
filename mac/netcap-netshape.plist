@@ -6,6 +6,8 @@
   <key>ProgramArguments</key>
   <array><string>/Library/PrivilegedHelperTools/netcap-netshape</string><string>on</string></array>
   <key>RunAtLoad</key><true/>
+  <!-- on waits for /etc/pf.conf, which com.apple.pfctl may load after this job starts -->
+  <key>EnvironmentVariables</key><dict><key>NETCAP_BOOT</key><string>1</string></dict>
   <key>StandardOutPath</key><string>/var/log/netcap-netshape.log</string>
   <key>StandardErrorPath</key><string>/var/log/netcap-netshape.log</string>
 </dict>

@@ -88,14 +88,24 @@ if [ -f "$CONF" ]; then
 fi
 
 # Without a com.apple/* dummynet anchor in the main ruleset, our rules are never evaluated.
-# In that case stop without replacing main (replacing it would wipe others' rules)
+# In that case stop without replacing main (replacing it would wipe others' rules).
+# At boot, com.apple.pfctl may load /etc/pf.conf after the boot job starts (launchd does not order them), so the boot
+# job (NETCAP_BOOT=1, set by its plist) waits up to a minute for it instead of leaving the device uncapped
 require_anchor_point() {
-  pfctl -s dummynet 2>/dev/null | grep -q 'dummynet-anchor "com.apple/\*"' || {
-    echo "main ruleset has no dummynet-anchor \"com.apple/*\"." \
-      "Rules other than /etc/pf.conf are loaded. Check, then sudo pfctl -f /etc/pf.conf" >&2
-    exit 3
-  }
+  local wait=0
+  [ "${NETCAP_BOOT:-}" = 1 ] && wait=60
+  until pfctl -s dummynet 2>/dev/null | grep -q 'dummynet-anchor "com.apple/\*"'; do
+    [ "$wait" -gt 0 ] || {
+      echo "main ruleset has no dummynet-anchor \"com.apple/*\"." \
+        "Rules other than /etc/pf.conf are loaded. Check, then sudo pfctl -f /etc/pf.conf" >&2
+      exit 3
+    }
+    sleep 1
+    wait=$((wait - 1))
+  done
 }
+
+pf_enabled() { pfctl -s info 2>/dev/null | grep -q '^Status: Enabled'; }
 
 apply() {
   if [ $# -ge 1 ]; then
@@ -111,7 +121,12 @@ apply() {
   dnctl -q pipe "$PIPE_UP" config bw "${UP_BIT}bit/s" queue 20
   dnctl -q pipe "$PIPE_DOWN" config bw "${DOWN_BIT}bit/s" queue 50
   pfctl -q -a "$ANCHOR" -f "$ANCHOR_FILE"
-  # pf enabling is reference-counted. Hold our own token and release only ours on off
+  # pf enabling is reference-counted. Hold our own token and release only ours on off. If something else disabled pf
+  # (pfctl -d), the token no longer keeps it on: give it back and take a new one
+  if [ -s "$TOKEN" ] && ! pf_enabled; then
+    pfctl -q -X "$(cat "$TOKEN")" 2>/dev/null || true
+    rm -f "$TOKEN"
+  fi
   if [ ! -s "$TOKEN" ]; then
     pfctl -E 2>&1 | sed -n 's/.*Token *: *\([0-9]*\).*/\1/p' >"$TOKEN"
   fi
@@ -261,12 +276,12 @@ status() {
     down=$(awk '{print $2}' "$APPLIED")
     down_src=applied
   fi
-  if [ "$rules" -ge 2 ] && [ -n "$up" ] && [ "$pipes" -ge 2 ]; then
+  if [ "$rules" -ge 2 ] && [ -n "$up" ] && [ "$pipes" -ge 2 ] && pf_enabled; then
     state=on
   elif [ "$rules" -eq 0 ] && [ -z "$up" ]; then
     state=off
   else
-    state=partial # rules and pipes disagree. Run on or off again
+    state=partial # rules and pipes disagree, or pf is disabled (pfctl -s info below). Run on or off again
   fi
   echo "netshape state=${state} up_mbit=${up:--} down_mbit=${down:--} down_src=${down_src} pipes=${pipes} rules=${rules} $(timer_fields)"
   pfctl -s info 2>/dev/null | head -1
