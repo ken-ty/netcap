@@ -156,6 +156,9 @@ What happens on reboots, power loss, and with more than one controller: [docs/op
 
 Help and error messages follow your locale (`LANG`); Japanese is available. `LC_ALL=C netcap -h` shows English.
 
+For completion, add `eval "$(netcap completion bash)"` to `~/.bashrc`, or `eval "$(netcap completion zsh)"` to
+`~/.zshrc` after `autoload -Uz compinit && compinit` (without it, zsh says `compdef: command not found`).
+
 ## Documentation
 
 - [docs/why.md](docs/why.md) — compared with router QoS and other tools: when to choose netcap

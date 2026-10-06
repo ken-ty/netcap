@@ -179,7 +179,8 @@ def version():
         p = subprocess.run(["git", "-C", str(Path(__file__).resolve().parent), "describe",
                             "--tags", "--always", "--dirty"], capture_output=True, text=True, timeout=5)
         if p.returncode == 0 and p.stdout.strip():
-            return p.stdout.strip().removeprefix("v")
+            out = p.stdout.strip()
+            return out[1:] if out.startswith("v") else out  # not str.removeprefix: Python 3.8 has none
     except (OSError, subprocess.TimeoutExpired):
         pass
     return "unknown"
@@ -238,7 +239,8 @@ def config_lines(name):
     if not path.exists():
         sys.exit(_("{path} does not exist. See {example} for the format\n"
                    "  mkdir -p {dir} && cp {example} {path}").format(path=path, example=EXAMPLES / name, dir=CONFIG_DIR))
-    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    # utf-8-sig: Windows PowerShell 5.1 starts a file with a BOM (Set-Content -Encoding utf8)
+    for n, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         words = line.split("#", 1)[0].split()
         if words:
             yield path, n, words
@@ -443,6 +445,8 @@ def load_profiles():
         plan = dict(p.split("=", 1) for p in pairs)
         for bad in (x for x in (name, *plan) if not NAME_RE.fullmatch(x)):
             sys.exit(f"{path}:{n}: " + _("cannot use {name!r} as a name (letters, digits, _ . -)").format(name=bad))
+        if name in profiles:  # as in hosts: the later line would silently win
+            sys.exit(f"{path}:{n}: " + _("{name} appears twice").format(name=name))
         profiles[name] = plan
     return profiles
 
@@ -746,14 +750,21 @@ def cmd_profiles(a):
         print(json.dumps(profiles, ensure_ascii=False, indent=2))
         return 0
     width = max(len(n) for n in profiles) if profiles else 8
+    unknown = []
     for name, plan in profiles.items():
-        body = "  ".join(f"{h}={plan[h]}" for h in ORDER if h in plan)
+        # In the order of hosts, then devices hosts does not have: they are in the file, so they are shown
+        gone = [h for h in plan if h not in HOSTS]
+        unknown += [h for h in gone if h not in unknown]
+        body = "  ".join(f"{h}={plan[h]}" for h in [*(h for h in ORDER if h in plan), *gone])
         print(f"{name:<{width}}  {body}")
+    if unknown:
+        hint(_("not in hosts: {names} (netcap use refuses a profile with them)").format(names=", ".join(unknown)))
     return 0
 
 
 def add_target(p, optional=False):
-    p.add_argument("host", nargs="?" if optional else None, help=_("a name from hosts, or all"))
+    # The commands that take all are the ones with this argument; completion offers all only for them
+    p.add_argument("host", nargs="?" if optional else None, help=_("a name from hosts, or all")).takes_all = True
 
 
 # --- install / uninstall / rename ---------------------------------------------------------------
@@ -942,7 +953,7 @@ def edit_config(name, fn):
     if not path.exists():
         return
     out = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         code, sep, comment = line.partition("#")
         if not code.strip():
             out.append(line)
@@ -967,12 +978,17 @@ def check_name(name):
 def cmd_install(a):
     if a.name is not None:
         check_name(a.name)
+    # The rule hosts reads routes with: a route it refuses would stop every command, uninstall included
+    if a.ssh is not None and (a.ssh == "-" or not ROUTE_RE.fullmatch(a.ssh)):
+        usage_error(_("cannot use {route!r} as a route (a Host name or user@host; it must not start with -)")
+                    .format(route=a.ssh))
     read_hosts()
     if a.name in HOSTS and a.ssh is None:  # reinstall (update) a registered device
         name, os_, dest = a.name, HOSTS[a.name]["os"], HOSTS[a.name]["ssh"]
     else:
         dest = a.ssh
-        name = a.name or ask_name(dest or "me")
+        # user@host would break the name rule, so the default is the host part
+        name = a.name or ask_name(dest.rpartition("@")[2] if dest else "me")
         check_name(name)
         if dest is None and THIS_OS is None:
             sys.exit(_("this OS is not supported: {os}").format(os=sys.platform))
@@ -991,7 +1007,7 @@ def cmd_install(a):
     if name not in HOSTS:
         path = CONFIG_DIR / "hosts"
         path.parent.mkdir(parents=True, exist_ok=True)
-        text = path.read_text(encoding="utf-8") if path.exists() else ""
+        text = path.read_text(encoding="utf-8-sig") if path.exists() else ""
         if text and not text.endswith("\n"):
             text += "\n"
         path.write_text(text + f"{name:<8} {os_:<5} {dest or '-'}\n", encoding="utf-8")
@@ -1005,15 +1021,22 @@ def cmd_install(a):
 
 
 def others_use_the_agent(dest, os_):
-    """Whether a netcap key line (another controller's) is left in the keys file of this login on the device."""
+    """Whether a netcap key line (another controller's) is left in the keys file of this login on the device, or None
+    when the file could not be read: then nobody can tell, and the agent must stay."""
     if dest is None:
         f = Path(os.environ.get("ProgramData", "C:/ProgramData")) / "ssh" / "administrators_authorized_keys" \
             if os_ == "win" else Path.home() / ".ssh" / "authorized_keys"
-        text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
-    elif os_ == "win":
-        text = powershell(dest, WIN_KEYS + "if (Test-Path $f) { [IO.File]::ReadAllText($f) }").out
+        try:
+            text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
+        except OSError:  # administrators_authorized_keys, without Administrator
+            return None
     else:
-        text = ssh_plain(dest, "cat ~/.ssh/authorized_keys 2>/dev/null || true").out
+        # A missing file is no other controller; a file that cannot be read is an error, not an empty file
+        p = powershell(dest, WIN_KEYS + "if (Test-Path $f) { [IO.File]::ReadAllText($f) }") if os_ == "win" else \
+            ssh_plain(dest, "[ ! -e ~/.ssh/authorized_keys ] || cat ~/.ssh/authorized_keys")
+        if p.returncode != 0:
+            return None
+        text = p.out
     return any(re.search(r'command="[^"]*netcap-agent', line) for line in text.splitlines())
 
 
@@ -1030,7 +1053,11 @@ def cmd_uninstall(a):
         # another controller's key still points at it for the same login (docs/operations.md, #31)
         if dest is not None:
             unauthorize(dest, os_)
-        if others_use_the_agent(dest, os_):
+        others = others_use_the_agent(dest, os_)
+        if others is None:
+            sys.exit(_("could not read the keys on {where}, so the agent stays. Try again, or only forget it here: "
+                       "netcap uninstall {name} --config-only").format(where=where, name=a.name))
+        if others:
             say(_("another controller still uses the agent on {where}: kept it").format(where=where))
         else:
             say(_("removing the agent from {where}").format(where=where))
@@ -1235,7 +1262,7 @@ def check_import(data):
 def cmd_import(a):
     try:
         text = sys.stdin.read() if a.file == "-" else Path(a.file).read_text(encoding="utf-8")
-        data = json.loads(text)
+        data = json.loads(text.lstrip("\ufeff"))  # a BOM, as Windows PowerShell 5.1 writes, is not JSON
     except (OSError, ValueError) as e:
         import_error(str(e))
     hosts, profiles = check_import(data)
@@ -1373,6 +1400,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "プロファイルの値を読めない: {host} = {value!r} (Mbit/s の正の数で \"上り/下り\"、または \"off\")",
     "unknown profile: {profile} (available: {names})": "知らないプロファイル: {profile} (あるもの: {names})",
     "the profile has unknown hosts: {names}": "プロファイルに知らない機器がある: {names}",
+    "not in hosts: {names} (netcap use refuses a profile with them)":
+        "hosts に無い: {names} (それを含むプロファイルは netcap use が拒む)",
     "values as positional arguments are no longer accepted ({given}).\n"
     "  cap this time only : netcap on {host} --up N --down N\n"
     "  change the default : netcap set {host} --up N --down N":
@@ -1459,6 +1488,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "the device lifts the cap by itself after this long: 30m, 2h, 1h30m (1m to 24h)":
         "この時間が経つと機器が自分で上限を外す: 30m、2h、1h30m (1m から 24h)",
     "another controller still uses the agent on {where}: kept it": "{where} の agent はほかの管理する側がまだ使っているので残した",
+    "could not read the keys on {where}, so the agent stays. Try again, or only forget it here: netcap uninstall {name} --config-only":
+        "{where} の鍵のファイルを読めなかったので、agent は残した。やり直すか、こちらの登録だけ消すなら: netcap uninstall {name} --config-only",
     "removed profiles that had only {name}: {profiles}": "{name} だけだったプロファイルを消した: {profiles}",
     "{name} is already in hosts": "{name} は hosts にもうある",
     "could not make a temporary directory on {dest}": "{dest} に一時ディレクトリを作れない",
@@ -1522,36 +1553,43 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
 
 
 def completion_script(shell, sub):
-    """bash / zsh completion without a dependency: subcommands, their flags, and the names in hosts at the time.
-    A word starting with - completes flags; any other word completes what the command takes."""
+    """bash / zsh completion without a dependency: subcommands, their flags, and the names in hosts and profiles at the
+    time. A word starting with - completes flags; any other word completes what the command takes."""
     flags = {name: sorted(s for x in p._actions for s in x.option_strings) for name, p in sub.choices.items()}
-    args = {name: "$(_netcap_hosts)" for name, p in sub.choices.items()
-            if any(x.dest in ("host", "name", "old") for x in p._actions)}
+    args = {}
+    for name, p in sub.choices.items():
+        names = [x for x in p._actions if x.dest in ("host", "name", "old")]
+        if names:  # protect, uninstall, and rename refuse all, so it is offered only where the command takes it
+            args[name] = "$(_netcap_names hosts" + (" all" if getattr(names[0], "takes_all", False) else "") + ")"
+    args["use"] = "$(_netcap_names profiles)"
     args["help"] = " ".join([*sub.choices, "exit-codes"])
     args["completion"] = "bash zsh"
     cases = "\n".join(f'    {k}) f="{" ".join(v)}"; a="{args.get(k, "")}" ;;' for k, v in flags.items())
     # compgen -W expands the words it is given ($(…), `…`), so only names that follow the name rule reach it,
-    # whoever wrote the line in hosts (#87)
-    script = f"""_netcap_hosts() {{
+    # whoever wrote the line (#87). LC_ALL=C: awk reads bytes, so the BOM Windows PowerShell 5.1 writes is \357\273\277
+    script = f"""_netcap_names() {{
   local d=${{NETCAP_CONFIG_DIR:-${{XDG_CONFIG_HOME:-$HOME/.config}}/netcap}}
-  [ -f "$d/hosts" ] && sed -e 's/#.*//' "$d/hosts" | awk '$1 ~ /^{NAME_RE.pattern}$/ {{ print $1 }}'
-  echo all
+  [ -f "$d/$1" ] && LC_ALL=C awk 'NR == 1 {{ sub(/^\\357\\273\\277/, "") }} {{ sub(/#.*/, "") }}
+    $1 ~ /^{NAME_RE.pattern}$/ {{ print $1 }}' "$d/$1"
+  [ -z "$2" ] || echo "$2"
 }}
 _netcap() {{
-  local cur=${{COMP_WORDS[COMP_CWORD]}} f a
-  if [ "$COMP_CWORD" -eq 1 ]; then
-    f="-h --help -V --version --json -v --verbose -q --quiet"; a="{' '.join(sub.choices)}"
-  else
-    case ${{COMP_WORDS[1]}} in
+  local cur=${{COMP_WORDS[COMP_CWORD]}} cmd= f= a= i=1
+  # The command is the first word that is not an option: -q, --json, and -v may come before it
+  while [ "$i" -lt "$COMP_CWORD" ]; do
+    case ${{COMP_WORDS[$i]}} in -*) ;; *) cmd=${{COMP_WORDS[$i]}}; break ;; esac
+    i=$((i + 1))
+  done
+  case $cmd in
+    "") f="-h --help -V --version --json -v --verbose -q --quiet"; a="{' '.join(sub.choices)}" ;;
 {cases}
-    esac
-  fi
+  esac
   case $cur in -*) ;; *) [ -n "$a" ] && f=$a ;; esac
   COMPREPLY=($(compgen -W "$f" -- "$cur"))
 }}
 complete -F _netcap netcap
 """
-    if shell == "zsh":
+    if shell == "zsh":  # bashcompinit's complete calls compdef, which compinit defines (README: Usage)
         script = "autoload -U +X bashcompinit && bashcompinit\n" + script
     return script
 
