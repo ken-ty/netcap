@@ -44,7 +44,7 @@ function Bounds([string]$prefix) {
 }
 
 # A field of another protocol fails any test on it, negated or not, so each family and port test sits behind a ?:
-function Filter {
+function Get-Filter {
   $v4 = @(); $v6 = @()
   foreach ($p in $Local) {
     $lo, $hi = Bounds $p
@@ -57,7 +57,7 @@ function Filter {
   " and (ip ? ip.DstAddr < 224.0.0.0 and $($v4 -join ' and ') : (ipv6 ? ipv6.DstAddr < ff00:: and $($v6 -join ' and ') : false))"
 }
 
-if ($args.Count -eq 1 -and $args[0] -eq 'filter') { Filter; exit 0 }
+if ($args.Count -eq 1 -and $args[0] -eq 'filter') { Get-Filter; exit 0 }
 if ($args.Count -ne 0) { [Console]::Error.WriteLine('usage: netshape-down.ps1 [filter]'); exit 2 }
 
 function Say([string]$m) { [IO.File]::AppendAllText($Log, "$([DateTime]::UtcNow.ToString('s', $C))Z $m`r`n") }
@@ -181,7 +181,7 @@ try {
   if ($null -eq $mbit) { Say 'download.mbit is missing or not a number: nothing to cap'; exit 0 }
   [NetcapDown]::Load((Join-Path $Wd 'WinDivert.dll'))
   [Diagnostics.Process]::GetCurrentProcess().PriorityClass = 'High'
-  $filter = Filter
+  $filter = Get-Filter
   # Up to about a minute: the service may be in the middle of starting or stopping (another program, or boot)
   for ($try = 1; ; $try++) {
     for ($i = 0; $i -lt 20 -and (Get-Service WinDivert -ErrorAction SilentlyContinue).Status -in 'StartPending', 'StopPending'; $i++) {
