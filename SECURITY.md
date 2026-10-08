@@ -29,6 +29,7 @@ the verbs in `--allow` and nothing else: no shell, no pty, no forwarding. With t
 - Read the state and settings of each device (`status`, `get`) and run a measurement (`check`). `check --bytes N` sets how
   much the measurement transfers, and the agent refuses more than 100 MB (`N` from 1 to 100000000)
 - Change or lift caps (`on`, `off`, `set`)
+- On Windows, unload the WinDivert driver (`unload-driver`), which the device refuses while anything uses it
 
 **It cannot cut a device off:** `0` is refused on every OS. It can, however, set a very small cap such as
 `0.01/0.01`, which makes the device's line unusable until someone runs `netcap off`.
@@ -46,6 +47,30 @@ On Windows the forced command is the only gate, so a netcap key line added by ha
 The files that run as root live only in directories that root alone can write
 (`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`, and on Windows `C:\ProgramData\netcap` with its inheritance cut and Administrators as its owner).
 The shaper reads its config as numbers and never runs it as a script. See [docs/design.md](docs/design.md).
+
+### Download capping on Windows is a kernel driver
+
+WinDivert 2.2.2, a third-party kernel driver, goes on a Windows device only when you agree: `y` when `netcap on` asks
+from a terminal, `netcap on --yes`, or `netcap install <name> --with-download`. A leaked netcap key cannot install it:
+installing goes over your own ssh login, not the forced command. `netcap install <name> --without-download` removes it
+and stops the question. Why it was chosen and what was accepted with it:
+[docs/adr/0001-cap-download-on-windows.md](docs/adr/0001-cap-download-on-windows.md).
+
+- netcap does not ship it. The installer fetches the official release zip from GitHub over HTTPS and refuses it unless
+  its SHA-256 is the one pinned in `win/install.ps1`; it keeps only the x64 driver, its DLL, and the license, in
+  `C:\ProgramData\netcap\windivert` with the same ACL as the rest (only SYSTEM and Administrators can write)
+- The driver is loaded by the download shaper, which runs as SYSTEM while a cap is on. After `off` the driver stays loaded
+  until the next reboot: netcap does not stop its service on its own, because stopping it under an open handle breaks
+  later opens ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)). `netcap unload-driver <name>`
+  unloads it when nothing uses it
+- [LOLDrivers](https://www.loldrivers.io/) lists WinDivert 2.2 as malicious: attackers bring it in to mute security
+  products. Security software may report or quarantine it (Malwarebytes and Bitdefender have), and a quarantined driver
+  makes `on` fail with the reason in `C:\ProgramData\netcap\download.log`
+- Its signing certificate expired in 2023. Windows still loads it because the signature is timestamped, but some security
+  software blocks it
+- WinDivert can capture and change any packet on the machine. Whoever can replace its files can do the same; that is why
+  the folder is writable only by SYSTEM and Administrators, and why reinstalling checks the files against their pins
+- x64 only: WinDivert has no signed ARM64 driver
 
 ### Out of scope
 

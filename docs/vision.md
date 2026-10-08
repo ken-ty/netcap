@@ -20,9 +20,11 @@ with ssh as the only channel. It is not a replacement for router SQM; if you can
 - **Every cap can be undone**, including from the capped machine itself with no network
 - **One command per task.** Setting up a device, capping, and undoing are each one command
 - **Small.** The CLI is one Python file with the standard library. The device side is scripts: nothing of netcap's runs between
-  commands, except the OS running the shaper at boot with `boot=on` and at an `on --for` deadline
+  commands, except the OS running the shaper at boot with `boot=on` and at an `on --for` deadline, and the download
+  shaper of a Windows device with WinDivert, which runs while a cap is on
 - **Leave to the OS what the OS does.** Recurring schedules are cron, launchd, or Task Scheduler calling netcap; an `on --for`
-  deadline is the device's scheduler (launchd, a systemd timer, Task Scheduler); the shaping is pf, tc, and NetQosPolicy
+  deadline is the device's scheduler (launchd, a systemd timer, Task Scheduler); the shaping is pf, tc, and NetQosPolicy,
+  and for download on Windows a borrowed driver, WinDivert ([ADR 0001](adr/0001-cap-download-on-windows.md))
 
 ## Ideal and current
 
@@ -33,7 +35,7 @@ Open gaps are tracked with the [`vision-gap`](https://github.com/ken-ty/netcap/l
 | Only internet traffic | LAN, VPN, ping, DNS pass through over IPv4 and IPv6 | IPv4 and IPv6 alike; measured on Linux, macOS, and Windows | None |
 | Protecting what matters | Name the device to protect; netcap caps the others and shows whether it worked | `netcap protect --load` caps the others, loads the line from them before and after, and says whether the protected device's latency improved | None |
 | Undo | A cap cannot be left on by accident | `off` works locally, `on` prints how to undo, `boot` defaults to off; `on --for`, `use --for`, and `protect --for` lift each cap on the device itself | None |
-| Platforms | Upload and download on all three OS | Windows caps upload only | Accepted: download on Windows needs a driver, beyond netcap's size |
+| Platforms | Upload and download on all three OS | Windows caps download with WinDivert, which `on` offers to install (x64; [ADR 0001](adr/0001-cap-download-on-windows.md)); measured in CI and on a Windows 11 machine | Open: no ARM64 ([#111](https://github.com/ken-ty/netcap/issues/111)); UDP and QUIC not yet measured ([#110](https://github.com/ken-ty/netcap/issues/110)) |
 | Setup | One command per device | `netcap install`; `--ssh` tested in CI (Linux, Windows) and measured from Windows to macOS | None |
 | Several controllers | Any controller works as any ssh user | export / import; sudoers allows each user who installed; uninstall takes back one controller's part | None |
 | Device decides | A second gate behind the forced command | sudoers per verb on macOS / Linux; forced command only on Windows | Accepted: no built-in second gate on Windows |
@@ -49,7 +51,7 @@ Open gaps are tracked with the [`vision-gap`](https://github.com/ken-ty/netcap/l
 | Per-application limits | NetLimiter (Windows) |
 | One process | trickle |
 | Simulating delay and packet loss | Network Link Conditioner, browser devtools |
-| Download caps on Windows through a custom driver | Out of scope |
+| A Windows driver of netcap's own | Borrow one ([ADR 0001](adr/0001-cap-download-on-windows.md)) |
 
 ## Keeping this page true
 

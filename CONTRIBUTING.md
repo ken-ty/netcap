@@ -7,8 +7,9 @@
 | `bin/netcap` | The CLI (Python 3, standard library only) |
 | `mac/` | The macOS device side (pf + dummynet). The agent and netcap-check are shared with Linux |
 | `linux/` | The Linux device side (tc) |
-| `win/` | The Windows device side (NetQosPolicy) |
+| `win/` | The Windows device side (NetQosPolicy; download with WinDivert, fetched at install) |
 | `examples/` | Templates for `hosts` and `profiles` |
+| `docs/adr/` | Decisions that change the vision's trade-offs, with the options that were not chosen |
 | `Formula/netcap.rb` | The Homebrew formula (this repository is its own tap) |
 | `scripts/measure.sh` | Measures how well the cap works |
 | `tests/` | Tests that follow the behavior promised by the README and docs |

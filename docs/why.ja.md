@@ -36,7 +36,7 @@ netcap は、数台のコンピュータのためのホストベースの QoS �
 | 対象 | 入れたコンピュータ | ルーターの内側すべて | ドメイン参加の Windows | その PC | その機械 | そのプロセス | その Mac |
 | OS | macOS、Linux、Windows | ルーターのファームウェア | Windows | Windows | Linux | Unix 系 | macOS |
 | 制御するもの | 端末ごとの上り / 下りの上限 | WAN のシェーピングと AQM、フロー間の公平 | 送信の throttle と DSCP の付与 | アプリ / 接続単位の制限 | インターフェース単位の上り / 下り | プロセス単位の速度 | 帯域・遅延・ロス |
-| 下りの上限 | ✅ (Windows は上りのみ) | ✅ | ❌ 送信のみ | ✅ | ✅ | ✅ | ✅ |
+| 下りの上限 | ✅ (Windows は WinDivert で。x64) | ✅ | ❌ 送信のみ | ✅ | ✅ | ✅ | ✅ |
 | LAN は絞らない | ✅ | ✅ (WAN だけを制御) | アドレスで設定できる | ❓ | ❌ インターフェース全体 | n/a | ❌ 端末全体 |
 | 複数台をまとめて | ✅ profiles | ✅ (ルーター 1 台で) | ✅ グループ ポリシー | ❌ | ❌ | ❌ | ❌ |
 | 必要なもの | ssh + Python 3 | OpenWrt のルーター | Active Directory | ライセンス | root | なし | Xcode の Additional Tools |

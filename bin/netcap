@@ -3,9 +3,11 @@
 
   netcap status [<host>|all] [--json]         read the real state (pf pipes / tc classes / QoS policy)
   netcap get    [<host>|all] [--json]         read the settings (default, boot behavior)
-  netcap on     <host>|all [--up N --down N] [--for 30m]
+  netcap on     <host>|all [--up N --down N] [--for 30m] [--yes]
                                               apply a cap; flags apply this time only. --for: the device
-                                              lifts it by itself after that long
+                                              lifts it by itself after that long. A Windows device without
+                                              WinDivert caps upload only; on a terminal, on offers to install
+                                              it (--yes: without asking)
   netcap off    <host>|all                    remove the cap
   netcap set    <host>|all --up N --down N    change the default (survives reboots)
   netcap check  [<host>|all] [--bytes N] [--json]
@@ -18,9 +20,11 @@
                                               --load: the others load the line meanwhile, and the result says
                                               whether latency improved. --for: as for on
   netcap protect --off                        put each device back as it was
-  netcap install [<name>] [--ssh DEST] [--boot on|off]
+  netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]
                                               install the agent on a device and register it. --boot on
-                                              (mac / linux): apply the default cap at boot
+                                              (mac / linux): apply the default cap at boot. --with-download
+                                              (win): also cap download, with WinDivert fetched from its release;
+                                              --without-download: remove it, and on stops offering it
   netcap uninstall <host> [--config-only]     remove this controller's key and registration (the agent goes
                                               with the last). --config-only: only forget it here
   netcap rename <old> <new>                   rename a device in hosts and profiles
@@ -30,6 +34,7 @@
   netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
   netcap <command> -q                         print only the result: no progress, hints, or notes
   netcap help [<command>|exit-codes]          the same help as -h; exit-codes lists what each exit status means
+  netcap help --all                           this list and the low-level commands (also -a)
   netcap completion bash|zsh                  print a completion script
   netcap --version                            version (also -V, or netcap version)
 
@@ -44,7 +49,8 @@ What runs on each device:
   linux            : /usr/libexec/netcap/netcap-agent               (entry point; the same agent as mac)
                        → netcap-netshape (tc; sudo -n) / netcap-check (measurement; no root)
   win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (entry point; also the forced command)
-                       → netshape.ps1 (NetQosPolicy; upload only) / netcap-check.ps1 (measurement)
+                       → netshape.ps1 (NetQosPolicy; download through netshape-down.ps1 and WinDivert,
+                         when installed) / netcap-check.ps1 (measurement)
 Each returns key=value on its first line, which is what gets read.
 
 Which devices to manage (hosts) and which to move together (profiles) belong to the user.
@@ -89,6 +95,8 @@ SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "ServerAliveI
 # Once it exists, it is the only key offered (IdentitiesOnly=yes), so a device needs it registered
 KEY = Path.home() / ".ssh" / "netcap"
 VERBS = "status get check on off set"
+# Windows also allows unload-driver, a low-level verb (netcap help --all)
+WIN_VERBS = VERBS + " unload-driver"
 # check does not return until the transfer ends. Capped at 1 Mbit/s, 1MB takes almost 10 seconds
 TIMEOUT = {"check": 180}
 
@@ -315,6 +323,11 @@ def note(r):
             return ""
         return _("off in {left}").format(left=fmt_left(int(left))) if int(left) else _("due, lifting soon")
     last = (r.get("raw", "").splitlines() or [""])[-1]
+    if last.startswith("netcap-agent: unknown verb: "):  # an agent from before that verb
+        return _("this device's agent is too old for this: netcap install {host}").format(host=r["host"])
+    if last.startswith("netcap-agent: not allowed for this key: unload-driver"):
+        return _("the netcap key on this device does not allow unload-driver; netcap install {host} adds it to a key "
+                 "line netcap wrote").format(host=r["host"])
     if last == "netcap-agent: arguments must be numbers: --for":  # an agent from before --for refused it
         return _("this agent does not know --for (nothing changed). Update it: netcap install {host}").format(host=r["host"])
     return last
@@ -375,6 +388,14 @@ GET_COLS = [
      else f"{r['default_up']}/{r['default_down']} Mbit/s"),
     ("boot", 6, lambda r: fmt(r.get("boot"))),
     ("agent", 10, lambda r: fmt(r.get("agent"))),
+    ("download", 9, lambda r: fmt(r.get("download"))),  # win: enabled / declined / unset (WinDivert)
+    ("note", 0, note),
+]
+
+UNLOAD_COLS = [
+    ("host", 7, lambda r: r["host"]),
+    ("reach", 12, lambda r: r.get("reach", "?")),
+    ("driver", 9, lambda r: fmt(r.get("driver"))),
     ("note", 0, note),
 ]
 
@@ -434,7 +455,59 @@ def apply_and_read(jobs, as_json, verbose):
             rows.append(s)
         else:
             rows.append(c)
-    return emit(rows, STATUS_COLS, as_json, verbose)
+    rc = emit(rows, STATUS_COLS, as_json, verbose)
+    if any(action == "on" for _, action, _ in jobs):
+        windivert_hint(rows)
+    return rc
+
+
+# --- WinDivert on demand (docs/adr/0001-cap-download-on-windows.md) -------------------------------------------------
+# A Windows device caps download only with WinDivert. on offers to install it where the device has not decided
+# (download=unset): it asks on a terminal, installs without asking with --yes, and otherwise caps upload only and says
+# so. A device installed with --without-download says download=declined, and nothing offers it there again.
+
+def interactive():
+    return sys.stdin.isatty() and sys.stderr.isatty() and not JSON and not QUIET
+
+
+def offer_windivert(hosts, yes):
+    win = [h for h in hosts if HOSTS[h]["os"] == "win"]
+    if not win or not (yes or interactive()):
+        return
+    for r in fan_out(win, "get"):
+        # An agent from before download= has no WinDivert either
+        if r.get("reach") != "ok" or r.get("download", "unset") != "unset":
+            continue
+        host = r["host"]
+        if not yes:
+            print(_("Capping download on {host} needs WinDivert (a third-party kernel driver, LGPL). Install it now? "
+                    "[y/N] ").format(host=host), end="", file=sys.stderr, flush=True)
+            if sys.stdin.readline().strip().lower() not in ("y", "yes"):
+                continue
+        say(_("installing WinDivert on {host}").format(host=host))
+        # The installer's output stays off stdout with --json
+        dest = HOSTS[host]["ssh"]
+        if run_device_script(dest, "win", "install.ps1", ["-WithDownload"], out=sys.stderr if JSON else None) != 0:
+            print(_("could not install WinDivert on {host} (see above); capping its upload only").format(host=host),
+                  file=sys.stderr)
+            continue
+        # As netcap install does: a key line netcap wrote before unload-driver existed gets the new verb
+        if dest:
+            try:
+                authorize(dest, "win")
+            except SystemExit as e:
+                print(e.code, file=sys.stderr)
+
+
+def windivert_hint(rows):
+    """Name the Windows devices that were capped on upload only because they have no WinDivert and have not declined it.
+    Not a failure: the exit status stays as it is"""
+    bare = [r["host"] for r in rows if r.get("reach") == "ok" and r.get("state") == "on"
+            and r.get("down_src") == "unsupported" and r.get("download", "unset") == "unset"]
+    if bare and not QUIET:
+        notice(_("download is not capped on {hosts}: no WinDivert there. To cap it: netcap on <host> --yes, or "
+                 "netcap install <name> --with-download. Not to be asked again: netcap install <name> "
+                 "--without-download").format(hosts=", ".join(bare)))
 
 
 def load_profiles():
@@ -493,7 +566,8 @@ def cmd_use(a):
 # written down first, in profile form ("off", "2/3", "on"), so that protect --off can put each device back.
 
 def cap_value(r):
-    """A status row as a profile value, or None if unreachable. Windows cannot cap download, so it reuses up."""
+    """A status row as a profile value, or None if unreachable. A Windows device without WinDivert cannot cap download,
+    so it reuses up."""
     if r.get("reach") != "ok":
         return None
     if r.get("state") != "on":
@@ -665,9 +739,11 @@ def cmd_protect(a):
         print(json.dumps({"protected": a.host, "devices": after_rows, "before": before, "after": after,
                           "load_bytes": load, "verdict": verdict,
                           "load": {"before": loaded_before, "after": loaded_after}}, ensure_ascii=False, indent=2))
+        windivert_hint(after_rows)
         return rc
     print(f"protect: {a.host}")
     print_table(after_rows, STATUS_COLS, DOWN_NOTE)
+    windivert_hint(after_rows)
     print()
     print_table([{**before, "host": "before"}, {**after, "host": "after"}], CHECK_COLS)
     if load:
@@ -799,22 +875,23 @@ def notice(msg):
     print(msg, file=sys.stderr if JSON else sys.stdout)
 
 
-def ssh_plain(dest, cmd, tty=False, input=None, capture=True):
-    """ssh with the user's own keys (not the netcap key, which only reaches the agent)."""
+def ssh_plain(dest, cmd, tty=False, input=None, capture=True, out=None):
+    """ssh with the user's own keys (not the netcap key, which only reaches the agent). out: where the output goes
+    when it is not captured (the terminal by default)"""
     opts = ["-t"] if tty else ["-o", "BatchMode=yes"]
     p = subprocess.run(["ssh", *opts, "-o", "ConnectTimeout=10", dest, cmd], input=input,
-                       capture_output=capture)
+                       capture_output=capture, **({} if capture else {"stdout": out}))
     if capture:
         p.out = decode(p.stdout).strip()
         p.err = decode(p.stderr).strip()
     return p
 
 
-def powershell(dest, script, capture=True):
+def powershell(dest, script, capture=True, out=None):
     """Run a PowerShell script on a Windows device. -EncodedCommand avoids every quoting layer."""
     script = "$ProgressPreference = 'SilentlyContinue'; $ErrorActionPreference = 'Stop'\n" + script
     enc = base64.b64encode(script.encode("utf-16-le")).decode()
-    return ssh_plain(dest, f"powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}", capture=capture)
+    return ssh_plain(dest, f"powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand {enc}", capture=capture, out=out)
 
 
 def ps_quote(s):
@@ -864,7 +941,7 @@ def key_line(os_, pub):
         agent = f"powershell -NoProfile -ExecutionPolicy Bypass -File {WIN_AGENT}"
     else:
         agent = MAC_AGENT if os_ == "mac" else LINUX_AGENT
-    return f"restrict,command=\"{agent} --allow '{VERBS}'\" {pub}"
+    return f"restrict,command=\"{agent} --allow '{WIN_VERBS if os_ == "win" else VERBS}'\" {pub}"
 
 
 # Append the line unless the key is already there. Keep the file's last line intact
@@ -882,8 +959,14 @@ cat "$f.netcap" > "$f"; rm -f "$f.netcap"
 # sshd reads this file for administrators and silently ignores it if it is UTF-16 or writable by others,
 # so write UTF-8 and give a new file the ACL sshd wants (SYSTEM and Administrators only)
 WIN_KEYS = r"$f = Join-Path $env:ProgramData 'ssh\administrators_authorized_keys'" + "\n"
+# A line this controller wrote before unload-driver existed allows the old verbs: give it the new ones. A line someone
+# narrowed or changed by hand stays as it is
 WIN_AUTHORIZE = WIN_KEYS + """$new = -not (Test-Path $f)
-if (-not $new -and ([IO.File]::ReadAllText($f)).Contains({blob})) {{ exit 0 }}
+if (-not $new) {{
+  $text = [IO.File]::ReadAllText($f)
+  if ($text.Contains({old})) {{ [IO.File]::WriteAllText($f, $text.Replace({old}, {line})); exit 0 }}
+  if ($text.Contains({blob})) {{ exit 0 }}
+}}
 if (-not $new) {{ $b = [IO.File]::ReadAllBytes($f); if ($b.Length -gt 0 -and $b[-1] -ne 10) {{ [IO.File]::AppendAllText($f, "`r`n") }} }}
 [IO.File]::AppendAllText($f, {line} + "`r`n")
 if ($new) {{ icacls.exe $f /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' | Out-Null }}
@@ -897,7 +980,8 @@ def authorize(dest, os_):
     pub, blob = ensure_key()
     line = key_line(os_, pub)
     if os_ == "win":
-        p = powershell(dest, WIN_AUTHORIZE.format(blob=ps_quote(blob), line=ps_quote(line)))
+        old = line.replace(f"'{WIN_VERBS}'", f"'{VERBS}'")
+        p = powershell(dest, WIN_AUTHORIZE.format(blob=ps_quote(blob), line=ps_quote(line), old=ps_quote(old)))
     else:
         p = ssh_plain(dest, "sh -s", input=UNIX_AUTHORIZE.format(blob=blob, line=line).encode())
     if p.returncode != 0:
@@ -916,7 +1000,7 @@ def unauthorize(dest, os_):
         sys.exit(_("could not remove the netcap key on {dest}: {err}").format(dest=dest, err=p.err))
 
 
-def run_device_script(dest, os_, script, args=()):
+def run_device_script(dest, os_, script, args=(), out=None):
     """Run mac|linux/<script> (install.sh / uninstall.sh) or win\\<script> on a device, from a staged copy.
     dest None means this machine. Output goes straight to the terminal: sudo may ask for a password."""
     src = stage()
@@ -926,7 +1010,7 @@ def run_device_script(dest, os_, script, args=()):
                 cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(src / "win" / script), *args]
             else:
                 cmd = ["sudo", "bash", str(src / os_ / script), *args]
-            return subprocess.run(cmd).returncode
+            return subprocess.run(cmd, stdout=out).returncode
         if os_ == "win":
             tmp = (powershell(dest, "$d = Join-Path $env:TEMP ('netcap-' + [guid]::NewGuid()); "
                                     "New-Item -ItemType Directory $d | Out-Null; $d").out.splitlines() or [""])[-1]
@@ -939,7 +1023,7 @@ def run_device_script(dest, os_, script, args=()):
                 return scp.returncode
             return powershell(dest, f"try {{ & (Join-Path {ps_quote(tmp)} 'win\\{script}') {' '.join(args)}; "
                                     f"exit $LASTEXITCODE }} finally {{ {rm} }}",
-                              capture=False).returncode
+                              capture=False, out=out).returncode
         tmp = ssh_plain(dest, "mktemp -d /tmp/netcap.XXXXXX").out
         if not tmp.startswith("/tmp/netcap."):
             sys.exit(_("could not make a temporary directory on {dest}").format(dest=dest))
@@ -1010,9 +1094,15 @@ def cmd_install(a):
         if name in HOSTS and (HOSTS[name]["os"], HOSTS[name]["ssh"]) != (os_, dest):
             sys.exit(_("{name} is already another device in hosts. Choose another name, or: netcap rename {name} <new>")
                      .format(name=name))
+    if (a.with_download or a.without_download) and os_ != "win":
+        usage_error(_("--with-download and --without-download are for Windows devices; macOS and Linux cap download "
+                      "without WinDivert"))
     where = dest or _("this machine")
     say(_("installing the agent on {where} ({os})").format(where=where, os=os_))
-    args = [] if os_ == "win" else ["--boot", a.boot]
+    if os_ == "win":
+        args = ["-WithDownload"] if a.with_download else ["-WithoutDownload"] if a.without_download else []
+    else:
+        args = ["--boot", a.boot]
     if run_device_script(dest, os_, "install.ps1" if os_ == "win" else "install.sh", args) != 0:
         sys.exit(_("the install on {where} failed (see above)").format(where=where))
     if dest is not None:
@@ -1208,6 +1298,26 @@ def cmd_doctor(a):
     return rc_of(rows, ok=lambda r: r["key"] in ("ok", "-"))
 
 
+# --- unload-driver (a low-level command: netcap help --all) ---------------------------------------------------------
+# netcap never stops the WinDivert service by itself: stopping it under an open handle breaks later opens
+# (basil00/WinDivert#406), so the driver stays loaded until reboot. This unloads it now; the device refuses while a
+# download cap is on or another program has WinDivert loaded
+
+LOW_LEVEL = """
+Low-level commands (netcap help <command> for each):
+  netcap unload-driver <host>|all             win: unload the WinDivert driver now, instead of at the next reboot.
+                                              Refused while a download cap is on or another program uses it
+"""
+
+
+def cmd_unload_driver(a):
+    load_hosts()
+    hosts = [h for h in resolve(a.host) if HOSTS[h]["os"] == "win"]
+    if not hosts:
+        usage_error(_("unload-driver is for Windows devices: {host} is not one").format(host=a.host))
+    return emit(fan_out(hosts, "unload-driver"), UNLOAD_COLS, a.json, a.verbose)
+
+
 # --- export / import -----------------------------------------------------------------------------
 # The settings of this controller as JSON: hosts and profiles. Nothing secret goes in: no keys, and routes stay
 # ssh Host names, resolved by the importing machine's own ~/.ssh/config. The caps and defaults live on the devices.
@@ -1330,9 +1440,10 @@ JA = {
 
   netcap status [<host>|all] [--json]         実際の状態を読む (pf のパイプ / tc のクラス / QoS ポリシー)
   netcap get    [<host>|all] [--json]         設定を読む (既定値、起動時の挙動)
-  netcap on     <host>|all [--up N --down N] [--for 30m]
+  netcap on     <host>|all [--up N --down N] [--for 30m] [--yes]
                                               上限をかける。--up/--down は今回だけ有効。--for: その時間が
-                                              経つと機器が自分で外す
+                                              経つと機器が自分で外す。WinDivert の無い Windows の機器は上り
+                                              だけ絞る。端末から打つと入れるか聞く (--yes: 聞かずに入れる)
   netcap off    <host>|all                    上限を外す
   netcap set    <host>|all --up N --down N    既定値を変える (再起動後も残る)
   netcap check  [<host>|all] [--bytes N] [--json]
@@ -1344,9 +1455,11 @@ JA = {
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
                                               ほかの端末が回線を埋め、遅延が良くなったかを言う。--for: on と同じ
   netcap protect --off                        各端末を元の状態に戻す
-  netcap install [<name>] [--ssh DEST] [--boot on|off]
+  netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]
                                               機器に agent を入れて登録する。--boot on (mac / linux):
-                                              起動時に既定の上限をかける
+                                              起動時に既定の上限をかける。--with-download (win): 下りも絞る
+                                              (WinDivert をそのリリースから取ってくる)。--without-download:
+                                              それを外し、on が勧めるのもやめる
   netcap uninstall <host> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)。
                                               --config-only: こちらの登録だけ消す
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
@@ -1356,6 +1469,7 @@ JA = {
   netcap <command> -v                         表に出ない項目も表示する (-vv: 生の出力も)
   netcap <command> -q                         結果だけを出す。進み具合・ヒント・注記は出さない
   netcap help [<command>|exit-codes]          -h と同じヘルプ。exit-codes は終了コードの意味の一覧
+  netcap help --all                           この一覧と低レベルのコマンド (-a でも可)
   netcap completion bash|zsh                  補完スクリプトを出す
   netcap --version                            バージョン (-V、netcap version でも可)
 
@@ -1369,7 +1483,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
   linux            : /usr/libexec/netcap/netcap-agent               (入口。mac と同じ agent)
                        → netcap-netshape (tc。sudo -n) / netcap-check (測定。root 不要)
   win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (入口。forced command も兼ねる)
-                       → netshape.ps1 (NetQosPolicy。上りのみ) / netcap-check.ps1 (測定)
+                       → netshape.ps1 (NetQosPolicy。下りは入っていれば netshape-down.ps1 と
+                         WinDivert) / netcap-check.ps1 (測定)
 どれも 1 行目に key=value を返し、netcap はそれを読む。
 
 どの機器を管理するか (hosts) と、どれをまとめて動かすか (profiles) は利用者のもの。
@@ -1438,6 +1553,39 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "ssh destination, such as a Host in ~/.ssh/config (omit for this machine)":
         "ssh の宛先。~/.ssh/config の Host など (この機器なら省略)",
     "mac / linux: apply the default cap at boot (default: off)": "mac / linux: 起動時に既定の上限をかける (既定: off)",
+    "win: also cap download, with the WinDivert driver fetched from its release (x64 only)":
+        "win: 下りも絞る。WinDivert のドライバをそのリリースから取ってくる (x64 のみ)",
+    "win: remove WinDivert, and record on the device that on should not offer it. Without either flag, the device "
+    "keeps its choice": "win: WinDivert を外し、on がそれを勧めないよう機器に記録する。どちらのフラグも付けなければ、"
+                        "機器はそれまでの選択のまま",
+    "this device's agent is too old for this: netcap install {host}":
+        "この機器の agent は古くて対応していない: netcap install {host}",
+    "the netcap key on this device does not allow unload-driver; netcap install {host} adds it to a key line netcap "
+    "wrote": "この機器の netcap の鍵は unload-driver を許していない。netcap install {host} で、netcap が書いた鍵の行に足す",
+    "Capping download on {host} needs WinDivert (a third-party kernel driver, LGPL). Install it now? [y/N] ":
+        "{host} の下りを絞るには WinDivert (サードパーティのカーネルドライバ、LGPL) が要る。今入れる? [y/N] ",
+    "installing WinDivert on {host}": "{host} に WinDivert を入れる",
+    "could not install WinDivert on {host} (see above); capping its upload only":
+        "{host} に WinDivert を入れられなかった (上を参照)。上りだけ絞る",
+    "download is not capped on {hosts}: no WinDivert there. To cap it: netcap on <host> --yes, or netcap install <name> "
+    "--with-download. Not to be asked again: netcap install <name> --without-download":
+        "{hosts} は下りを絞っていない: WinDivert が無い。絞るには: netcap on <host> --yes か netcap install <name> "
+        "--with-download。もう聞かれないようにするには: netcap install <name> --without-download",
+    "unload-driver is for Windows devices: {host} is not one": "unload-driver は Windows の機器のためのもの: {host} は違う",
+    "win: install WinDivert, without asking, on a device that needs it to cap download":
+        "win: 下りを絞るのに WinDivert が要る機器へ、聞かずに入れる",
+    "also list the low-level commands": "低レベルのコマンドも並べる",
+    "win: unload the WinDivert driver now, instead of at the next reboot. The device refuses while a download cap is "
+    "on or another program has WinDivert loaded":
+        "win: WinDivert のドライバを、次の再起動を待たずに今外す。下りの上限がかかっている間と、ほかのプログラムが "
+        "WinDivert を読み込んでいる間は、機器が断る",
+    LOW_LEVEL: """
+低レベルのコマンド (それぞれ netcap help <command> で):
+  netcap unload-driver <host>|all             win: WinDivert のドライバを、次の再起動を待たずに今外す。
+                                              下りの上限がかかっている間と、ほかのプログラムが使っている間は断る
+""",
+    "--with-download and --without-download are for Windows devices; macOS and Linux cap download without WinDivert":
+        "--with-download と --without-download は Windows の機器のためのもの。macOS と Linux は WinDivert なしで下りも絞れる",
     "remove the agent from a device and forget it": "機器から agent を外し、登録も消す",
     "only forget it here (for a device that is gone)": "こちらの登録だけ消す (もう無い機器向け)",
     "rename a device in hosts and profiles": "hosts と profiles の機器名を変える",
@@ -1579,7 +1727,7 @@ def completion_script(shell, sub):
         if names:  # protect, uninstall, and rename refuse all, so it is offered only where the command takes it
             args[name] = "$(_netcap_names hosts" + (" all" if getattr(names[0], "takes_all", False) else "") + ")"
     args["use"] = "$(_netcap_names profiles)"
-    args["help"] = " ".join([*sub.choices, "exit-codes"])
+    args["help"] = " ".join([*(c for c in sub.choices if c not in sub.hidden), "exit-codes"])
     args["completion"] = "bash zsh"
     cases = "\n".join(f'    {k}) f="{" ".join(v)}"; a="{args.get(k, "")}" ;;' for k, v in flags.items())
     # compgen -W expands the words it is given ($(…), `…`), so only names that follow the name rule reach it,
@@ -1598,7 +1746,7 @@ _netcap() {{
     i=$((i + 1))
   done
   case $cmd in
-    "") f="-h --help -V --version --json -v --verbose -q --quiet"; a="{' '.join(sub.choices)}" ;;
+    "") f="-h --help -V --version --json -v --verbose -q --quiet"; a="{' '.join(c for c in sub.choices if c not in sub.hidden)}" ;;
 {cases}
   esac
   case $cur in -*) ;; *) [ -n "$a" ] && f=$a ;; esac
@@ -1641,6 +1789,8 @@ def main():
     p.add_argument("--down", metavar="MBIT")
     p.add_argument("--for", dest="for_", metavar="TIME",
                    help=_("the device lifts the cap by itself after this long: 30m, 2h, 1h30m (1m to 24h)"))
+    p.add_argument("-y", "--yes", action="store_true",
+                   help=_("win: install WinDivert, without asking, on a device that needs it to cap download"))
     p.add_argument("values", nargs="*", help=argparse.SUPPRESS)  # to catch the old form
     p = sub.add_parser("off", help=_("remove the cap"))
     add_target(p)
@@ -1669,6 +1819,12 @@ def main():
     p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))
     p.add_argument("--boot", choices=["on", "off"], default="off",
                    help=_("mac / linux: apply the default cap at boot (default: off)"))
+    dl = p.add_mutually_exclusive_group()
+    dl.add_argument("--with-download", action="store_true",
+                    help=_("win: also cap download, with the WinDivert driver fetched from its release (x64 only)"))
+    dl.add_argument("--without-download", action="store_true",
+                    help=_("win: remove WinDivert, and record on the device that on should not offer it. Without "
+                           "either flag, the device keeps its choice"))
     p = sub.add_parser("uninstall", help=_("remove the agent from a device and forget it"))
     p.add_argument("name", metavar="<host>")
     p.add_argument("--config-only", action="store_true", help=_("only forget it here (for a device that is gone)"))
@@ -1683,9 +1839,19 @@ def main():
     add_target(p, optional=True)
     p = sub.add_parser("help", help=_("show help for a command, or a topic: exit-codes"))
     p.add_argument("topic", nargs="?")
+    p.add_argument("-a", "--all", action="store_true", help=_("also list the low-level commands"))
     sub.add_parser("version", help=_("print the version"))
     p = sub.add_parser("completion", help=_("print a completion script: eval \"$(netcap completion bash)\""))
     p.add_argument("shell", choices=["bash", "zsh"])
+    # Low-level commands, as git keeps its plumbing out of git help: only netcap help --all lists them
+    main_commands = list(sub.choices)
+    # No help=: a subcommand with help gets a line in netcap -h (and help=SUPPRESS prints "==SUPPRESS==")
+    p = sub.add_parser("unload-driver",
+                       description=_("win: unload the WinDivert driver now, instead of at the next reboot. The device "
+                                     "refuses while a download cap is on or another program has WinDivert loaded"))
+    add_target(p)
+    sub.metavar = "{" + ",".join(main_commands) + "}"
+    sub.hidden = [c for c in sub.choices if c not in main_commands]
 
     a = ap.parse_args()
     a.verbose += getattr(a, "verbose_after", 0)
@@ -1698,6 +1864,8 @@ def main():
             ap.parse_args([a.topic, "-h"])  # an unknown name is a usage error (exit 2)
         else:
             ap.print_help()
+            if a.all:
+                print(_(LOW_LEVEL), end="")
         return OK
     if a.cmd == "version":
         print(f"netcap {version()}")
@@ -1713,12 +1881,14 @@ def main():
             a.bytes.isascii() and a.bytes.isdigit() and 1 <= int(a.bytes) <= 100000000):
         usage_error(_("--bytes takes 1 to 100000000: {value}").format(value=a.bytes))  # the agent refuses more (#91)
     commands = {"protect": cmd_protect, "install": cmd_install, "uninstall": cmd_uninstall, "rename": cmd_rename,
-                "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor}
+                "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor, "unload-driver": cmd_unload_driver}
     if a.cmd in commands:
         return commands[a.cmd](a)
     load_hosts()
 
     if a.cmd in ("on", "set"):
+        if a.cmd == "on":
+            offer_windivert(resolve(a.host), a.yes)
         rc = apply_and_read([(h, a.cmd, args) for h in resolve(a.host)], a.json, a.verbose)
         if a.cmd == "on" and not a.json:
             # The way back is printed right where it is needed, in case the cap makes it hard to look up

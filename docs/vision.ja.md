@@ -22,9 +22,11 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 - **どの上限も戻せる。** 絞られた機械自身から、回線が無くても戻せる
 - **1 つの作業に 1 つのコマンド。** 端末の導入、絞る、戻す、がそれぞれ 1 コマンド
 - **小さく。** CLI は標準ライブラリだけの Python 1 ファイル。端末側はスクリプトで、コマンドの間は netcap のものは何も動いていない。
-  例外は、`boot=on` の起動時と `on --for` の期限に OS が本体を動かすことだけ
+  例外は、`boot=on` の起動時と `on --for` の期限に OS が本体を動かすことと、WinDivert のある Windows の端末で
+  上限がかかっている間に下りの shaper が動くことだけ
 - **OS がやることは OS に任せる。** 繰り返しのスケジュールは cron・launchd・タスクスケジューラから netcap を呼ぶ。`on --for` の期限は端末の
-  スケジューラ (launchd、systemd のタイマー、タスクスケジューラ) が持つ。帯域の制御は pf・tc・NetQosPolicy
+  スケジューラ (launchd、systemd のタイマー、タスクスケジューラ) が持つ。帯域の制御は pf・tc・NetQosPolicy で、Windows の下りは
+  借りたドライバ WinDivert ([ADR 0001](adr/0001-cap-download-on-windows.ja.md))
 
 ## あるべき姿と現在
 
@@ -35,7 +37,7 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 | インターネット宛てだけ | LAN・VPN・ping・DNS は IPv4 でも IPv6 でも素通し | IPv4 と IPv6 で同じ。Linux・macOS・Windows で実測 | なし |
 | 守りたいものを守る | 守る端末を指定すると、他を絞り、効いたかを示す | `netcap protect --load` が他を絞り、前後とも他から回線を埋めて、守る端末の遅延が良くなったかを言う | なし |
 | 戻せる | 絞りっぱなしにならない | 手元の `off` は回線不要、`on` の後に戻し方を表示、`boot` の既定は off。`on --for`・`use --for`・`protect --for` は各端末が自分で外す | なし |
-| 対応 OS | 3 OS で上りも下りも | Windows は上りのみ | 受け入れる: Windows の下りはドライバが要り、netcap の規模を超える |
+| 対応 OS | 3 OS で上りも下りも | Windows は WinDivert で下りも絞る。`on` が入れるか聞く (x64。[ADR 0001](adr/0001-cap-download-on-windows.ja.md))。CI と Windows 11 の実機で測った | 未解決: ARM64 は無い ([#111](https://github.com/ken-ty/netcap/issues/111))。UDP と QUIC は未計測 ([#110](https://github.com/ken-ty/netcap/issues/110)) |
 | 導入 | 端末 1 台に 1 コマンド | `netcap install`。`--ssh` は CI (Linux、Windows) で試し、Windows から macOS へは実測した | なし |
 | 管理する側が複数 | どの ssh ユーザーで入っても管理できる | export / import。sudoers はインストールした各ユーザーを許し、uninstall は 1 つの管理する側の分だけ戻す | なし |
 | 端末が決める | forced command の後ろにもう一段の関門 | macOS / Linux は動詞ごとの sudoers。Windows は forced command のみ | 受け入れる: Windows には標準の二段目が無い |
@@ -51,7 +53,7 @@ netcap は、ドメインの要らない Windows Policy-based QoS にあたる�
 | アプリ単位の制限 | NetLimiter (Windows) |
 | 1 プロセスだけ | trickle |
 | 遅延やパケットロスの模擬 | Network Link Conditioner、ブラウザの開発者ツール |
-| 独自ドライバによる Windows の下りの上限 | 範囲外 |
+| netcap 独自の Windows ドライバ | 借りる ([ADR 0001](adr/0001-cap-download-on-windows.ja.md)) |
 
 ## このページを保つ
 

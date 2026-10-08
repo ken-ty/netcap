@@ -4,7 +4,8 @@
 #   netcap-agent.ps1 --allow '<verb> <verb> …'  as a forced command. The requested command
 #                                               arrives in $env:SSH_ORIGINAL_COMMAND
 #
-# verbs: status get check on off set (same as the mac netcap-agent)
+# verbs: status get check on off set (same as the mac netcap-agent), and unload-driver (Windows only: a low-level verb
+# that unloads the WinDivert driver now; netshape.ps1 refuses it while anything uses the driver)
 #
 # The side being controlled decides what is allowed. For an Administrator key, one line in
 # C:\ProgramData\ssh\administrators_authorized_keys limits what that key may ask for:
@@ -16,7 +17,7 @@
 $ErrorActionPreference = 'Stop'
 
 $Dir = 'C:\ProgramData\netcap'
-$Verbs = 'status', 'get', 'check', 'on', 'off', 'set'
+$Verbs = 'status', 'get', 'check', 'on', 'off', 'set', 'unload-driver'
 # netcap install writes the CLI's version here, so get can report which agent is installed
 $Version = '@VERSION@'
 if ($Version.StartsWith('@')) { $Version = 'unknown' }

@@ -16,7 +16,8 @@ CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を�
 2. 端末側一式を向こうの一時ディレクトリへ送る。agent には CLI の版を書き込む。Windows なら `win/`、
    macOS と Linux なら `mac/` と `linux/` の両方 (Linux のインストーラは agent を `mac/` から取る)
 3. インストーラを流す: `sudo bash …/install.sh --boot off` (`netcap install --boot on` なら `--boot on`。向こうの
-   sudo パスワード)、Windows なら `install.ps1` (ssh のユーザーが管理者であること)。終わったら一時ディレクトリを消す
+   sudo パスワード)、Windows なら `install.ps1` (`--with-download` / `--without-download` なら `-WithDownload` /
+   `-WithoutDownload`。ssh のユーザーが管理者であること)。終わったら一時ディレクトリを消す
 4. `--ssh` で届く端末のときだけ: 手元に `~/.ssh/netcap` が無ければ作り、向こうに forced command の行
    ([下](#許可は操作される側が決める)) を足す。鍵がもうあれば足さない。
    この端末には鍵は要らない。netcap が agent を直接動かす
@@ -24,7 +25,7 @@ CLI は ssh 越しに端末側の agent を叩き、agent が動詞と引数を�
    `me` か ssh の宛先を名前にする
 
 更新は `netcap install <名前>` をもう一度流す。起動時の挙動も設定し直す (渡さなければ `--boot off`) ので、
-`--boot on` だった端末には `--boot on` を付ける。`netcap get` の `agent` 列に各端末の版が出る。
+`--boot on` だった端末には `--boot on` を付ける。Windows の端末の WinDivert の選択 (下記) はフラグなしで残る。`netcap get` の `agent` 列に各端末の版が出る。
 CLI の各リリースがどの版の agent と動くかは [compatibility.ja.md](compatibility.ja.md) にある。
 `netcap uninstall <名前>` で、この管理する側が足したものを戻す。agent は最後の管理する側と一緒に外れる
 ([operations.ja.md](operations.ja.md#管理する側が複数))。`--config-only` はもう無い端末の登録だけ消す。
@@ -118,7 +119,41 @@ powershell -NoProfile -ExecutionPolicy Bypass -File win\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\uninstall.ps1
 ```
 
-mac との違いは 2 つ。下りは絞れない (表では `unsupported`)。`on` / `off` の状態は再起動しても残る (`boot=keep`)。
+mac との違いは 2 つ。下りは WinDivert があるときだけ絞る (下記。無ければ表では `unsupported`)。
+`on` / `off` の状態は再起動しても残る (`boot=keep`)。
+
+### Windows の下り: WinDivert
+
+Windows の端末ごとに選択があり、端末に残り、`netcap get` の `download` 列に出る:
+
+| download | どうしてそうなるか | `netcap on` がすること |
+| --- | --- | --- |
+| `unset` | 既定 | 端末から打つと WinDivert を入れるか聞く。`--yes` なら入れる。それ以外は上りだけ絞り、端末の名前を出す |
+| `enabled` | その問いに `y`、`on --yes`、または `netcap install <name> --with-download` | 下りも絞る |
+| `declined` | `netcap install <name> --without-download` (WinDivert も外す) | 聞かず、名前も出さずに上りだけ絞る |
+
+`use` と `protect` は聞かない。`unset` の端末は上りだけ絞り、名前を出す。どちらのフラグも付けない
+`netcap install <name>` は選択を変えない。手でなら `install.ps1 -WithDownload` か `-WithoutDownload`。入れるには x64 の
+Windows と GitHub への接続が要り、どちらかが無ければ何も変えない。なぜ聞くのか、何と引き換えか:
+[ADR 0001](adr/0001-cap-download-on-windows.ja.md)。セキュリティソフトが何を言うか:
+[SECURITY.ja.md](../SECURITY.ja.md#windows-の下りを絞るのはカーネルドライバ)。
+
+| パス | 役割 |
+| --- | --- |
+| `C:\ProgramData\netcap\windivert\` | WinDivert 2.2.2 のリリース zip から取り出した `WinDivert.dll`、`WinDivert64.sys`、`LICENSE`。インストーラが取ってきて、SHA-256 が固定した値でなければ断る |
+| `C:\ProgramData\netcap\netshape-down.ps1` | 下りの shaper。上限がかかっている間 (と、かかっている間の起動時に) SYSTEM としてスケジュールタスク `\netcap\download` から動く |
+| `C:\ProgramData\netcap\download.mbit` | shaper が読む下りの速さ。`on` と `set` が書き、`off` が消す |
+| `C:\ProgramData\netcap\download.state`、`download.log` | shaper が書く。WinDivert のハンドルを持っている間のプロセスと速さ、うまくいかなかった理由 |
+| `C:\ProgramData\netcap\download.declined` | `--without-download` が書き、`--with-download` が消す |
+
+`off` は shaper を終わらせるので何も待たせなくなるが、WinDivert のドライバは次の再起動まで読み込まれたまま。netcap は
+自分からそのサービスを止めない。`netcap unload-driver <name>` は、何も使っていなければ今外す
+([operations.ja.md](operations.ja.md#低レベルのコマンド))。
+
+`--without-download` は shaper を止めて `windivert` フォルダを消す。`uninstall.ps1` はほかと一緒に消す。
+どちらでも、`unload-driver` で外していなければ、ドライバは次の再起動まで読み込まれたまま。netcap は自分からそのサービスを止めず、WinDivert が削除予定に
+したサービスは、その再起動で Windows が消す。読み込まれたドライバのファイルは消せないので、`WinDivert64.sys` (と、それが
+入ったフォルダ) は 1 回だけ動くタスク `\netcap\cleanup` に任せ、次の起動時に消す。それより前に入れ直すと、このタスクは取り消す。
 
 ## 許可は操作される側が決める
 
@@ -141,8 +176,11 @@ restrict,command="/Library/PrivilegedHelperTools/netcap-agent --allow 'status ge
 操作される Windows では、管理者の鍵なら `C:\ProgramData\ssh\administrators_authorized_keys` に:
 
 ```text
-restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check on off set'" ssh-ed25519 AAAA… netcap@<この機械>
+restrict,command="powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\netcap-agent.ps1 --allow 'status get check on off set unload-driver'" ssh-ed25519 AAAA… netcap@<この機械>
 ```
+
+`unload-driver` は低レベルの動詞 ([operations.ja.md](operations.ja.md#低レベルのコマンド))。拒むなら外しておく。
+`netcap install` は、それができる前に netcap が書いた行には足し、手で変えた行はそのままにする。
 
 `hosts` の経路には、ふだん使っている ssh の Host を書く。`~/.ssh/netcap` があれば netcap はその鍵だけを差し出す
 (`IdentitiesOnly=yes`) ので、上の行がある端末では agent しか動かない。これが無いと ssh は ssh-agent の鍵を先に差し出し、
@@ -181,13 +219,17 @@ forced command を素通りするため。
 | --- | --- |
 | `on` | 上限がかかっている |
 | `off` | かかっていない |
-| `partial` | 上限の一部だけが残っている。pf のルールと dnctl の pipe が食い違っている (mac)、上りと下りのクラスの片方だけが残っている (linux)、netcap の QoS ポリシーの一部だけが残っている (win)。`on` か `off` を打ち直せば揃う |
+| `partial` | 上限の一部だけが残っている。pf のルールと dnctl の pipe が食い違っている (mac)、上りと下りのクラスの片方だけが残っている (linux)、netcap の QoS ポリシーの一部だけが残っている、タスクはあるのに下りの shaper が動いていない (win)。`on` か `off` を打ち直せば揃う |
 | `?` | reach が `ok` でないので読めていない |
 
 ### agent — agent の版 (`get` のみ)
 
 `netcap install` が書き込む。この列より前に入れた agent は `-`、clone から手で入れたものは `unknown`。
 CLI と違っていたら `netcap install <名前>` を流す。
+
+### download — WinDivert の選択 (`get` のみ、Windows)
+
+`enabled`、`declined`、`unset` のどれか ([上](#windows-の下り-windivert))。macOS と Linux は WinDivert なしで下りも絞るので `-`。
 
 ### note — うまくいかなかった理由、または上限が外れる時刻
 

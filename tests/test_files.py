@@ -74,6 +74,17 @@ class Exempt(unittest.TestCase):
     def test_dns_passes_on_win(self):
         self.assertRegex(read("win/netshape.ps1"), r"-IPDstPortMatchCondition 53 ")
 
+    # Download on Windows (WinDivert, #108): the same ranges, and DNS and ICMP stay out of the filter.
+    # tests/test_e2e.py evaluates the filter itself on Windows (test_62)
+    def test_win_download_ranges(self):
+        ps = read("win/netshape-down.ps1")
+        self.assertEqual(nets(re.search(r"\$Local = (?:.*,\n)*.*", ps).group()), self.table)
+
+    def test_dns_and_icmp_pass_on_win_download(self):
+        ps = read("win/netshape-down.ps1")
+        for rule in ("!loopback", "!icmp", "!icmpv6", "tcp.SrcPort != 53", "udp.SrcPort != 53"):
+            self.assertIn(rule, ps)
+
 
 class Sudoers(unittest.TestCase):
     """mac/netcap-sudoers builds /etc/sudoers.d/netcap-netshape: the template's verbs, and one line per user (#31)"""
