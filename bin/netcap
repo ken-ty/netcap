@@ -486,10 +486,17 @@ def offer_windivert(hosts, yes):
                 continue
         say(_("installing WinDivert on {host}").format(host=host))
         # The installer's output stays off stdout with --json
-        if run_device_script(HOSTS[host]["ssh"], "win", "install.ps1", ["-WithDownload"],
-                             out=sys.stderr if JSON else None) != 0:
+        dest = HOSTS[host]["ssh"]
+        if run_device_script(dest, "win", "install.ps1", ["-WithDownload"], out=sys.stderr if JSON else None) != 0:
             print(_("could not install WinDivert on {host} (see above); capping its upload only").format(host=host),
                   file=sys.stderr)
+            continue
+        # As netcap install does: a key line netcap wrote before unload-driver existed gets the new verb
+        if dest:
+            try:
+                authorize(dest, "win")
+            except SystemExit as e:
+                print(e.code, file=sys.stderr)
 
 
 def windivert_hint(rows):

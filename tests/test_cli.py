@@ -1128,6 +1128,9 @@ class CLI(unittest.TestCase):
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 self.assertTrue(self.installed_windivert())
                 self.assertNotIn("Install it now", p.stdout + p.stderr)
+                # As netcap install does, the key line gets unload-driver (found on a real device: it did not)
+                log = self.log.read_text()
+                self.assertIn("administrators_authorized_keys", log[log.index("-WithDownload"):])
                 if "--json" in args:
                     json.loads(p.stdout)
 
