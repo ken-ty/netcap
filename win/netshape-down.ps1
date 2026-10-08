@@ -173,7 +173,17 @@ public static class NetcapDown {
 }
 '@
 
-Remove-Item -Force $StateFile -ErrorAction SilentlyContinue
+# download.state belongs to the shaper it names. One that is still ending after off may run its finally after the
+# next shaper has written its own: each removes only a state that names itself, or one whose process is gone
+function Clear-State([switch]$Stale) {
+  try { $text = [IO.File]::ReadAllText($StateFile) } catch { return }
+  $owner = if ($text -match '^pid=([0-9]+)') { [int]$Matches[1] } else { 0 }
+  $mine = $owner -eq $PID
+  $dead = -not ($owner -and (Get-Process -Id $owner -ErrorAction SilentlyContinue))
+  if (($Stale -and $dead) -or (-not $Stale -and $mine)) { Remove-Item -Force $StateFile -ErrorAction SilentlyContinue }
+}
+
+Clear-State -Stale
 [IO.File]::WriteAllText($Log, '')
 $opened = $false
 try {
@@ -220,5 +230,5 @@ try {
 catch { Say "$_"; exit 1 }
 finally {
   if ($opened) { [NetcapDown]::Close() }
-  Remove-Item -Force $StateFile -ErrorAction SilentlyContinue
+  Clear-State
 }

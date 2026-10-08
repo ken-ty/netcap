@@ -67,10 +67,11 @@ function Download-Choice {
 function Down-Task { Get-ScheduledTask -TaskPath '\netcap\' -TaskName download -ErrorAction SilentlyContinue }
 
 # The running shaper as @{pid; mbit}, or $null: download.state names a process that is still there
+# Read in one step: a shaper may remove the file between a check and a read
 function Shaper {
-  if (-not (Test-Path $DownState)) { return $null }
+  try { $text = [IO.File]::ReadAllText($DownState) } catch { return $null }
   $s = @{}
-  foreach ($kv in "$(Get-Content -Raw $DownState)".Trim() -split '\s+') { $k, $v = $kv -split '=', 2; $s[$k] = $v }
+  foreach ($kv in "$text".Trim() -split '\s+') { $k, $v = $kv -split '=', 2; $s[$k] = $v }
   if ($s['pid'] -notmatch '^[0-9]+$' -or -not (Get-Process -Id ([int]$s['pid']) -ErrorAction SilentlyContinue)) { return $null }
   $s
 }
