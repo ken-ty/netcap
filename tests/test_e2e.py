@@ -53,9 +53,11 @@ def sh(*cmd, env=None, input=None):
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, input=input)
 
 
-def install(boot="off", src=ROOT, download=True):
+def install(boot="off", src=ROOT, download="with"):
+    """download (Windows): "with" (-WithDownload), "without" (-WithoutDownload), or None (keep the device's choice)"""
     if OS == "win":
-        return sh(*PS, str(src / "win" / "install.ps1"), *(["-WithDownload"] if download else []))
+        flag = {"with": ["-WithDownload"], "without": ["-WithoutDownload"], None: []}[download]
+        return sh(*PS, str(src / "win" / "install.ps1"), *flag)
     return sh("sudo", "bash", str(src / OS / "install.sh"), "--boot", boot)
 
 
@@ -936,26 +938,160 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
         finally:
             self.netcap("off", "self")
 
-    # Installed again without --with-download, the device is back to upload only and WinDivert is gone
+    # #108: install without a flag keeps the device's choice. --without-download removes WinDivert and records the
+    # refusal on the device, after which on does not install it even with --yes. On a device that has not decided,
+    # on --yes installs it and caps download
     @unittest.skipUnless(OS == "win", "WinDivert")
-    def test_67_install_without_the_flag_removes_windivert(self):
+    def test_67_without_download_declines_and_on_yes_installs(self):
+        declined = Path(WIN_DIR) / "download.declined"
         self.netcap("on", "self", "--up", "2", "--down", "3")
         try:
-            p = install(download=False)
+            p = install(download=None)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertCap("on", "2", "3")  # kept, and the running shaper with it
+            p = install(download="without")
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             self.assertIn("removed WinDivert", p.stdout)
+            self.assertIn("declined WinDivert", p.stdout)
+            self.assertTrue(declined.exists())
             self.assertFalse((Path(WD) / "WinDivert.dll").exists())
             self.assertGone(WD)
             self.assertFalse(win_task("download"))
             r = self.row()
-            self.assertEqual((r["state"], r["up_mbit"], r["down_src"]), ("on", "2", "unsupported"), r)
-            self.assertNotIn("shaper", r)
+            self.assertEqual((r["state"], r["up_mbit"], r["down_src"], r["download"]), ("on", "2", "unsupported", "declined"), r)
+            self.assertEqual(self.row("get")["download"], "declined")
+            out = self.netcap("on", "self", "--up", "2", "--down", "3", "--yes")
+            self.assertNotIn("installing WinDivert", out)
+            self.assertFalse((Path(WD) / "WinDivert.dll").exists())
+            # A device that has not decided
+            declined.unlink()
+            self.assertEqual(self.row("get")["download"], "unset")
+            out = self.netcap("on", "self", "--up", "2", "--down", "3", "--yes")
+            self.assertIn("installing WinDivert on self", out)
+            self.assertCap("on", "2", "3")
+            self.assertEqual(self.row("get")["download"], "enabled")
+            self.assertFalse(win_task("cleanup"))  # what is installed again stays
         finally:
             self.netcap("off", "self")
             p = install()
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.row()["down_src"], "windivert")
-        self.assertFalse(win_task("cleanup"))  # what is installed again stays
+        self.assertEqual(self.row("get")["download"], "enabled")
+        self.assertFalse(declined.exists())
+
+    def down_mbit(self, n, tries=1):
+        return max(float(json.loads(self.netcap("check", "self", "--bytes", str(n), "--json"))[0]["down_mbit"])
+                   for _ in range(tries))
+
+    # #108: off lifts the download cap while the WinDivert driver stays loaded (netcap does not unload it). Measured:
+    # the speed comes back with the driver still running
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_68_off_lifts_the_cap_while_the_driver_stays_loaded(self):
+        free = self.down_mbit(20_000_000, tries=2)
+        if free < 10:
+            self.skipTest(f"this line is too slow to compare: {free} Mbit/s down without a cap")
+        self.netcap("on", "self", "--up", "50", "--down", "1")
+        try:
+            capped = self.down_mbit(500_000)
+        finally:
+            self.netcap("off", "self")
+        loaded = driver_state()
+        after = self.down_mbit(20_000_000, tries=2)
+        print(f"\n  download: no cap {free} / on 1 Mbit/s {capped} / after off {after} Mbit/s; driver after off: {loaded}")
+        self.assertIn("service=Running", loaded)
+        self.assertEqual(shaper_state(), {})
+        self.assertLess(capped, 1.5)
+        self.assertGreaterEqual(after, 10 * capped)
+        self.assertGreaterEqual(after, free / 2)
+
+    # #108: on and off, again and again, with the driver loaded: each on opens a handle and caps, each off ends the shaper
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_69_on_off_cycles(self):
+        log, pids, t0 = Path(WIN_DIR) / "download.log", set(), time.time()
+        for i in range(20):
+            p = agent("on", "50", "1")
+            self.assertEqual(p.returncode, 0, f"cycle {i}: {p.stdout}{p.stderr}")
+            pid = shaper_state().get("pid")
+            self.assertTrue(pid and process_alive(pid), f"cycle {i}")
+            self.assertNotIn("failed", log.read_text(), f"cycle {i}")
+            pids.add(pid)
+            if i == 19:
+                capped = self.down_mbit(500_000)
+            p = agent("off")
+            self.assertEqual(p.returncode, 0, f"cycle {i}: {p.stdout}{p.stderr}")
+            self.assertFalse(process_alive(pid), f"cycle {i}")
+            self.assertFalse(win_task("download"), f"cycle {i}")
+        loaded = driver_state()
+        after = self.down_mbit(20_000_000, tries=2)
+        print(f"\n  20 on/off cycles in {time.time() - t0:.0f} s, {len(pids)} shaper processes; after the last on "
+              f"{capped} Mbit/s down, after the last off {after}; driver: {loaded}")
+        self.assertEqual(len(pids), 20)
+        self.assertIn("service=Running", loaded)
+        self.assertLess(capped, 1.5)
+        self.assertGreaterEqual(after, 10 * capped)
+
+    # #108: unload-driver, a low-level command. With nothing using WinDivert it unloads the driver, and the next on loads
+    # it again and caps
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_70_unload_driver_when_idle(self):
+        self.assertIn("service=Running", driver_state())  # the tests before loaded it
+        r = json.loads(self.netcap("unload-driver", "self", "--json"))[0]
+        self.assertEqual(r["driver"], "unloaded", r)
+        unloaded = driver_state()
+        self.assertIn("service=none", unloaded)
+        self.netcap("on", "self", "--up", "50", "--down", "1")
+        try:
+            reloaded = driver_state()
+            capped = self.down_mbit(500_000)
+        finally:
+            self.netcap("off", "self")
+        print(f"\n  unload-driver: {unloaded}; next on: {reloaded}, {capped} Mbit/s down at 1")
+        self.assertIn("service=Running", reloaded)
+        self.assertLess(capped, 1.5)
+
+    # Refused while a download cap is on: stopping the service under the shaper's handle would break later opens
+    # (basil00/WinDivert#406)
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_71_unload_driver_refused_while_capped(self):
+        self.netcap("on", "self", "--up", "2", "--down", "3")
+        try:
+            p = sh(sys.executable, str(ROOT / "bin" / "netcap"), "unload-driver", "self", env=self.env)
+            self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+            self.assertIn("a download cap is on here; run off first", p.stdout)
+            self.assertIn("service=Running", driver_state())
+            self.assertCap("on", "2", "3")
+        finally:
+            self.netcap("off", "self")
+
+    # Refused while another program has WinDivert open: here a PowerShell that opens a handle on its own
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_72_unload_driver_refused_while_another_program_uses_it(self):
+        script = Path(tempfile.mkdtemp()) / "hold.ps1"
+        script.write_text(f"""Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class Hold {{
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string p);
+  [DllImport("WinDivert.dll", CharSet = CharSet.Ansi, SetLastError = true)] public static extern IntPtr WinDivertOpen(string f, int layer, short priority, ulong flags);
+}}
+'@
+[void][Hold]::LoadLibraryW('{WD}\\WinDivert.dll')
+$h = [Hold]::WinDivertOpen('false', 0, 0, 0)
+"open $($h -ne [IntPtr](-1)) $([Runtime.InteropServices.Marshal]::GetLastWin32Error())"
+Start-Sleep 120
+""", encoding="utf-8-sig")
+        hold = subprocess.Popen([*PS, str(script)], stdout=subprocess.PIPE, text=True)
+        try:
+            line = hold.stdout.readline().strip()
+            self.assertTrue(line.startswith("open True"), line)
+            p = sh(sys.executable, str(ROOT / "bin" / "netcap"), "unload-driver", "self", env=self.env)
+            self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+            self.assertRegex(p.stdout, rf"WinDivert is in use by powershell \({hold.pid}\)")
+            self.assertIn("service=Running", driver_state())
+        finally:
+            hold.kill()
+            hold.wait()
+        # Once it is gone, the driver can go
+        r = json.loads(self.netcap("unload-driver", "self", "--json"))[0]
+        self.assertEqual(r["driver"], "unloaded", r)
 
     # Windows PowerShell 5.1's Remove-Item -Recurse follows a junction and deletes what it points to. uninstall.ps1
     # removes the link, and leaves the folder it points to as it was
