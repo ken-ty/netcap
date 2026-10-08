@@ -1,6 +1,6 @@
 ﻿# install.ps1 — installs netshape and netcap-agent on this Windows machine. Copy the whole win/ directory here, then as Administrator:
 #
-#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-WithDownload]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 [-WithDownload | -WithoutDownload]
 #
 # What it does:
 #   C:\ProgramData\netcap\netshape.ps1       the shaper (NetQosPolicy; runs as Administrator)
@@ -13,7 +13,9 @@
 # -WithDownload also caps download (docs/adr/0001-cap-download-on-windows.md). netcap ships no WinDivert: this fetches
 # the official 2.2.2 release over HTTPS, refuses it unless its SHA-256 is the one pinned below, and takes only the x64
 # driver, its DLL, and the license out of it. x64 Windows only: WinDivert has no signed ARM64 driver.
-# Without -WithDownload, a WinDivert fetched before is stopped and removed: each install sets this again, as --boot does.
+# -WithoutDownload stops and removes it, and records the refusal in download.declined on this device, so that netcap on
+# from any controller stops offering it; -WithDownload clears that. Without either, the device keeps its choice: WinDivert
+# stays (checked against its pins, fetched again if they differ) if it is there, and is not fetched if it is not.
 #
 # The default ACL on C:\ProgramData grants Users "create folders / write data", inherited all the way down.
 # Left as is, a non-administrator could replace scripts that run as Administrator
@@ -21,7 +23,7 @@
 # only SYSTEM and Administrators can write, Users can only read. Principals are given by SID (works on localized Windows too).
 # Users can also create C:\ProgramData\netcap before the install and own it, so an existing folder is taken over:
 # Administrators own it and everything in it, and nothing in it keeps entries of its own (#89).
-param([switch]$WithDownload)
+param([switch]$WithDownload, [switch]$WithoutDownload)
 $ErrorActionPreference = 'Stop'
 
 $p = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
@@ -32,6 +34,7 @@ if (-not $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
 $Src = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Dir = 'C:\ProgramData\netcap'
 $Wd = Join-Path $Dir 'windivert'
+$Declined = Join-Path $Dir 'download.declined'
 $WdUrl = 'https://github.com/basil00/WinDivert/releases/download/v2.2.2/WinDivert-2.2.2-A.zip'
 $WdZip = '63cb41763bb4b20f600b6de04e991a9c2be73279e317d4d82f237b150c5f3f15'
 $WdFiles = [ordered]@{
@@ -92,9 +95,12 @@ function Remove-NowOrAtStartup([string]$path) {
   $true
 }
 
+if ($WithDownload -and $WithoutDownload) { [Console]::Error.WriteLine('-WithDownload or -WithoutDownload, not both'); exit 2 }
+$enable = $WithDownload -or (-not $WithoutDownload -and (Test-Path -LiteralPath (Join-Path $Wd 'WinDivert.dll')))
+
 # Everything that can fail with -WithDownload happens before anything here changes
 $zip = $null
-if ($WithDownload) {
+if ($enable) {
   # The machine's architecture, not this process's (an x64 PowerShell on ARM64 says AMD64)
   $arch = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment').PROCESSOR_ARCHITECTURE
   if ($arch -ne 'AMD64') {
@@ -140,16 +146,22 @@ if ($zip) {
   }
   Lock-Entry $Wd
   'fetched WinDivert 2.2.2 (SHA-256 verified) into ' + $Wd
-} elseif ($WithDownload) {
+} elseif ($enable) {
   'WinDivert 2.2.2 is in place (SHA-256 verified)'
-} elseif (Test-Path -LiteralPath $Wd) {
-  # Installed without -WithDownload: back to upload only
+} elseif ($WithoutDownload -and (Test-Path -LiteralPath $Wd)) {
+  # Back to upload only
   & (Join-Path $Dir 'netshape.ps1') stop-download | Out-Null
   if (Remove-NowOrAtStartup $Wd) { 'removed WinDivert (the loaded driver''s WinDivert64.sys goes at the next startup)' }
   else { 'removed WinDivert' }
-  'download is no longer capped here (install with --with-download to keep it)'
+  'download is no longer capped here'
+}
+if ($WithDownload) { Remove-Item -Force -LiteralPath $Declined -ErrorAction SilentlyContinue }
+if ($WithoutDownload) {
+  [IO.File]::WriteAllText($Declined, "declined by install.ps1 -WithoutDownload`r`n")
+  Lock-Entry $Declined
+  'declined WinDivert: netcap on will not offer it here (install with --with-download to change that)'
 }
 
-'installed (boot=keep: the on / off state survives reboots' + $(if ($WithDownload) { '; download capped with WinDivert)' } else { ')' })
+'installed (boot=keep: the on / off state survives reboots' + $(if ($enable) { '; download capped with WinDivert)' } else { ')' })
 & (Join-Path $Dir 'netshape.ps1') get
 & (Join-Path $Dir 'netshape.ps1') status | Select-Object -First 1

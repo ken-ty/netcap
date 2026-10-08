@@ -5,13 +5,15 @@
 #   netshape.ps1 status                  current state. Line 1 is derived from the actual NetQosPolicy objects
 #   netshape.ps1 set UP_MBIT DOWN_MBIT   change the defaults. Reapplies the cap if one is in effect
 #   netshape.ps1 get                     defaults and boot behavior on one line
+#   netshape.ps1 unload-driver           unload the WinDivert driver now instead of at the next reboot (refused while in use)
 #
 # Differences from the mac version (pf + dummynet):
 #   - Windows QoS policies act only on the sending side, so they cap upload. Download is capped only on a device
 #     installed with --with-download (install.ps1 -WithDownload), which fetches WinDivert: on starts netshape-down.ps1
 #     as SYSTEM from the scheduled task \netcap\download, also at startup while the cap is on, and off stops it.
 #     status returns down_src=windivert and shaper=running|stopped|none there. Elsewhere DOWN_MBIT is accepted but
-#     unused, and status returns down_src=unsupported (docs/adr/0001-cap-download-on-windows.md)
+#     unused, and status returns down_src=unsupported (docs/adr/0001-cap-download-on-windows.md). get and status say
+#     download=enabled|declined|unset: declined is install.ps1 -WithoutDownload, so that netcap on stops offering it
 #   - Policies go in this machine's persistent store (localhost), so the on / off state survives
 #     reboots (get returns boot=keep). ActiveStore (a store cleared on reboot) dropped the destination
 #     condition (-IPDstPrefixMatchCondition) and capped LAN traffic too (measured on real hardware, 2026-09-25)
@@ -59,6 +61,9 @@ $DownLog = Join-Path $Dir 'download.log'
 $System = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
 
 function Can-Down { Test-Path -LiteralPath (Join-Path $Wd 'WinDivert.dll') }
+function Download-Choice {
+  if (Can-Down) { 'enabled' } elseif (Test-Path -LiteralPath (Join-Path $Dir 'download.declined')) { 'declined' } else { 'unset' }
+}
 function Down-Task { Get-ScheduledTask -TaskPath '\netcap\' -TaskName download -ErrorAction SilentlyContinue }
 
 # The running shaper as @{pid; mbit}, or $null: download.state names a process that is still there
@@ -227,7 +232,7 @@ function Status {
   if ($on) { $state = 'on' }
   elseif ($off) { $state = 'off' }
   else { $state = 'partial' }  # only some are left. Run on or off again
-  "netshape state=$state up_mbit=$up $down policies=$($ours.Count) $(Timer-Fields)"
+  "netshape state=$state up_mbit=$up $down download=$(Download-Choice) policies=$($ours.Count) $(Timer-Fields)"
   '--- policies (netcap-*)'
   if ($ours.Count -eq 0) { '(none)' }
   foreach ($q in $ours) { "$($q.Name) template=$($q.Template) throttle=$($q.ThrottleRate) dst=$($q.IPDstPrefixMatchCondition) port=$($q.IPDstPortStartMatchCondition)" }
@@ -240,7 +245,7 @@ function Status {
 
 function Get-Default {
   $c = if (Test-Path $Conf) { $Conf } else { 'none' }
-  "netshape default_up=$UpMbit default_down=$DownMbit boot=keep conf=$c"
+  "netshape default_up=$UpMbit default_down=$DownMbit boot=keep conf=$c download=$(Download-Choice)"
 }
 
 function Set-Default([string[]]$a) {
@@ -256,6 +261,56 @@ function Set-Default([string[]]$a) {
   }
 }
 
+# unload-driver: netcap never stops the WinDivert service on its own (basil00/WinDivert#406: stopping it under an open
+# handle makes later opens fail with 1058), so the driver stays loaded until reboot. This low-level verb unloads it now,
+# only when nothing can hold a handle: not while a download cap is on, and not while another process has WinDivert.dll
+# loaded (32-bit ones included). A program that talks to the driver without the DLL is not seen
+function Unload-Driver {
+  if ((Shaper) -or (Down-Task)) { [Console]::Error.WriteLine('netshape: a download cap is on here; run off first'); exit 1 }
+  $svc = Get-Service WinDivert -ErrorAction SilentlyContinue
+  if (-not $svc -or $svc.Status -eq 'Stopped') { 'netshape driver=unloaded (it was not loaded)'; return }
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class NetcapModules {
+  [DllImport("kernel32.dll")] static extern IntPtr OpenProcess(uint access, bool inherit, int pid);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  [DllImport("psapi.dll")] static extern bool EnumProcessModulesEx(IntPtr h, IntPtr[] mods, int cb, out int needed, uint filter);
+  [DllImport("psapi.dll", CharSet = CharSet.Unicode)] static extern uint GetModuleBaseNameW(IntPtr h, IntPtr mod, StringBuilder name, int size);
+  // LIST_MODULES_ALL (3): a 32-bit process's modules too, which Process.Modules leaves out from a 64-bit PowerShell
+  public static bool Has(int pid, string dll) {
+    IntPtr h = OpenProcess(0x0410, false, pid);  // PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+    if (h == IntPtr.Zero) return false;
+    try {
+      var mods = new IntPtr[2048]; int needed;
+      if (!EnumProcessModulesEx(h, mods, mods.Length * IntPtr.Size, out needed, 3)) return false;
+      var name = new StringBuilder(260);
+      for (int i = 0; i < Math.Min(mods.Length, needed / IntPtr.Size); i++) {
+        name.Length = 0;
+        if (GetModuleBaseNameW(h, mods[i], name, name.Capacity) > 0 &&
+            string.Equals(name.ToString(), dll, StringComparison.OrdinalIgnoreCase)) return true;
+      }
+      return false;
+    } finally { CloseHandle(h); }
+  }
+}
+'@
+  $users = @(foreach ($p in Get-Process) { if ($p.Id -ne $PID -and [NetcapModules]::Has($p.Id, 'WinDivert.dll')) { "$($p.ProcessName) ($($p.Id))" } })
+  if ($users.Count) {
+    [Console]::Error.WriteLine("netshape: WinDivert is in use by $($users -join ', '); unloading it now would break their handles")
+    exit 1
+  }
+  & sc.exe stop WinDivert | Out-Null
+  # WinDivert marked the service for deletion, so once it stops it is gone
+  for ($i = 0; $i -lt 20; $i++) {
+    $svc = Get-Service WinDivert -ErrorAction SilentlyContinue
+    if (-not $svc -or $svc.Status -eq 'Stopped') { 'netshape driver=unloaded'; return }
+    Start-Sleep -Milliseconds 500
+  }
+  [Console]::Error.WriteLine("netshape: the WinDivert driver did not stop ($($svc.Status))"); exit 1
+}
+
 $verb = if ($args.Count -gt 0) { $args[0] } else { '' }
 $rest = @($args | Select-Object -Skip 1)
 switch ($verb) {
@@ -266,5 +321,6 @@ switch ($verb) {
   'status' { Status }
   'set' { Set-Default $rest }
   'get' { Get-Default }
-  default { Usage '{on [UP_MBIT DOWN_MBIT] [--for SECONDS]|off|status|set UP_MBIT DOWN_MBIT|get}' }
+  'unload-driver' { Unload-Driver }
+  default { Usage '{on [UP_MBIT DOWN_MBIT] [--for SECONDS]|off|status|set UP_MBIT DOWN_MBIT|get|unload-driver}' }
 }
