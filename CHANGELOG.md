@@ -13,7 +13,7 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 - Windows devices can cap download too. Install the device with `netcap install <name> --with-download`: it fetches the
   WinDivert 2.2.2 driver from its official release (refused unless its SHA-256 matches the pinned one) and runs it while
   a cap is on. x64 only. Without the flag nothing changes, and installing again without it removes WinDivert. Security
-  software may flag WinDivert; see SECURITY.md and docs/adr/0001-cap-download-on-windows.md (#PRNUM)
+  software may flag WinDivert; see SECURITY.md and docs/adr/0001-cap-download-on-windows.md (#109)
 
 ### Changed
 
