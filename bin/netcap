@@ -18,9 +18,10 @@
                                               --load: the others load the line meanwhile, and the result says
                                               whether latency improved. --for: as for on
   netcap protect --off                        put each device back as it was
-  netcap install [<name>] [--ssh DEST] [--boot on|off]
+  netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download]
                                               install the agent on a device and register it. --boot on
-                                              (mac / linux): apply the default cap at boot
+                                              (mac / linux): apply the default cap at boot. --with-download
+                                              (win): also cap download, with WinDivert fetched from its release
   netcap uninstall <host> [--config-only]     remove this controller's key and registration (the agent goes
                                               with the last). --config-only: only forget it here
   netcap rename <old> <new>                   rename a device in hosts and profiles
@@ -44,7 +45,8 @@ What runs on each device:
   linux            : /usr/libexec/netcap/netcap-agent               (entry point; the same agent as mac)
                        → netcap-netshape (tc; sudo -n) / netcap-check (measurement; no root)
   win              : C:\\ProgramData\\netcap\\netcap-agent.ps1        (entry point; also the forced command)
-                       → netshape.ps1 (NetQosPolicy; upload only) / netcap-check.ps1 (measurement)
+                       → netshape.ps1 (NetQosPolicy; download only with --with-download, through
+                         netshape-down.ps1 and WinDivert) / netcap-check.ps1 (measurement)
 Each returns key=value on its first line, which is what gets read.
 
 Which devices to manage (hosts) and which to move together (profiles) belong to the user.
@@ -493,7 +495,8 @@ def cmd_use(a):
 # written down first, in profile form ("off", "2/3", "on"), so that protect --off can put each device back.
 
 def cap_value(r):
-    """A status row as a profile value, or None if unreachable. Windows cannot cap download, so it reuses up."""
+    """A status row as a profile value, or None if unreachable. A Windows device without WinDivert cannot cap download,
+    so it reuses up."""
     if r.get("reach") != "ok":
         return None
     if r.get("state") != "on":
@@ -1010,9 +1013,11 @@ def cmd_install(a):
         if name in HOSTS and (HOSTS[name]["os"], HOSTS[name]["ssh"]) != (os_, dest):
             sys.exit(_("{name} is already another device in hosts. Choose another name, or: netcap rename {name} <new>")
                      .format(name=name))
+    if a.with_download and os_ != "win":
+        usage_error(_("--with-download is for Windows devices; macOS and Linux cap download without it"))
     where = dest or _("this machine")
     say(_("installing the agent on {where} ({os})").format(where=where, os=os_))
-    args = [] if os_ == "win" else ["--boot", a.boot]
+    args = (["-WithDownload"] if a.with_download else []) if os_ == "win" else ["--boot", a.boot]
     if run_device_script(dest, os_, "install.ps1" if os_ == "win" else "install.sh", args) != 0:
         sys.exit(_("the install on {where} failed (see above)").format(where=where))
     if dest is not None:
@@ -1344,9 +1349,10 @@ JA = {
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
                                               ほかの端末が回線を埋め、遅延が良くなったかを言う。--for: on と同じ
   netcap protect --off                        各端末を元の状態に戻す
-  netcap install [<name>] [--ssh DEST] [--boot on|off]
+  netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download]
                                               機器に agent を入れて登録する。--boot on (mac / linux):
-                                              起動時に既定の上限をかける
+                                              起動時に既定の上限をかける。--with-download (win): 下りも絞る
+                                              (WinDivert をそのリリースから取ってくる)
   netcap uninstall <host> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)。
                                               --config-only: こちらの登録だけ消す
   netcap rename <old> <new>                   hosts と profiles の機器名を変える
@@ -1438,6 +1444,11 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "ssh destination, such as a Host in ~/.ssh/config (omit for this machine)":
         "ssh の宛先。~/.ssh/config の Host など (この機器なら省略)",
     "mac / linux: apply the default cap at boot (default: off)": "mac / linux: 起動時に既定の上限をかける (既定: off)",
+    "win: also cap download, with the WinDivert driver fetched from its release (x64 only; install again without it to "
+    "remove it)": "win: 下りも絞る。WinDivert のドライバをそのリリースから取ってくる (x64 のみ。外すときはこれを付けずに"
+                  "入れ直す)",
+    "--with-download is for Windows devices; macOS and Linux cap download without it":
+        "--with-download は Windows の機器のためのもの。macOS と Linux はこれなしで下りも絞れる",
     "remove the agent from a device and forget it": "機器から agent を外し、登録も消す",
     "only forget it here (for a device that is gone)": "こちらの登録だけ消す (もう無い機器向け)",
     "rename a device in hosts and profiles": "hosts と profiles の機器名を変える",
@@ -1669,6 +1680,9 @@ def main():
     p.add_argument("--ssh", metavar="DEST", help=_("ssh destination, such as a Host in ~/.ssh/config (omit for this machine)"))
     p.add_argument("--boot", choices=["on", "off"], default="off",
                    help=_("mac / linux: apply the default cap at boot (default: off)"))
+    p.add_argument("--with-download", action="store_true",
+                   help=_("win: also cap download, with the WinDivert driver fetched from its release (x64 only; "
+                          "install again without it to remove it)"))
     p = sub.add_parser("uninstall", help=_("remove the agent from a device and forget it"))
     p.add_argument("name", metavar="<host>")
     p.add_argument("--config-only", action="store_true", help=_("only forget it here (for a device that is gone)"))

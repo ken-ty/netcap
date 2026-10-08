@@ -116,6 +116,11 @@ FAKE_SSH = textwrap.dedent("""\
         print(ok.format(s="on", u="2"))
     elif host == "h-partial":
         print(ok.format(s="partial", u="-"))
+    elif host == "h-win":  # a Windows device installed with --with-download: WinDivert caps download (#108)
+        if " get" in cmd:
+            print("netshape default_up=1 default_down=1 boot=keep conf=none agent=0.13.0")
+        else:
+            print("netshape state=on up_mbit=2 down_mbit=3 down_src=windivert shaper=running policies=13 until=- left=-")
     elif host == "h-unreachable":
         print("ssh: Could not resolve hostname h-unreachable", file=sys.stderr); sys.exit(255)
     elif host == "h-nosudo":
@@ -999,6 +1004,39 @@ class CLI(unittest.TestCase):
         p = self.netcap("install", "off", "--ssh", "h-new", env=self.install_env())
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("netcap rename off", p.stderr)
+
+    # docs/host-setup.md: install --with-download caps download on a Windows device with WinDivert (#108). The flag
+    # reaches install.ps1 as -WithDownload; without it, install.ps1 gets no switch and the device stays upload only
+    def test_install_with_download(self):
+        env = self.install_env()
+        (self.conf / "hosts").write_text("box win h-win\n")
+        for flag, want in ((["--with-download"], "install.ps1') -WithDownload;"), ([], "install.ps1') ;")):
+            with self.subTest(flag=flag):
+                self.log.write_text("")
+                p = self.netcap("install", "box", *flag, env=env)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn(want, self.log.read_text())
+
+    # macOS and Linux cap download without it: the flag is refused before anything is installed
+    def test_install_with_download_is_for_windows(self):
+        env = self.install_env()
+        for args in (["box", "--ssh", "h-new"], ["off"]):
+            with self.subTest(args=args):
+                self.hosts("off")
+                self.log.write_text("")
+                p = self.netcap("install", *args, "--with-download", env=env)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertIn("--with-download is for Windows", p.stderr)
+                self.assertNotIn("install.sh", self.log.read_text())
+
+    # A Windows device with WinDivert reports its download cap; the table shows it like any other (#108)
+    def test_status_windivert(self):
+        (self.conf / "hosts").write_text("box win h-win\n")
+        row = self.status_row("box")
+        self.assertEqual((row["down_mbit"], row["down_src"], row["shaper"]), ("3", "windivert", "running"))
+        out = self.netcap("status", "box").stdout
+        self.assertRegex(out, r"(?m)^box +ok +on +2 Mbit/s +3 Mbit/s")
+        self.assertEqual(load_netcap().cap_value(row), "2/3")  # protect puts back what was there
 
     # A Windows device that prints no temporary directory gets the same error as macOS / Linux, not a traceback
     def test_win_temp_dir_not_made(self):

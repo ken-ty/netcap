@@ -3,13 +3,26 @@ on:
   push:
     branches: [feat/win-download-windivert]
 jobs:
-  spike:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, windows-2022]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+  e2e-win:
+    runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/spike/windivert-spike.ps1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - shell: powershell
+        run: |
+          foreach ($f in Get-ChildItem win\*.ps1) {
+            $e = $null; [void][Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$e)
+            if ($e) { $e | ForEach-Object { "$($f.Name):$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+          }
+      - run: python -m unittest -v tests/test_e2e.py
+        env:
+          NETCAP_E2E: "1"
+          PYTHONUTF8: "1"
+      - if: always()
+        shell: powershell
+        run: |
+          Get-Content C:\ProgramData\netcap\download.log -ErrorAction SilentlyContinue
+          sc.exe query WinDivert

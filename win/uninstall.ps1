@@ -1,9 +1,14 @@
-﻿# uninstall.ps1 — removes netshape completely (also lifts the cap). As Administrator:
+﻿# uninstall.ps1 — removes netshape completely (also lifts the cap, and removes WinDivert if it was fetched). As Administrator:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\uninstall.ps1
 $ErrorActionPreference = 'Continue'
 $Dir = 'C:\ProgramData\netcap'
 if (Test-Path "$Dir\netshape.ps1") { & "$Dir\netshape.ps1" off }
-Unregister-ScheduledTask -TaskPath '\netcap\' -TaskName expire -Confirm:$false -ErrorAction SilentlyContinue
+# off stops the download shaper too. The WinDivert driver stays loaded until reboot: netcap never stops its service
+# (basil00/WinDivert#406), and Windows removes the service at the next reboot
+foreach ($t in 'expire', 'download') {
+  Stop-ScheduledTask -TaskPath '\netcap\' -TaskName $t -ErrorAction SilentlyContinue
+  Unregister-ScheduledTask -TaskPath '\netcap\' -TaskName $t -Confirm:$false -ErrorAction SilentlyContinue
+}
 Get-NetQosPolicy -ErrorAction SilentlyContinue |
   Where-Object { $_.Name -like 'netcap-*' } |
   ForEach-Object { Remove-NetQosPolicy -Name $_.Name -Confirm:$false }

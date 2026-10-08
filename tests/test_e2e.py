@@ -6,17 +6,24 @@ It rewrites the machine's settings and needs sudo (Administrator on Windows), so
   NETCAP_E2E=1 python3 -m unittest -v tests/test_e2e.py
 """
 import base64
+import hashlib
+import http.server
 import importlib.machinery
 import importlib.util
 import ipaddress
 import json
 import os
 import re
+import socket
 import subprocess
 import sys
+import shutil
 import tempfile
+import threading
 import time
 import unittest
+import urllib.request
+import uuid
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,15 +43,19 @@ INSTALLED = {"mac": ["/Library/PrivilegedHelperTools/netcap-netshape", "/Library
 LOCAL = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4",
          "fc00::/7", "::1/128", "fe80::/10", "ff00::/8"]
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+# Windows caps download only when installed with --with-download (docs/adr/0001-cap-download-on-windows.md). These tests
+# install with it; tests/test_e2e_ssh.py installs without it and checks that download stays unsupported
+WIN_DIR = r"C:\ProgramData\netcap"
+WD = WIN_DIR + r"\windivert"
 
 
 def sh(*cmd, env=None, input=None):
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, input=input)
 
 
-def install(boot="off", src=ROOT):
+def install(boot="off", src=ROOT, download=True):
     if OS == "win":
-        return sh(*PS, str(src / "win" / "install.ps1"))
+        return sh(*PS, str(src / "win" / "install.ps1"), *(["-WithDownload"] if download else []))
     return sh("sudo", "bash", str(src / OS / "install.sh"), "--boot", boot)
 
 
@@ -91,6 +102,35 @@ foreach ($i in @(Get-Item -LiteralPath $d -Force) + @(Get-ChildItem -LiteralPath
     return p.stdout.splitlines()
 
 
+def win_task(name):
+    p = ps(f"if (Get-ScheduledTask -TaskPath '\\netcap\\' -TaskName {name} -ErrorAction SilentlyContinue) {{ 'yes' }}")
+    return p.stdout.strip() == "yes"
+
+
+def shaper_state():
+    """download.state of the WinDivert shaper as a dict ({} when it does not hold a handle)"""
+    f = Path(WIN_DIR) / "download.state"
+    text = f.read_text() if f.exists() else ""
+    return dict(kv.split("=", 1) for kv in text.split())
+
+
+def process_alive(pid):
+    return ps(f"if (Get-Process -Id {pid} -ErrorAction SilentlyContinue) {{ 'yes' }}").stdout.strip() == "yes"
+
+
+def shaper_cpu():
+    pid = shaper_state().get("pid")
+    return float(ps(f"(Get-Process -Id {pid}).TotalProcessorTime.TotalSeconds").stdout.strip()) if pid else 0.0
+
+
+def driver_state():
+    """What Windows says about the WinDivert driver: the service's state, and whether it is marked for deletion"""
+    return ps(r"""$s = Get-Service WinDivert -ErrorAction SilentlyContinue
+$k = Get-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\WinDivert -ErrorAction SilentlyContinue
+"service=$(if ($s) { $s.Status } else { 'none' }) start=$(if ($k) { $k.Start } else { '-' }) delete_flag=$(if ($k) { $k.DeleteFlag } else { '-' })"
+""").stdout.strip()
+
+
 @unittest.skipUnless(os.environ.get("NETCAP_E2E") and OS, "only with NETCAP_E2E=1 (rewrites the machine's settings)")
 class E2E(unittest.TestCase):
     @classmethod
@@ -102,7 +142,8 @@ class E2E(unittest.TestCase):
         # README: Quick Start. netcap install puts the agent on this machine and registers it in hosts
         cls.conf = Path(tempfile.mkdtemp())
         cls.env = {**os.environ, "NETCAP_CONFIG_DIR": str(cls.conf)}
-        cls.installed = sh(sys.executable, str(ROOT / "bin" / "netcap"), "install", "self", "--boot", "off", env=cls.env)
+        cls.installed = sh(sys.executable, str(ROOT / "bin" / "netcap"), "install", "self", "--boot", "off",
+                           *(["--with-download"] if OS == "win" else []), env=cls.env)
         (cls.conf / "profiles").write_text("p     self=2/3\nnone  self=off\n")
 
     @classmethod
@@ -123,10 +164,10 @@ class E2E(unittest.TestCase):
         self.assertEqual(r["reach"], "ok", r)
         self.assertEqual(r["state"], state, r)
         self.assertEqual(r["up_mbit"], up, r)
-        if OS == "win":  # download cannot be capped (README: Supported platforms)
-            self.assertEqual(r["down_src"], "unsupported", r)
-        else:
-            self.assertEqual(r["down_mbit"], down, r)
+        self.assertEqual(r["down_mbit"], down, r)
+        if OS == "win":  # WinDivert holds download back, from a process that runs only while the cap is on
+            self.assertEqual(r["down_src"], "windivert", r)
+            self.assertEqual(r["shaper"], {"on": "running", "off": "none"}.get(state, r["shaper"]), r)
 
     def assertDefault(self, up, down):
         r = self.row("get")
@@ -187,6 +228,8 @@ class E2E(unittest.TestCase):
         self.assertCap("off")
         self.assertEqual(self.row()["left"], "-")
         self.assertFalse(self.timer_loaded())
+        if OS == "win":
+            self.assertFalse(win_task("download"))
 
     def test_08_later_on_and_off_replace_the_timer(self):
         for undo in (("on",), ("off",)):
@@ -473,7 +516,10 @@ class E2E(unittest.TestCase):
             self.skipTest(f"this line is too slow to compare even without a cap: down {free[0]} / up {free[1]} Mbit/s")
         self.netcap("on", "self", "--up", "1", "--down", "1")
         try:
+            cpu = shaper_cpu() if OS == "win" else 0
             capped = check(500_000)  # 4 seconds at 1 Mbit/s
+            if OS == "win":
+                print(f"\n  WinDivert shaper CPU during the check: {shaper_cpu() - cpu:.2f} s")
             # to see which path the traffic took when this fails
             diag = "" if OS != "linux" else sh("bash", "-c", "ip -br link; tc qdisc show; for d in $(ls /sys/class/net); do "
                                                "tc -s filter show dev $d parent ffff:fff2; tc -s filter show dev $d parent ffff:; "
@@ -482,8 +528,7 @@ class E2E(unittest.TestCase):
             self.netcap("off", "self")
         print(f"\n  no cap: down {free[0]} / up {free[1]}; at 1/1: down {capped[0]} / up {capped[1]} Mbit/s")
         self.assertLess(capped[1], 1.5)
-        if OS != "win":  # Windows cannot cap download
-            self.assertLess(capped[0], 1.5, diag)
+        self.assertLess(capped[0], 1.5, diag)
 
     # docs/design.md: ping passes through. NetQosPolicy cannot match ICMP, so this is measured, not read from the rules.
     # One 1400-byte echo in flight at a time: under a 0.1 Mbit/s cap each one would wait about 110 ms more on the way out
@@ -657,6 +702,248 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
                 sh("sudo", "env", f"NETCAP_USER={u}", "bash", str(ROOT / OS / "uninstall.sh"), "--user")
                 sh("sudo", "dscl", ".", "-delete", f"/Users/{u}") if OS == "mac" else sh("sudo", "userdel", u)
 
+    # --- download on Windows: WinDivert (docs/adr/0001-cap-download-on-windows.md) ---
+    # install --with-download fetched the release zip, kept only the x64 driver, its DLL, and the license, and locked them
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_60_windivert_is_pinned_and_locked(self):
+        self.assertEqual(sorted(p.name for p in Path(WD).iterdir()), ["LICENSE", "WinDivert.dll", "WinDivert64.sys"])
+        src = (ROOT / "win" / "install.ps1").read_text(encoding="utf-8-sig")
+        pins = dict(re.findall(r"'(?:x64/)?([\w.]+)'\s+= '([0-9a-f]{64})'", src))
+        self.assertEqual(sorted(pins), ["LICENSE", "WinDivert.dll", "WinDivert64.sys"])
+        for name, want in pins.items():
+            self.assertEqual(hashlib.sha256((Path(WD) / name).read_bytes()).hexdigest(), want, name)
+        # The pin is the zip upstream publishes
+        url, zip_pin = re.search(r"\$WdUrl = '([^']+)'", src).group(1), re.search(r"\$WdZip = '([0-9a-f]{64})'", src).group(1)
+        self.assertTrue(url.startswith("https://github.com/basil00/WinDivert/releases/download/v2.2.2/"), url)
+        with urllib.request.urlopen(url, timeout=60) as r:
+            self.assertEqual(hashlib.sha256(r.read()).hexdigest(), zip_pin)
+        self.assertEqual([l for l in win_acl(WD) if l.startswith("bad ")], [])
+
+    # A zip whose SHA-256 is not the pinned one is refused before anything changes. A copy of install.ps1 with other
+    # pins stands in for a changed release: its files do not match, so it fetches, and the real zip does not match either
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_61_install_refuses_another_zip(self):
+        tmp = Path(tempfile.mkdtemp()) / "win"
+        shutil.copytree(ROOT / "win", tmp)
+        src = (tmp / "install.ps1").read_text(encoding="utf-8-sig")
+        (tmp / "install.ps1").write_text(re.sub(r"'[0-9a-f]{64}'", "'" + "0" * 64 + "'", src), encoding="utf-8-sig")
+        before = {f.name: f.read_bytes() for f in Path(WD).iterdir()}
+        p = sh(*PS, str(tmp / "install.ps1"), "-WithDownload")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("refused https://github.com/basil00/WinDivert/", p.stderr)
+        self.assertIn("Nothing was changed", p.stderr)
+        self.assertEqual({f.name: f.read_bytes() for f in Path(WD).iterdir()}, before)
+
+    # docs/design.md: what passes through, checked against the filter the shaper opens WinDivert with. WinDivert
+    # evaluates it on packets made here, so the IPv6 ranges are covered too (the runners have no IPv6 to the internet)
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_62_filter_lets_through_what_design_md_says(self):
+        def v4(src, dst, proto, sport=0):
+            body = (sport.to_bytes(2, "big") + (40000).to_bytes(2, "big") +
+                    (bytes(8) + b"\x50\x10\xff\xff" + bytes(4) if proto == 6 else (8).to_bytes(2, "big") + bytes(2)))
+            if proto == 1:
+                body = b"\x00\x00\x00\x00\x00\x01\x00\x01"  # echo reply
+            head = (b"\x45\x00" + (20 + len(body)).to_bytes(2, "big") + bytes(4) + b"\x40" + bytes([proto]) + bytes(2) +
+                    ipaddress.ip_address(src).packed + ipaddress.ip_address(dst).packed)
+            return head + body
+
+        def v6(src, dst, proto, sport=0):
+            body = (sport.to_bytes(2, "big") + (40000).to_bytes(2, "big") +
+                    (bytes(8) + b"\x50\x10\xff\xff" + bytes(4) if proto == 6 else (8).to_bytes(2, "big") + bytes(2)))
+            if proto == 58:
+                body = b"\x81\x00\x00\x00\x00\x01\x00\x01"  # echo reply
+            return (b"\x60\x00\x00\x00" + len(body).to_bytes(2, "big") + bytes([proto]) + b"\x40" +
+                    ipaddress.ip_address(src).packed + ipaddress.ip_address(dst).packed + body)
+
+        local = [ipaddress.ip_network(n) for n in LOCAL]
+        here4, here6, far4, far6 = "10.1.0.5", "2001:db8::5", "8.8.4.4", "2606:4700::1111"
+        cases = [  # (what, packet, outbound, capped)
+            ("tcp from the internet to a private address", v4(far4, here4, 6, 443), False, True),
+            ("udp (quic) from the internet", v4(far4, here4, 17, 443), False, True),
+            ("tcp over ipv6 from the internet", v6(far6, here6, 6, 443), False, True),
+            ("udp over ipv6 from the internet", v6(far6, here6, 17, 443), False, True),
+            ("dns over udp", v4(far4, here4, 17, 53), False, False),
+            ("dns over tcp", v4(far4, here4, 6, 53), False, False),
+            ("dns over ipv6", v6(far6, here6, 17, 53), False, False),
+            ("icmp", v4(far4, here4, 1), False, False),
+            ("icmpv6", v6(far6, here6, 58), False, False),
+            ("to a multicast address", v4(far4, "239.1.2.3", 17, 5000), False, False),
+            ("to the broadcast address", v4(far4, "255.255.255.255", 17, 5000), False, False),
+            ("to an ipv6 multicast address", v6(far6, "ff02::1", 17, 5000), False, False),
+            ("outbound (upload is NetQosPolicy's)", v4(here4, far4, 6, 40000), True, False),
+        ]
+        for net in local:
+            make, here = (v6, here6) if net.version == 6 else (v4, here4)
+            for addr in (net.network_address, net.broadcast_address):
+                cases.append((f"from {addr} ({net})", make(str(addr), here, 6, 443), False, False))
+            for addr in (int(net.network_address) - 1, int(net.broadcast_address) + 1):
+                if 0 <= addr < 2 ** net.max_prefixlen and not any(ipaddress.ip_address(addr) in n for n in local):
+                    cases.append((f"from {ipaddress.ip_address(addr)} (next to {net})", make(str(ipaddress.ip_address(addr)), here, 6, 443),
+                                  False, True))
+        script = Path(tempfile.mkdtemp()) / "eval.ps1"
+        script.write_text(f"""$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class Ev {{
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr LoadLibraryW(string p);
+  [DllImport("WinDivert.dll", CharSet = CharSet.Ansi)] public static extern bool WinDivertHelperCompileFilter(string f, int layer, IntPtr obj, uint len, out IntPtr err, out uint pos);
+  [DllImport("WinDivert.dll", CharSet = CharSet.Ansi)] public static extern bool WinDivertHelperEvalFilter(string f, byte[] p, uint n, byte[] a);
+}}
+'@
+[void][Ev]::LoadLibraryW('{WD}\\WinDivert.dll')
+$f = & '{WIN_DIR}\\netshape-down.ps1' filter
+$err = [IntPtr]::Zero; $pos = 0
+if (-not [Ev]::WinDivertHelperCompileFilter($f, 0, [IntPtr]::Zero, 0, [ref]$err, [ref]$pos)) {{
+  "compile error at $pos`: $([Runtime.InteropServices.Marshal]::PtrToStringAnsi($err))"; $f; exit 1
+}}
+foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
+  $hex, $flags = $line -split ' '
+  $p = [byte[]]::new($hex.Length / 2); for ($i = 0; $i -lt $p.Length; $i++) {{ $p[$i] = [Convert]::ToByte($hex.Substring($i * 2, 2), 16) }}
+  $a = [byte[]]::new(80); $a[10] = [byte][int]$flags  # Outbound 0x02, IPv6 0x10 (bits 17 and 20 of the bit fields)
+  if ([Ev]::WinDivertHelperEvalFilter($f, $p, $p.Length, $a)) {{ 'capped' }} else {{ 'pass' }}
+}}
+""", encoding="utf-8-sig")
+        script.with_suffix(".txt").write_text("".join(
+            f"{pkt.hex()} {(0x02 if out else 0) | (0x10 if pkt[0] >> 4 == 6 else 0)}\n" for _, pkt, out, _ in cases))
+        p = sh(*PS, str(script))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        got = {what: v for (what, *_), v in zip(cases, p.stdout.split())}
+        want = {what: "capped" if capped else "pass" for what, _, _, capped in cases}
+        self.assertEqual(got, want)
+
+    # docs/design.md: loopback, DNS, and ping pass while the download queue is full. Under a 0.5 Mbit/s cap with a
+    # download running, 50 packets wait about 1.2 s: what is capped takes that long, what passes does not
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_63_what_passes_while_download_is_full(self):
+        blob = os.urandom(2_000_000)
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(blob)))
+                self.end_headers()
+                self.wfile.write(blob)
+
+            def log_message(self, *args):
+                pass
+
+        servers = []
+        for family, host in ((2, "127.0.0.1"), (23, "::1")):
+            cls = type("Server", (http.server.ThreadingHTTPServer,), {"address_family": family})
+            srv = cls((host, 0), Handler)
+            threading.Thread(target=srv.serve_forever, daemon=True).start()
+            servers.append((f"[{host}]" if ":" in host else host, srv))
+
+        def timed(f):
+            t = time.monotonic()
+            f()
+            return time.monotonic() - t
+
+        def loopback(host, srv):
+            with urllib.request.urlopen(f"http://{host}:{srv.server_address[1]}/", timeout=60) as r:
+                self.assertEqual(len(r.read()), len(blob))
+
+        def dns():
+            try:
+                socket.getaddrinfo(f"netcap-{uuid.uuid4().hex[:12]}.example.com", 443)
+            except socket.gaierror:
+                pass  # NXDOMAIN is the answer we wait for
+
+        def internet():
+            sh("curl.exe", "-s", "-o", "NUL", "--max-time", "30", "https://speed.cloudflare.com/__down?bytes=1000")
+
+        def median(xs):
+            return sorted(xs)[len(xs) // 2]
+
+        def measure():
+            return {"loopback": max(timed(lambda: loopback(h, s)) for h, s in servers),
+                    "dns": median([timed(dns) for _ in range(5)]),
+                    "internet": median([timed(internet) for _ in range(3)])}
+
+        free = measure()
+        self.netcap("on", "self", "--up", "1", "--down", "0.5")
+        load = subprocess.Popen(["curl.exe", "-s", "-o", "NUL", "--max-time", "60",
+                                 "https://speed.cloudflare.com/__down?bytes=50000000"])
+        try:
+            time.sleep(3)
+            capped = measure()
+        finally:
+            load.kill()
+            self.netcap("off", "self")
+            for _, srv in servers:
+                srv.shutdown()
+        print("\n  seconds without a cap / at 0.5 Mbit/s down with a download running: " +
+              ", ".join(f"{k} {free[k]:.3f} / {capped[k]:.3f}" for k in free))
+        self.assertGreater(capped["internet"], 1.0)  # the queue was full: this is what capped looks like
+        self.assertLess(capped["loopback"], 2.0)  # 2 MB, about 32 s if it were capped
+        self.assertLess(capped["dns"], 0.5)
+
+    # off closes the handle by ending the shaper, and removes its task. netcap never stops the WinDivert service
+    # (basil00/WinDivert#406): what Windows does with the driver afterwards is recorded here, not asserted
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_64_off_ends_the_shaper(self):
+        self.netcap("on", "self", "--up", "2", "--down", "3")
+        pid = shaper_state()["pid"]
+        self.assertTrue(process_alive(pid))
+        while_on = driver_state()
+        self.netcap("off", "self")
+        self.assertFalse(process_alive(pid))
+        self.assertFalse(win_task("download"))
+        self.assertEqual(shaper_state(), {})
+        after = driver_state()
+        time.sleep(10)
+        print(f"\n  WinDivert driver: while on {while_on}; right after off {after}; 10 s later {driver_state()}")
+
+    # on and set change the rate of the running shaper: the handle stays open, and no second driver load races the first
+    # (basil00/WinDivert#408)
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_65_rate_changes_keep_the_handle(self):
+        self.netcap("on", "self", "--up", "2", "--down", "3")
+        try:
+            pid = shaper_state()["pid"]
+            self.netcap("on", "self", "--up", "2", "--down", "5")
+            self.assertCap("on", "2", "5")
+            self.assertEqual(shaper_state()["pid"], pid)
+        finally:
+            self.netcap("off", "self")
+
+    # A shaper that is gone while its task is registered is partial. Starting the task, as Windows does at startup,
+    # brings the cap back from download.mbit
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_66_shaper_gone_is_partial_and_the_task_brings_it_back(self):
+        self.netcap("on", "self", "--up", "2", "--down", "3")
+        try:
+            pid = shaper_state()["pid"]
+            ps(f"Stop-Process -Id {pid} -Force")
+            r = self.row()
+            self.assertEqual((r["state"], r["shaper"], r["down_mbit"]), ("partial", "stopped", "-"), r)
+            ps("Start-ScheduledTask -TaskPath '\\netcap\\' -TaskName download")
+            deadline = time.time() + 60
+            while time.time() < deadline and self.row()["shaper"] != "running":
+                time.sleep(2)
+            self.assertCap("on", "2", "3")
+        finally:
+            self.netcap("off", "self")
+
+    # Installed again without --with-download, the device is back to upload only and WinDivert is gone
+    @unittest.skipUnless(OS == "win", "WinDivert")
+    def test_67_install_without_the_flag_removes_windivert(self):
+        self.netcap("on", "self", "--up", "2", "--down", "3")
+        try:
+            p = install(download=False)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn("removed WinDivert", p.stdout)
+            self.assertFalse(Path(WD).exists())
+            self.assertFalse(win_task("download"))
+            r = self.row()
+            self.assertEqual((r["state"], r["up_mbit"], r["down_src"]), ("on", "2", "unsupported"), r)
+            self.assertNotIn("shaper", r)
+        finally:
+            self.netcap("off", "self")
+            p = install()
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.row()["down_src"], "windivert")
+
     # Windows PowerShell 5.1's Remove-Item -Recurse follows a junction and deletes what it points to. uninstall.ps1
     # removes the link, and leaves the folder it points to as it was
     @unittest.skipUnless(OS == "win", "junctions")
@@ -684,6 +971,9 @@ $s = @($rtt | Sort-Object); "$($s.Count) $lost $(if ($s.Count) { $s[[int]($s.Cou
 
     def test_99_uninstall(self):
         self.netcap("uninstall", "self")
+        if OS == "win":
+            print(f"\n  WinDivert driver after uninstall: {driver_state()}")
+            self.assertFalse(win_task("download"))
         for p in INSTALLED:
             self.assertFalse(Path(p).exists(), p)
         self.assertNotIn("self", (self.conf / "hosts").read_text())
