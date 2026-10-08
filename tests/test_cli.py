@@ -118,9 +118,25 @@ FAKE_SSH = textwrap.dedent("""\
         print(ok.format(s="partial", u="-"))
     elif host == "h-win":  # a Windows device installed with --with-download: WinDivert caps download (#108)
         if " get" in cmd:
-            print("netshape default_up=1 default_down=1 boot=keep conf=none agent=0.13.0")
+            print("netshape default_up=1 default_down=1 boot=keep conf=none agent=0.13.0 download=enabled")
+        elif " unload-driver" in cmd:
+            print("netshape driver=unloaded")
         else:
-            print("netshape state=on up_mbit=2 down_mbit=3 down_src=windivert shaper=running policies=13 until=- left=-")
+            print("netshape state=on up_mbit=2 down_mbit=3 down_src=windivert shaper=running download=enabled "
+                  "policies=13 until=- left=-")
+    elif host in ("h-winbare", "h-windecl"):  # Windows without WinDivert: undecided, or declined (--without-download)
+        choice = "unset" if host == "h-winbare" else "declined"
+        if " get" in cmd:
+            print(f"netshape default_up=1 default_down=1 boot=keep conf=none agent=0.13.0 download={choice}")
+        elif " on" in cmd:
+            print("netshape ON  up=1Mbit/s down=unsupported")
+        elif " status" in cmd:
+            print(f"netshape state=on up_mbit=1 down_mbit=- down_src=unsupported download={choice} policies=13 until=- left=-")
+    elif host == "h-winold":  # an agent from before unload-driver
+        print("netcap-agent: unknown verb: unload-driver", file=sys.stderr); sys.exit(77)
+    elif host == "h-winkey":  # a key line that does not allow unload-driver
+        print("netcap-agent: not allowed for this key: unload-driver (allowed: status get check on off set)", file=sys.stderr)
+        sys.exit(77)
     elif host == "h-unreachable":
         print("ssh: Could not resolve hostname h-unreachable", file=sys.stderr); sys.exit(255)
     elif host == "h-nosudo":
@@ -1017,17 +1033,164 @@ class CLI(unittest.TestCase):
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 self.assertIn(want, self.log.read_text())
 
-    # macOS and Linux cap download without it: the flag is refused before anything is installed
+    # --without-download removes WinDivert and records the refusal on the device; the two flags do not go together
+    def test_install_without_download(self):
+        env = self.install_env()
+        (self.conf / "hosts").write_text("box win h-win\n")
+        p = self.netcap("install", "box", "--without-download", env=env)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("install.ps1') -WithoutDownload;", self.log.read_text())
+        self.assertEqual(self.netcap("install", "box", "--with-download", "--without-download", env=env).returncode, 2)
+
+    # macOS and Linux cap download without WinDivert: the flags are refused before anything is installed
     def test_install_with_download_is_for_windows(self):
         env = self.install_env()
         for args in (["box", "--ssh", "h-new"], ["off"]):
-            with self.subTest(args=args):
-                self.hosts("off")
+            for flag in ("--with-download", "--without-download"):
+                with self.subTest(args=args, flag=flag):
+                    self.hosts("off")
+                    self.log.write_text("")
+                    p = self.netcap("install", *args, flag, env=env)
+                    self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                    self.assertIn("--with-download and --without-download are for Windows", p.stderr)
+                    self.assertNotIn("install.sh", self.log.read_text())
+
+    def netcap_tty(self, *args, answer=""):
+        """netcap with stdin and stderr on a terminal (a pty), answering a prompt with answer.
+        Returns (exit status, stdout, what the terminal showed)"""
+        import pty
+        import threading
+        master, slave = pty.openpty()
+        p = subprocess.Popen([sys.executable, str(NETCAP), *args], stdin=slave, stderr=slave, stdout=subprocess.PIPE,
+                             env=self.install_env(), text=True)
+        os.close(slave)
+        os.write(master, answer.encode())
+        shown = []
+
+        def read():  # while it runs: macOS drops what is left on the terminal once the process ends
+            while True:
+                try:
+                    chunk = os.read(master, 4096)
+                except OSError:
+                    return
+                if not chunk:
+                    return
+                shown.append(chunk)
+
+        reader = threading.Thread(target=read, daemon=True)
+        reader.start()
+        out = p.communicate(timeout=30)[0]
+        reader.join(5)
+        os.close(master)
+        return p.returncode, out, b"".join(shown).decode(errors="replace")
+
+    PROMPT = "Capping download on bare needs WinDivert (a third-party kernel driver, LGPL). Install it now? [y/N]"
+    HINT = "download is not capped on bare: no WinDivert there"
+
+    def installed_windivert(self):
+        return "install.ps1') -WithDownload;" in self.log.read_text()
+
+    # #108: on offers WinDivert to a Windows device that has not decided, on a terminal only, and --yes installs it
+    # without asking. Elsewhere the cap is upload only, with a hint, and the exit status is 0 as before
+    def test_on_offers_windivert(self):
+        (self.conf / "hosts").write_text("bare win h-winbare\n")
+        (self.conf / "profiles").write_text("")
+        for answer, installs in (("y\n", True), ("yes\n", True), ("n\n", False), ("\n", False)):
+            with self.subTest(answer=answer):
                 self.log.write_text("")
-                p = self.netcap("install", *args, "--with-download", env=env)
-                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
-                self.assertIn("--with-download is for Windows", p.stderr)
-                self.assertNotIn("install.sh", self.log.read_text())
+                rc, out, shown = self.netcap_tty("on", "bare", answer=answer)
+                self.assertEqual(rc, 0, out + shown)
+                self.assertIn(self.PROMPT, shown)
+                self.assertEqual(self.installed_windivert(), installs)
+                log = self.log.read_text()
+                self.assertIn("netcap-agent.ps1' on", log)  # the cap is applied either way, after the install
+                if installs:
+                    self.assertLess(log.index("-WithDownload"), log.index("netcap-agent.ps1' on"))
+        # Not on a terminal, with --json, or with -q: never asked, never installed
+        for args in (["on", "bare"], ["on", "bare", "--json"], ["on", "bare", "-q"]):
+            with self.subTest(args=args):
+                self.log.write_text("")
+                p = self.netcap(*args, env=self.install_env())
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertFalse(self.installed_windivert())
+                self.assertNotIn("Install it now", p.stdout + p.stderr)
+                if "--json" in args:
+                    json.loads(p.stdout)  # the hint stays off stdout
+                    self.assertIn(self.HINT, p.stderr)
+                elif "-q" in args:
+                    self.assertNotIn(self.HINT, p.stdout + p.stderr)
+                else:
+                    self.assertIn(self.HINT, p.stdout)
+        for args in (["on", "bare", "--yes"], ["on", "bare", "-y", "--json"]):
+            with self.subTest(args=args):
+                self.log.write_text("")
+                p = self.netcap(*args, env=self.install_env())
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertTrue(self.installed_windivert())
+                self.assertNotIn("Install it now", p.stdout + p.stderr)
+                if "--json" in args:
+                    json.loads(p.stdout)
+
+    # A device that declined (install --without-download), or that has WinDivert, is never asked and gets no hint
+    def test_on_does_not_offer_where_decided(self):
+        (self.conf / "hosts").write_text("decl win h-windecl\nwin win h-win\n")
+        for host in ("decl", "win"):
+            with self.subTest(host=host):
+                self.log.write_text("")
+                rc, out, shown = self.netcap_tty("on", host, "--up", "2", "--down", "3", answer="y\n")
+                self.assertEqual(rc, 0, out + shown)
+                self.assertNotIn("Install it now", shown)
+                self.assertNotIn("no WinDivert", out + shown)
+                self.assertFalse(self.installed_windivert())
+
+    # use and protect touch many devices: they never ask, and name the devices capped on upload only
+    def test_use_names_devices_without_windivert(self):
+        (self.conf / "hosts").write_text("bare win h-winbare\ndecl win h-windecl\n")
+        (self.conf / "profiles").write_text("p  bare=1/1 decl=1/1\n")
+        rc, out, shown = self.netcap_tty("use", "p", answer="y\n")
+        self.assertEqual(rc, 0, out + shown)
+        self.assertNotIn("Install it now", shown)
+        self.assertFalse(self.installed_windivert())
+        self.assertIn(self.HINT.replace("bare:", "bare:"), out)
+        self.assertNotIn("decl", out.split("download is not capped on")[1])
+
+    # get shows each device's choice
+    def test_get_shows_the_download_choice(self):
+        (self.conf / "hosts").write_text("bare win h-winbare\ndecl win h-windecl\nwin win h-win\noff mac h-off\n")
+        rows = {r["host"]: r.get("download") for r in json.loads(self.netcap("get", "all", "--json").stdout)}
+        self.assertEqual(rows, {"bare": "unset", "decl": "declined", "win": "enabled", "off": None})
+        self.assertRegex(self.netcap("get", "decl").stdout, r"(?m)^decl .* declined")
+
+    # unload-driver: a low-level command, only in netcap help --all; Windows only; an old agent or key is named
+    def test_unload_driver(self):
+        (self.conf / "hosts").write_text("win win h-win\nold win h-winold\nkey win h-winkey\noff mac h-off\n")
+        p = self.netcap("unload-driver", "win")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertRegex(p.stdout, r"(?m)^win +ok +unloaded")
+        self.assertEqual(self.netcap("unload-driver", "off").returncode, 2)
+        p = self.netcap("unload-driver", "old")
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("this device's agent is too old for this: netcap install old", p.stdout)
+        p = self.netcap("unload-driver", "key")
+        self.assertIn("does not allow unload-driver; netcap install key", p.stdout)
+        p = self.netcap("unload-driver", "all", "--json")
+        self.assertEqual([r["host"] for r in json.loads(p.stdout)], ["win", "old", "key"])  # Windows devices only
+
+    def test_help_all_lists_low_level_commands(self):
+        self.hosts("on")
+        for args in (["-h"], ["help"]):
+            self.assertNotIn("unload-driver", self.netcap(*args).stdout)
+        for args in (["help", "--all"], ["help", "-a"]):
+            out = self.netcap(*args).stdout
+            self.assertTrue(out.startswith(self.netcap("help").stdout))
+            self.assertIn("Low-level commands", out)
+            self.assertIn("netcap unload-driver <host>|all", out)
+        p = self.netcap("help", "unload-driver")
+        self.assertEqual(p.returncode, 0)
+        self.assertIn("WinDivert", p.stdout)
+        script = self.netcap("completion", "bash").stdout
+        self.assertNotIn("unload-driver", self.complete(script, ""))  # not offered as a command
+        self.assertEqual(self.complete(script, "unload-driver", ""), ["all", "on"])  # but its hosts are, once typed
 
     # A Windows device with WinDivert reports its download cap; the table shows it like any other (#108)
     def test_status_windivert(self):

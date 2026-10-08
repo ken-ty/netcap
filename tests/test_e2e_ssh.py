@@ -68,7 +68,7 @@ class OverSsh(unittest.TestCase):
         self.assertEqual(r["reach"], "ok", r)
         self.assertEqual(r["state"], state, r)
         self.assertEqual(r["up_mbit"], up, r)
-        if self.os_() == "win":  # download cannot be capped (docs/platforms.md)
+        if self.os_() == "win":  # installed without --with-download, download is not capped (docs/platforms.md)
             self.assertEqual(r["down_src"], "unsupported", r)
         else:
             self.assertEqual(r["down_mbit"], down, r)
@@ -104,6 +104,46 @@ class OverSsh(unittest.TestCase):
         finally:
             self.netcap("off", "dev")
         self.assertCap("off")
+
+    def own_ps(self, script):
+        """PowerShell on the device over your own key"""
+        cmd = "powershell -NoProfile -EncodedCommand " + base64.b64encode(script.encode("utf-16-le")).decode()
+        p = sh("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", DEST, cmd)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return p.stdout
+
+    def allow_list(self, replace=None):
+        """The --allow of the netcap key's line on a Windows device; with replace=(old, new), change it first"""
+        f = "$f = Join-Path $env:ProgramData 'ssh\\administrators_authorized_keys'\n"
+        if replace:
+            q = lambda t: "'" + t.replace("'", "''") + "'"
+            self.own_ps(f + f"[IO.File]::WriteAllText($f, [IO.File]::ReadAllText($f).Replace({q(replace[0])}, {q(replace[1])}))")
+        blob = KEY.with_suffix(".pub").read_text().split()[1]
+        line = next(l for l in self.own_ps(f + "[IO.File]::ReadAllText($f)").splitlines() if blob in l)
+        return line.split("--allow '")[1].split("'")[0]
+
+    # #108: unload-driver goes through the forced command on Windows. A key line netcap wrote before unload-driver
+    # existed gets it at the next install; a line narrowed by hand keeps what it allows
+    def test_04_unload_driver_and_the_key_line(self):
+        if self.os_() != "win":
+            self.skipTest("unload-driver is Windows only")
+        full, old = "status get check on off set unload-driver", "status get check on off set"
+        self.assertEqual(self.allow_list(), full)
+        r = json.loads(self.netcap("unload-driver", "dev", "--json"))[0]
+        self.assertEqual((r["reach"], r["driver"]), ("ok", "unloaded"), r)
+        try:
+            self.assertEqual(self.allow_list((f"'{full}'", f"'{old}'")), old)
+            p = subprocess.run([sys.executable, str(ROOT / "bin" / "netcap"), "install", "dev"], env=self.env)
+            self.assertEqual(p.returncode, 0)
+            self.assertEqual(self.allow_list(), full)
+            self.assertEqual(self.allow_list((f"'{full}'", "'status get'")), "status get")
+            p = subprocess.run([sys.executable, str(ROOT / "bin" / "netcap"), "install", "dev"], env=self.env)
+            self.assertEqual(p.returncode, 0)
+            self.assertEqual(self.allow_list(), "status get")
+            out = self.netcap("unload-driver", "dev", rc=1)
+            self.assertIn("does not allow unload-driver", out)
+        finally:
+            self.allow_list(("'status get'", f"'{full}'"))
 
     def test_99_uninstall(self):
         os_ = self.os_()
