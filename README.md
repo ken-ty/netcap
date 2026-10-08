@@ -105,7 +105,7 @@ netcap protect --off                              # put each device back as it w
 Without `--load`, the difference shows only if the other devices happen to use the line during the measurement.
 `--load` makes that traffic, so it costs data: about 4 × MB × the other devices (it says how much first).
 The protected device itself transfers about 4 MB either way (1 MB up and 1 MB down, before and after).
-A Windows device among the others is capped on upload only, unless it was installed with `--with-download`.
+A Windows device among the others without WinDivert is capped on upload only; protect names it.
 
 Rename a device with `netcap rename me laptop`; remove one with `netcap uninstall gamepc`.
 For the file format, see [docs/configuration.md](docs/configuration.md); for what install sets up on a device, [docs/host-setup.md](docs/host-setup.md).
@@ -115,7 +115,7 @@ For the file format, see [docs/configuration.md](docs/configuration.md); for wha
 | Role | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | Controller (CLI) | ✅ | ✅ | ✅ |
-| Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload (NetQosPolicy); download only with `netcap install <name> --with-download` (WinDivert, x64) |
+| Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload (NetQosPolicy); download with WinDivert, which `netcap on` offers to install (x64) |
 
 Feature by feature: [docs/platforms.md](docs/platforms.md).
 
@@ -132,7 +132,7 @@ Feature by feature: [docs/platforms.md](docs/platforms.md).
 ```text
 netcap status [<host>|all] [--json]         read the cap actually in effect
 netcap get    [<host>|all] [--json]         read the settings (default, boot behavior)
-netcap on     <host>|all [--up N --down N] [--for 30m]  apply a cap (flags apply this time only; --for lifts it after that long)
+netcap on     <host>|all [--up N --down N] [--for 30m] [--yes]  apply a cap (flags apply this time only; --for lifts it after that long; --yes: see below)
 netcap off    <host>|all                    remove the cap (with boot=on, the default comes back at reboot)
 netcap set    <host>|all --up N --down N    change the default
 netcap check  [<host>|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer, up to 100 MB)
@@ -140,7 +140,7 @@ netcap use    <profile> [--for 30m]         apply a profile (--for: each device 
 netcap profiles                             list profiles
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
-netcap install [<name>] [--ssh DEST] [--boot on|off]  install the agent on a device and register it (--boot on: cap at boot)
+netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]  install the agent on a device and register it (--boot on: cap at boot)
 netcap uninstall <host> [--config-only]     remove this controller's key and registration (the agent goes with the last)
 netcap rename <old> <new>                   rename a device
 netcap export                               print hosts and profiles as JSON (no keys)
@@ -149,11 +149,17 @@ netcap doctor [<host>|all] [--json]         check that each device's netcap key 
 netcap <command> -v                         also show what the table leaves out (-vv: the raw output too)
 netcap <command> -q                         print only the result: no progress, hints, or notes
 netcap help [<command>|exit-codes]          the same help as -h; exit-codes lists what each exit status means
+netcap help --all                           also the low-level commands, which most people never need
 netcap completion bash|zsh                  print a completion script, e.g. eval "$(netcap completion zsh)"
 netcap --version                            also -V, or netcap version
 ```
 
 Values are Mbit/s and may be decimals. `0` is an error (nothing changes); to lift a cap, use `off`.
+
+A Windows device caps download only with WinDivert, a third-party kernel driver. Run from a terminal, `netcap on` asks
+before installing it; `--yes` installs it without asking, and `netcap install <name> --without-download` stops the
+question for that device. Elsewhere (`use`, `protect`, scripts) it caps upload only and says which devices.
+Why: [docs/adr/0001-cap-download-on-windows.md](docs/adr/0001-cap-download-on-windows.md).
 What happens on reboots, power loss, and with more than one controller: [docs/operations.md](docs/operations.md).
 
 Help and error messages follow your locale (`LANG`); Japanese is available. `LC_ALL=C netcap -h` shows English.

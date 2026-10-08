@@ -10,7 +10,7 @@
 それが使えないときは、詳細を書かずに「非公開の連絡先がほしい」とだけ issue を立ててください。
 
 修正は最新のリリースに入ります。更新は `brew upgrade netcap` のあと、端末ごとに `netcap install <名前>`
-(入れ直すと起動時の挙動と下りの設定もし直されるので、`--boot on` や `--with-download` だった端末にはそれを付ける)。
+(入れ直すと起動時の挙動も設定し直されるので、`--boot on` だった端末には `--boot on` を付ける)。
 
 ## 脅威モデル
 
@@ -31,6 +31,7 @@ netcap の動詞を実行できる。** 自分だけが読める状態に保ち 
 - 各端末の状態と設定を読む (`status`、`get`)、測定する (`check`)。`check --bytes N` は測定で転送する量を決め、
   agent は 100 MB を超える量を拒む (`N` は 1 から 100000000)
 - 上限を変える・外す (`on`、`off`、`set`)
+- Windows では WinDivert のドライバを外す (`unload-driver`)。何かが使っている間は端末が断る
 
 **端末を遮断はできない。** `0` はどの OS でも拒否する。ただし `0.01/0.01` のような
 ごく小さい上限はかけられ、誰かが `netcap off` するまでその端末の回線は使い物にならない。
@@ -51,16 +52,19 @@ shaper は設定を数値として読み、スクリプトとしては実行し�
 
 ### Windows の下りを絞るのはカーネルドライバ
 
-`netcap install <名前> --with-download` は、その Windows の端末にサードパーティのカーネルドライバ WinDivert 2.2.2 を入れる。
-フラグを付けなければ、その一部も入らない。なぜこれを選び、何を受け入れたか:
+サードパーティのカーネルドライバ WinDivert 2.2.2 が Windows の端末に入るのは、同意したときだけ: 端末から打った
+`netcap on` の問いに `y`、`netcap on --yes`、または `netcap install <名前> --with-download`。netcap の鍵が漏れても入れられ
+ない。入れるのは forced command ではなく、あなた自身の ssh ログインを通すため。`netcap install <名前> --without-download`
+は外して、問いもやめる。なぜこれを選び、何を受け入れたか:
 [docs/adr/0001-cap-download-on-windows.ja.md](docs/adr/0001-cap-download-on-windows.ja.md)。
 
 - netcap は同梱しない。インストーラが GitHub から公式のリリース zip を HTTPS で取ってきて、SHA-256 が `win/install.ps1` に
   固定した値でなければ断る。中から x64 のドライバと DLL とライセンスだけを `C:\ProgramData\netcap\windivert` に置き、
   ほかと同じ ACL をかける (書けるのは SYSTEM と Administrators だけ)
 - ドライバを読み込むのは下りの shaper で、上限がかかっている間 SYSTEM として動く。`off` のあともドライバは次の再起動まで
-  読み込まれたまま。netcap はそのサービスを止めない。止めると以後のオープンが壊れるため
-  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))
+  読み込まれたまま。netcap は自分からそのサービスを止めない。開いたハンドルの下で止めると以後のオープンが壊れるため
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))。`netcap unload-driver <名前>` は、何も使って
+  いなければ外す
 - [LOLDrivers](https://www.loldrivers.io/) は WinDivert 2.2 を悪性として載せている。攻撃者がセキュリティ製品を黙らせる
   ために持ち込むため。セキュリティソフトが報告・隔離することがあり (Malwarebytes と Bitdefender の例がある)、隔離されると
   `on` が失敗し、理由が `C:\ProgramData\netcap\download.log` に残る

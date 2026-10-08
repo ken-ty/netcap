@@ -8,7 +8,7 @@ Please report it privately: on GitHub, the **Security** tab → **Report a vulne
 If that is not available, open an issue asking for a private contact, and leave the details out of it.
 
 Fixes go into the latest release. To update, `brew upgrade netcap`, then `netcap install <name>` for each device
-(add `--boot on` or `--with-download` for a device that had it: reinstalling sets both again).
+(add `--boot on` for a device that had it: reinstalling sets the boot behavior again).
 
 ## Threat model
 
@@ -29,6 +29,7 @@ the verbs in `--allow` and nothing else: no shell, no pty, no forwarding. With t
 - Read the state and settings of each device (`status`, `get`) and run a measurement (`check`). `check --bytes N` sets how
   much the measurement transfers, and the agent refuses more than 100 MB (`N` from 1 to 100000000)
 - Change or lift caps (`on`, `off`, `set`)
+- On Windows, unload the WinDivert driver (`unload-driver`), which the device refuses while anything uses it
 
 **It cannot cut a device off:** `0` is refused on every OS. It can, however, set a very small cap such as
 `0.01/0.01`, which makes the device's line unusable until someone runs `netcap off`.
@@ -49,16 +50,19 @@ The shaper reads its config as numbers and never runs it as a script. See [docs/
 
 ### Download capping on Windows is a kernel driver
 
-`netcap install <name> --with-download` puts a third-party kernel driver on that Windows device: WinDivert 2.2.2. Without
-the flag, nothing of it is installed. Why it was chosen and what was accepted with it:
+WinDivert 2.2.2, a third-party kernel driver, goes on a Windows device only when you agree: `y` when `netcap on` asks
+from a terminal, `netcap on --yes`, or `netcap install <name> --with-download`. A leaked netcap key cannot install it:
+installing goes over your own ssh login, not the forced command. `netcap install <name> --without-download` removes it
+and stops the question. Why it was chosen and what was accepted with it:
 [docs/adr/0001-cap-download-on-windows.md](docs/adr/0001-cap-download-on-windows.md).
 
 - netcap does not ship it. The installer fetches the official release zip from GitHub over HTTPS and refuses it unless
   its SHA-256 is the one pinned in `win/install.ps1`; it keeps only the x64 driver, its DLL, and the license, in
   `C:\ProgramData\netcap\windivert` with the same ACL as the rest (only SYSTEM and Administrators can write)
 - The driver is loaded by the download shaper, which runs as SYSTEM while a cap is on. After `off` the driver stays loaded
-  until the next reboot: netcap never stops its service, because that breaks later opens
-  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))
+  until the next reboot: netcap does not stop its service on its own, because stopping it under an open handle breaks
+  later opens ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)). `netcap unload-driver <name>`
+  unloads it when nothing uses it
 - [LOLDrivers](https://www.loldrivers.io/) lists WinDivert 2.2 as malicious: attackers bring it in to mute security
   products. Security software may report or quarantine it (Malwarebytes and Bitdefender have), and a quarantined driver
   makes `on` fail with the reason in `C:\ProgramData\netcap\download.log`

@@ -79,8 +79,9 @@ macOS の `dnctl` は 2 本目の pipe の帯域を表示できない (macOS 26)
 
 ## Windows の下り (WinDivert)
 
-NetQosPolicy が扱えるのはその機械が送る通信だけ。`netcap install <name> --with-download` で入れた端末では、下りを
-WinDivert で絞る。WinDivert は netcap が借りる署名済みのドライバで、インストール時に取ってくる。なぜこのドライバか、
+NetQosPolicy が扱えるのはその機械が送る通信だけ。WinDivert を入れた端末 (`netcap on` が聞く。
+[host-setup.ja.md](host-setup.ja.md#windows-の下り-windivert)) では、下りをそれで絞る。WinDivert は netcap が借りる
+署名済みのドライバで、入れるときに取ってくる。なぜこのドライバか、
 何と引き換えか: [ADR 0001](adr/0001-cap-download-on-windows.ja.md)。
 
 - `netshape-down.ps1` が `WinDivert.dll` を呼ぶ小さな C# のクラスを `Add-Type` でコンパイルする。netcap 自身のコンパイル済み
@@ -93,12 +94,16 @@ WinDivert で絞る。WinDivert は netcap が借りる署名済みのドライ�
   パケットは落とす。macOS の下りの pipe (`queue 50`) と同じ。1 Mbit/s なら、満杯の待ち行列はおよそ 0.6 秒
 - `on` と `set` は速さを `download.mbit` に書き、動いている shaper は 1 秒以内に読み直す。WinDivert のハンドルは開いたまま。
   `off` (と `on --for` の期限) はこのファイルを消し、shaper はハンドルを閉じて終わる
-- netcap は WinDivert のサービスを止めない。ハンドルを開いたまま止めると、以後のオープンが失敗する
-  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))。ドライバは `off` のあとも次の再起動まで読み込まれた
-  まま。shaper はサービスが起動中・停止中なら待ち、オープンを間隔を広げながらやり直す
+- netcap は自分からは WinDivert のサービスを止めない。ハンドルを開いたまま止めると以後のオープンが失敗し
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))、netcap にはハンドルを持ちうるプログラムを
+  すべては見えないため。ドライバは `off` のあとも次の再起動まで読み込まれたままだが、何も待たせない。ハンドルが無ければ
+  すべて素通しにする (CI の `test_68` と、`on` / `off` 20 回の `test_69` で測った)。`netcap unload-driver` は、shaper が
+  動いておらず WinDivert.dll を読み込んだプロセスも無いことを確かめてから、求めに応じて止める。shaper はサービスが
+  起動中・停止中なら待ち、オープンを間隔を広げながらやり直す
   ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
 - `status` は `down_src=windivert` と、`shaper=running`、`stopped` (タスクは登録されているが、shaper がハンドルを持っていない)、
-  `none` のどれかを出す。上限がかかっているはずなのに shaper が止まっていれば `partial`。理由は `download.log` にある
+  `none` のどれかを出す。上限がかかっているはずなのに shaper が止まっていれば `partial`。理由は `download.log` にある。
+  `status` と `get` は端末の選択 `download=enabled|declined|unset` も出し、`on` は聞く前にそれを読む
 
 ## `on --for` が上限を外す仕組み
 

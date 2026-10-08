@@ -65,7 +65,8 @@ CLI が入っていればどの機械も管理する側になれて、同じ端�
 - **管理する側ごとに別の ssh ユーザーで入ってよい。** インストーラは、流したユーザーを端末の sudoers に足し、
   すでにいるユーザーは残す (macOS / Linux)。netcap 0.10.0 以前は置き換えていたので、複数のユーザーで使う前に
   すべての管理する側の CLI を更新する
-- **`--boot` を揃える。** 入れ直すと設定し直される (上)
+- **`--boot` を揃える。** 入れ直すと設定し直される (上)。Windows の端末の WinDivert の選択は端末に残っているので、
+  フラグは要らない
 
 1 つの管理する側から外すときは、そこで `netcap uninstall <名前>` を流す。外れるのはその管理する側が足したものだけ:
 その鍵と、macOS / Linux では端末の sudoers にあるその ssh ユーザー。同じログインにほかの管理する側の鍵が残っている間は
@@ -73,6 +74,17 @@ agent も残り、最後の 1 つと一緒に外れる。全部まとめて外�
 (Linux は `linux/uninstall.sh`、Windows は `C:\ProgramData\netcap\uninstall.ps1`) を流す ([host-setup.ja.md](host-setup.ja.md))。
 
 Windows でも CLI は日々のコマンドも `netcap install --ssh` も動く (どちらも CI で動かしている。後者は Windows の端末へ)。
+
+## 低レベルのコマンド
+
+`netcap help --all` は、いつものコマンドのあとに、ほとんどの人が使わないものを並べる。`netcap -h` と補完には出ない。
+`git help` が git の plumbing を出さないのと同じ。
+
+- `netcap unload-driver <host>|all` (Windows): WinDivert のドライバを今外す。netcap はふだん次の再起動まで読み込んだままに
+  するが、`off` の時点で何も待たせなくなっている ([ADR 0001](adr/0001-cap-download-on-windows.ja.md))。下りの上限が
+  かかっている間と、ほかのプログラムが WinDivert を読み込んでいる間は、端末が断る。開いたハンドルの下でドライバを止めると、
+  再起動まで以後のオープンが壊れるため ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))。
+  これを知っている agent と、ssh 越しならそれを許す鍵の行が要る。どちらも `netcap install <name>` で揃い、足りないほうは表に出る
 
 ## 終了コード
 

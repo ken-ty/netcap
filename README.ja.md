@@ -107,7 +107,7 @@ netcap protect --off                              # 各端末を元の状態に�
 `--load` が無いと、測定に差が出るのは、そのときほかの端末がたまたま回線を使っていた場合だけ。`--load` はその通信を
 作るので通信量を使う: 約 4 × MB × ほかの端末の数 (最初に表示する)。
 守る端末自身はどちらでも 4 MB ほど送受信する (前後それぞれで上り 1 MB と下り 1 MB)。
-ほかの端末のうち Windows のものは、`--with-download` で入れていなければ上りしか絞れない。
+ほかの端末のうち WinDivert の無い Windows のものは上りしか絞れない。protect はその名前を出す。
 
 名前は `netcap rename me laptop` で変えられる。外すときは `netcap uninstall gamepc`。
 ファイルの書式は [docs/configuration.ja.md](docs/configuration.ja.md)、install が端末に何を置くかは [docs/host-setup.ja.md](docs/host-setup.ja.md)。
@@ -117,7 +117,7 @@ netcap protect --off                              # 各端末を元の状態に�
 | 役割 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | 操作する側 (CLI) | ✅ | ✅ | ✅ |
-| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上り (NetQosPolicy)。下りは `netcap install <name> --with-download` で入れたときだけ (WinDivert、x64) |
+| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上り (NetQosPolicy)。下りは WinDivert で。`netcap on` が入れるか聞く (x64) |
 
 機能ごとの一覧は [docs/platforms.ja.md](docs/platforms.ja.md)。
 
@@ -134,7 +134,7 @@ netcap protect --off                              # 各端末を元の状態に�
 ```text
 netcap status [<host>|all] [--json]         実際にかかっている上限を読む
 netcap get    [<host>|all] [--json]         設定 (既定値・起動時の挙動) を読む
-netcap on     <host>|all [--up N --down N] [--for 30m]  上限をかける (flag は今回だけ。--for はその時間で外れる)
+netcap on     <host>|all [--up N --down N] [--for 30m] [--yes]  上限をかける (flag は今回だけ。--for はその時間で外れる。--yes は下記)
 netcap off    <host>|all                    上限を外す (boot=on なら再起動で既定の上限がかかり直す)
 netcap set    <host>|all --up N --down N    既定を書き換える
 netcap check  [<host>|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
@@ -142,7 +142,7 @@ netcap use    <profile> [--for 30m]         プロファイルを適用 (--for: 
 netcap profiles                             プロファイル一覧
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
-netcap install [<name>] [--ssh DEST] [--boot on|off]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
+netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
 netcap uninstall <host> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
 netcap rename <old> <new>                   端末の名前を変える
 netcap export                               hosts と profiles を JSON で出す (鍵は含まない)
@@ -151,11 +151,17 @@ netcap doctor [<host>|all] [--json]         各端末の netcap の鍵が forced
 netcap <command> -v                         表に出ない項目も表示する (-vv: 機器の生の出力も)
 netcap <command> -q                         結果だけを出す。進み具合・ヒント・注記は出さない
 netcap help [<command>|exit-codes]          -h と同じヘルプ。exit-codes は終了コードの意味の一覧
+netcap help --all                           ほとんどの人が使わない低レベルのコマンドも出す
 netcap completion bash|zsh                  補完スクリプトを出す。例: eval "$(netcap completion zsh)"
 netcap --version                            -V、netcap version でも可
 ```
 
 値は Mbit/s で、小数も使える。`0` はエラー (何も変わらない)。上限を外すなら `off`。
+
+Windows の端末が下りを絞るには、サードパーティのカーネルドライバ WinDivert が要る。端末から `netcap on` を打つと、
+入れる前に聞く。`--yes` なら聞かずに入れ、`netcap install <name> --without-download` でその端末には聞かなくなる。
+それ以外 (`use`、`protect`、スクリプト) では上りだけ絞り、どの端末がそうかを言う。
+理由: [docs/adr/0001-cap-download-on-windows.ja.md](docs/adr/0001-cap-download-on-windows.ja.md)。
 再起動・電源断・管理する側が複数あるときの挙動は [docs/operations.ja.md](docs/operations.ja.md)。
 
 ヘルプとエラーはロケール (`LANG`) に従い、日本語でも出る。英語で見たいときは `LC_ALL=C netcap -h`。

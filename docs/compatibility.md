@@ -25,6 +25,7 @@ Raise the minimum when a release changes any of these:
 
 | CLI | Oldest agent | Notes |
 | --- | --- | --- |
+| Unreleased | 0.11.0 | For the verbs 0.11.0 has. Windows download (WinDivert) and the low-level `unload-driver` need an agent from this release: an older Windows agent reports download as `unsupported`, and answers `unload-driver` with "unknown verb", for which the CLI says to update. `netcap install <name>` updates the agent and adds `unload-driver` to the key line netcap wrote |
 | 0.13.0 | 0.11.0 | The CLI sends nothing an 0.11.0 agent refuses: `protect --for` and `use --for` send `on --for`. The device side has fixes (macOS decimal caps, Windows install ACL, the `check --bytes` limit, and the 0.12.0 review); an older agent keeps those bugs. Update with `netcap install <name>` |
 | 0.12.0 | 0.11.0 | The device side is unchanged since 0.11.0 |
 | 0.11.0 | 0.11.0 | `on --for`, the `until=` / `left=` fields, and the installer changed. An older agent still answers `status` `get` `on` `off` `set` `check`, refuses `--for` without changing anything, and keeps the IPv6 and cmd.exe bugs. Update with `netcap install <name>` |

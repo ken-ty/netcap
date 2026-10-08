@@ -34,7 +34,7 @@ It fits when the router cannot help, and it is the wrong tool for several neighb
 | Devices covered | computers you install it on | everything behind the router | domain-joined Windows | that PC | that machine | that process | that Mac |
 | OS | macOS, Linux, Windows | router firmware | Windows | Windows | Linux | Unix-like | macOS |
 | Controls | per-device upload / download cap | WAN shaping and AQM, fairness between flows | outbound throttle and DSCP marking | per app / connection limits | per-interface up / down | per-process rate | bandwidth, delay, loss |
-| Download cap | ✅ (Windows: with `--with-download`, x64) | ✅ | ❌ outbound only | ✅ | ✅ | ✅ | ✅ |
+| Download cap | ✅ (Windows: with WinDivert, x64) | ✅ | ❌ outbound only | ✅ | ✅ | ✅ | ✅ |
 | LAN left alone | ✅ | ✅ (only the WAN is shaped) | configurable by address | ❓ | ❌ whole interface | n/a | ❌ whole device |
 | Many machines at once | ✅ profiles | ✅ (one router) | ✅ Group Policy | ❌ | ❌ | ❌ | ❌ |
 | Needs | ssh + Python 3 | an OpenWrt router | Active Directory | a license | root | nothing | Xcode's Additional Tools |

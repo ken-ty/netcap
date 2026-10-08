@@ -64,7 +64,8 @@ To add a controller, install the CLI there, bring the settings over with `netcap
 - **Each controller may log in as its own ssh user.** The installer adds the user who runs it to the device's sudoers and
   keeps the users already there (macOS / Linux). netcap 0.10.0 and earlier replaced them instead, so update the CLI on
   every controller before using more than one user
-- **Pass the same `--boot`.** Reinstalling sets it again (above)
+- **Pass the same `--boot`.** Reinstalling sets it again (above). A Windows device's WinDivert choice is kept on the
+  device, so it needs no flag
 
 To stop managing a device from one controller, run `netcap uninstall <name>` there. It takes back only what that controller
 added: its key, and on macOS / Linux its ssh user in the device's sudoers. The agent stays while another controller's key is
@@ -72,6 +73,18 @@ on the device for the same login, and goes with the last one. To remove everythi
 (Linux: `linux/uninstall.sh`; Windows: `C:\ProgramData\netcap\uninstall.ps1`) on the device ([host-setup.md](host-setup.md)).
 
 On Windows, the CLI runs day-to-day commands and `netcap install --ssh` (CI runs both there, the latter to a Windows device).
+
+## Low-level commands
+
+`netcap help --all` lists, after the usual commands, the ones most people never need. `netcap -h` and completion leave
+them out, as `git help` leaves out git's plumbing.
+
+- `netcap unload-driver <host>|all` (Windows): unload the WinDivert driver now. netcap otherwise leaves it loaded until the
+  next reboot, while `off` already stops it from holding anything back
+  ([ADR 0001](adr/0001-cap-download-on-windows.md)). The device refuses while a download cap is on or another program
+  has WinDivert loaded: stopping the driver under an open handle breaks later opens until reboot
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)). It needs an agent that knows it, and over
+  ssh a key line that allows it; `netcap install <name>` gives both, and the table says which is missing
 
 ## Exit codes
 

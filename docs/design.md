@@ -78,8 +78,9 @@ So the policy is kept in the persistent store.
 
 ## Download on Windows (WinDivert)
 
-NetQosPolicy acts only on what the machine sends. On a device installed with `netcap install <name> --with-download`,
-download is capped with WinDivert, a signed driver netcap borrows and fetches at install time. Why this driver, and what
+NetQosPolicy acts only on what the machine sends. On a device that took WinDivert (`netcap on` asks; see
+[host-setup.md](host-setup.md#download-on-windows-windivert)), download is capped with it, a signed driver netcap
+borrows and fetches when it is installed. Why this driver, and what
 it costs: [ADR 0001](adr/0001-cap-download-on-windows.md).
 
 - `netshape-down.ps1` compiles a small C# class with `Add-Type` that calls `WinDivert.dll`; netcap has no compiled
@@ -93,12 +94,16 @@ it costs: [ADR 0001](adr/0001-cap-download-on-windows.md).
   0.6 s
 - `on` and `set` write the rate to `download.mbit`; the running shaper reads it again within a second, so the WinDivert
   handle stays open. `off` (and an `on --for` deadline) removes the file, and the shaper closes its handle and ends
-- netcap never stops the WinDivert service: stopping it while a handle is open makes later opens fail
-  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)). The driver stays loaded after `off`, until the
-  next reboot. The shaper waits while the service is starting or stopping, and retries the open with a backoff
+- netcap does not stop the WinDivert service on its own: stopping it while a handle is open makes later opens fail
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)), and netcap cannot see every program that may
+  hold one. The driver stays loaded after `off`, until the next reboot, but holds nothing back: with no handle open it
+  passes everything (measured in CI by `test_68`, and over 20 `on` / `off` cycles by `test_69`). `netcap unload-driver`
+  stops it on request, after checking that no shaper runs and no process has WinDivert.dll loaded. The shaper waits
+  while the service is starting or stopping, and retries the open with a backoff
   ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
 - `status` shows `down_src=windivert` and `shaper=running`, `stopped` (the task is registered but its shaper does not hold
-  a handle), or `none`. A stopped shaper while the cap should be on makes the state `partial`; `download.log` says why
+  a handle), or `none`. A stopped shaper while the cap should be on makes the state `partial`; `download.log` says why.
+  `status` and `get` also show `download=enabled|declined|unset`, the device's choice, which `on` reads before it asks
 
 ## How `on --for` lifts a cap
 
