@@ -1,0 +1,15 @@
+name: WinDivert spike
+on:
+  push:
+    branches: [feat/win-download-windivert]
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File tests/spike/windivert-spike.ps1
