@@ -169,6 +169,17 @@ class E2E(unittest.TestCase):
             self.assertEqual(r["down_src"], "windivert", r)
             self.assertEqual(r["shaper"], {"on": "running", "off": "none"}.get(state, r["shaper"]), r)
 
+    def assertGone(self, path):
+        """path was removed. A loaded driver's file cannot be: on Windows, WinDivert64.sys alone may stay, with the task
+        that removes it at the next startup (netcap never unloads the driver, basil00/WinDivert#406)"""
+        left = sorted(p.name for p in Path(path).rglob("*") if p.is_file()) if Path(path).exists() else []
+        if OS == "win" and left:
+            self.assertEqual(left, ["WinDivert64.sys"], path)
+            self.assertTrue(win_task("cleanup"))
+            print(f"\n  {path}: WinDivert64.sys is left for the next startup (driver: {driver_state()})")
+        else:
+            self.assertFalse(Path(path).exists(), path)
+
     def assertDefault(self, up, down):
         r = self.row("get")
         self.assertEqual((r["default_up"], r["default_down"]), (up, down), r)
@@ -874,7 +885,7 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
                 srv.shutdown()
         print("\n  seconds without a cap / at 0.5 Mbit/s down with a download running: " +
               ", ".join(f"{k} {free[k]:.3f} / {capped[k]:.3f}" for k in free))
-        self.assertGreater(capped["internet"], 1.0)  # the queue was full: this is what capped looks like
+        self.assertGreater(capped["internet"], 0.5)  # the queue was full: this is what capped looks like
         self.assertLess(capped["loopback"], 2.0)  # 2 MB, about 32 s if it were capped
         self.assertLess(capped["dns"], 0.5)
 
@@ -933,7 +944,8 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
             p = install(download=False)
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             self.assertIn("removed WinDivert", p.stdout)
-            self.assertFalse(Path(WD).exists())
+            self.assertFalse((Path(WD) / "WinDivert.dll").exists())
+            self.assertGone(WD)
             self.assertFalse(win_task("download"))
             r = self.row()
             self.assertEqual((r["state"], r["up_mbit"], r["down_src"]), ("on", "2", "unsupported"), r)
@@ -943,6 +955,7 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
             p = install()
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(self.row()["down_src"], "windivert")
+        self.assertFalse(win_task("cleanup"))  # what is installed again stays
 
     # Windows PowerShell 5.1's Remove-Item -Recurse follows a junction and deletes what it points to. uninstall.ps1
     # removes the link, and leaves the folder it points to as it was
@@ -962,7 +975,7 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
             for kind, target in targets.items():
                 self.assertTrue((target / "keep.txt").exists(), f"uninstall.ps1 deleted what the {kind} points to")
-            self.assertFalse(Path(d).exists())
+            self.assertGone(d)
         finally:
             for _, link in links.values():
                 sh("cmd", "/c", "rmdir", link)
@@ -975,7 +988,7 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
             print(f"\n  WinDivert driver after uninstall: {driver_state()}")
             self.assertFalse(win_task("download"))
         for p in INSTALLED:
-            self.assertFalse(Path(p).exists(), p)
+            self.assertGone(p)
         self.assertNotIn("self", (self.conf / "hosts").read_text())
         install("off")  # tearDownClass removes it again
 

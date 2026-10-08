@@ -13,7 +13,8 @@ Traffic that does not leave for the internet is never capped.
 | Loopback, link-local, multicast | 127/8, 169.254/16, 224/4, ::1/128, fe80::/10, ff00::/8 |
 
 ICMP and DNS (53) are not capped even toward the internet, so that pinging to monitor latency does not
-end up measuring the shaper's queue. Windows excludes only DNS explicitly: NetQosPolicy cannot match ICMP. Measured on
+end up measuring the shaper's queue. On Windows, the upload policies exclude only DNS explicitly: NetQosPolicy cannot match
+ICMP. (The download shaper excludes ICMP and ICMPv6 by name; see [below](#download-on-windows-windivert).) Measured on
 Windows 11 the way `test_36_icmp_passes_on_windows` in `tests/test_e2e.py` does, the throttling policy does not hold ICMP back either
 (IPv4 only, since GitHub's Windows runners cannot send ICMP to the internet).
 
@@ -74,6 +75,30 @@ the pipe exists, reads the value from what was recorded at `on`, and marks it wi
 
 The ActiveStore, which is cleared on reboot, did not keep the destination conditions and capped LAN traffic too.
 So the policy is kept in the persistent store.
+
+## Download on Windows (WinDivert)
+
+NetQosPolicy acts only on what the machine sends. On a device installed with `netcap install <name> --with-download`,
+download is capped with WinDivert, a signed driver netcap borrows and fetches at install time. Why this driver, and what
+it costs: [ADR 0001](adr/0001-cap-download-on-windows.md).
+
+- `netshape-down.ps1` compiles a small C# class with `Add-Type` that calls `WinDivert.dll`; netcap has no compiled
+  binary of its own. It runs as SYSTEM from the scheduled task `\netcap\download`, which `on` registers and starts and
+  `off` removes. The task also runs at startup, so the download cap survives a reboot like the upload cap (`boot=keep`)
+- Its WinDivert filter takes inbound packets from the internet: not loopback, not from the ranges in the table above,
+  not to a multicast or broadcast address, not DNS (port 53 at the far end), and not ICMP or ICMPv6. For an inbound
+  packet the far end is the source, so the ranges are matched on the source address
+- The packets wait in a queue and go on at the rate, by a token bucket that may run 50 ms ahead. A packet that arrives
+  while 50 are waiting is dropped, as the download pipe on macOS does (`queue 50`). At 1 Mbit/s a full queue is about
+  0.6 s
+- `on` and `set` write the rate to `download.mbit`; the running shaper reads it again within a second, so the WinDivert
+  handle stays open. `off` (and an `on --for` deadline) removes the file, and the shaper closes its handle and ends
+- netcap never stops the WinDivert service: stopping it while a handle is open makes later opens fail
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)). The driver stays loaded after `off`, until the
+  next reboot. The shaper waits while the service is starting or stopping, and retries the open with a backoff
+  ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
+- `status` shows `down_src=windivert` and `shaper=running`, `stopped` (the task is registered but its shaper does not hold
+  a handle), or `none`. A stopped shaper while the cap should be on makes the state `partial`; `download.log` says why
 
 ## How `on --for` lifts a cap
 

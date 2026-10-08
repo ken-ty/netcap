@@ -8,7 +8,7 @@ Please report it privately: on GitHub, the **Security** tab → **Report a vulne
 If that is not available, open an issue asking for a private contact, and leave the details out of it.
 
 Fixes go into the latest release. To update, `brew upgrade netcap`, then `netcap install <name>` for each device
-(add `--boot on` for a device that had it: reinstalling sets the boot behavior again).
+(add `--boot on` or `--with-download` for a device that had it: reinstalling sets both again).
 
 ## Threat model
 
@@ -46,6 +46,27 @@ On Windows the forced command is the only gate, so a netcap key line added by ha
 The files that run as root live only in directories that root alone can write
 (`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`, and on Windows `C:\ProgramData\netcap` with its inheritance cut and Administrators as its owner).
 The shaper reads its config as numbers and never runs it as a script. See [docs/design.md](docs/design.md).
+
+### Download capping on Windows is a kernel driver
+
+`netcap install <name> --with-download` puts a third-party kernel driver on that Windows device: WinDivert 2.2.2. Without
+the flag, nothing of it is installed. Why it was chosen and what was accepted with it:
+[docs/adr/0001-cap-download-on-windows.md](docs/adr/0001-cap-download-on-windows.md).
+
+- netcap does not ship it. The installer fetches the official release zip from GitHub over HTTPS and refuses it unless
+  its SHA-256 is the one pinned in `win/install.ps1`; it keeps only the x64 driver, its DLL, and the license, in
+  `C:\ProgramData\netcap\windivert` with the same ACL as the rest (only SYSTEM and Administrators can write)
+- The driver is loaded by the download shaper, which runs as SYSTEM while a cap is on. After `off` the driver stays loaded
+  until the next reboot: netcap never stops its service, because that breaks later opens
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))
+- [LOLDrivers](https://www.loldrivers.io/) lists WinDivert 2.2 as malicious: attackers bring it in to mute security
+  products. Security software may report or quarantine it (Malwarebytes and Bitdefender have), and a quarantined driver
+  makes `on` fail with the reason in `C:\ProgramData\netcap\download.log`
+- Its signing certificate expired in 2023. Windows still loads it because the signature is timestamped, but some security
+  software blocks it
+- WinDivert can capture and change any packet on the machine. Whoever can replace its files can do the same; that is why
+  the folder is writable only by SYSTEM and Administrators, and why reinstalling checks the files against their pins
+- x64 only: WinDivert has no signed ARM64 driver
 
 ### Out of scope
 

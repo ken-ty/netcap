@@ -8,9 +8,9 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 
 | Feature | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| How it caps | pf + dummynet | tc (HTB, ingress through ifb) | NetQosPolicy |
+| How it caps | pf + dummynet | tc (HTB, ingress through ifb) | NetQosPolicy; download with WinDivert ([why](adr/0001-cap-download-on-windows.md)) |
 | Upload cap | ✅ | ✅ | ✅ |
-| Download cap | ✅ | ✅ | ❌ (shown as `unsupported`) |
+| Download cap | ✅ | ✅ | ⚠️ installed with `--with-download`, x64 only ([how](design.md#download-on-windows-windivert)); otherwise ❌ (shown as `unsupported`) |
 | `status` reads the real state | ⚠️ download shows the value recorded at `on`, marked `*` ([why](design.md#the--on-macos-download-in-status)) | ✅ | ✅ |
 | After a reboot (`boot`) | `off` (default) or `on` | `off` (default) or `on` | `keep` only: the state survives reboots ([why](design.md#windows-keeps-its-state-across-reboots)) |
 | `check` (measure up / down + ping) | ✅ | ✅ | ✅ |
@@ -18,7 +18,7 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | LAN and VPN (IPv4 private, 100.64/10) pass through | ✅ | ✅ | ✅ |
 | DNS passes through | ✅ | ✅ | ✅ |
 | ICMP (ping) passes through | ✅ | ✅ | ✅ (measured, IPv4) |
-| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (measured) | ✅ (measured) | ✅ (measured; upload only, as for IPv4) |
+| IPv6 (LAN, ICMPv6, and DNS pass) | ✅ (measured) | ✅ (measured) | ✅ (upload measured; download's filter checked in CI) |
 | Gates | forced command + sudoers per verb | forced command + sudoers per verb | forced command only |
 | `netcap install` on this machine | ✅ (sudo) | ✅ (sudo) | ✅ (as Administrator) |
 | `netcap install --ssh` from a controller | ✅ | ✅ | ✅ (the ssh user must be an Administrator) |

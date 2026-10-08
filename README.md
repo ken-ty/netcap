@@ -105,7 +105,7 @@ netcap protect --off                              # put each device back as it w
 Without `--load`, the difference shows only if the other devices happen to use the line during the measurement.
 `--load` makes that traffic, so it costs data: about 4 × MB × the other devices (it says how much first).
 The protected device itself transfers about 4 MB either way (1 MB up and 1 MB down, before and after).
-On Windows the others are capped on upload only.
+A Windows device among the others is capped on upload only, unless it was installed with `--with-download`.
 
 Rename a device with `netcap rename me laptop`; remove one with `netcap uninstall gamepc`.
 For the file format, see [docs/configuration.md](docs/configuration.md); for what install sets up on a device, [docs/host-setup.md](docs/host-setup.md).
@@ -115,7 +115,7 @@ For the file format, see [docs/configuration.md](docs/configuration.md); for wha
 | Role | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | Controller (CLI) | ✅ | ✅ | ✅ |
-| Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload only (NetQosPolicy) |
+| Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload (NetQosPolicy); download only with `netcap install <name> --with-download` (WinDivert, x64) |
 
 Feature by feature: [docs/platforms.md](docs/platforms.md).
 

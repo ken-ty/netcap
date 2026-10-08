@@ -10,7 +10,7 @@
 それが使えないときは、詳細を書かずに「非公開の連絡先がほしい」とだけ issue を立ててください。
 
 修正は最新のリリースに入ります。更新は `brew upgrade netcap` のあと、端末ごとに `netcap install <名前>`
-(入れ直すと起動時の挙動も設定し直されるので、`--boot on` だった端末には `--boot on` を付ける)。
+(入れ直すと起動時の挙動と下りの設定もし直されるので、`--boot on` や `--with-download` だった端末にはそれを付ける)。
 
 ## 脅威モデル
 
@@ -48,6 +48,26 @@ Windows では forced command が唯一の関門なので、`restrict,command="�
 root で動くファイルは、root だけが書けるディレクトリにしか置かない
 (`/Library/PrivilegedHelperTools`、`/usr/libexec/netcap`、Windows では継承を切り所有者を Administrators にした `C:\ProgramData\netcap`)。
 shaper は設定を数値として読み、スクリプトとしては実行しない。[docs/design.ja.md](docs/design.ja.md) を参照。
+
+### Windows の下りを絞るのはカーネルドライバ
+
+`netcap install <名前> --with-download` は、その Windows の端末にサードパーティのカーネルドライバ WinDivert 2.2.2 を入れる。
+フラグを付けなければ、その一部も入らない。なぜこれを選び、何を受け入れたか:
+[docs/adr/0001-cap-download-on-windows.ja.md](docs/adr/0001-cap-download-on-windows.ja.md)。
+
+- netcap は同梱しない。インストーラが GitHub から公式のリリース zip を HTTPS で取ってきて、SHA-256 が `win/install.ps1` に
+  固定した値でなければ断る。中から x64 のドライバと DLL とライセンスだけを `C:\ProgramData\netcap\windivert` に置き、
+  ほかと同じ ACL をかける (書けるのは SYSTEM と Administrators だけ)
+- ドライバを読み込むのは下りの shaper で、上限がかかっている間 SYSTEM として動く。`off` のあともドライバは次の再起動まで
+  読み込まれたまま。netcap はそのサービスを止めない。止めると以後のオープンが壊れるため
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))
+- [LOLDrivers](https://www.loldrivers.io/) は WinDivert 2.2 を悪性として載せている。攻撃者がセキュリティ製品を黙らせる
+  ために持ち込むため。セキュリティソフトが報告・隔離することがあり (Malwarebytes と Bitdefender の例がある)、隔離されると
+  `on` が失敗し、理由が `C:\ProgramData\netcap\download.log` に残る
+- 署名の証明書は 2023 年に切れている。署名にタイムスタンプがあるので Windows はまだ読み込むが、ブロックするセキュリティソフトもある
+- WinDivert はこの機械のどのパケットも捕まえて書き換えられる。そのファイルを差し替えられる者も同じことができる。だから
+  フォルダは SYSTEM と Administrators しか書けず、入れ直すときにファイルを固定した値と照らす
+- x64 のみ。WinDivert には署名済みの ARM64 ドライバが無い
 
 ### 対象外
 

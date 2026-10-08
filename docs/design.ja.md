@@ -15,7 +15,8 @@
 | ループバック、リンクローカル、マルチキャスト | 127/8、169.254/16、224/4、::1/128、fe80::/10、ff00::/8 |
 
 インターネット宛てでも ICMP と DNS (53) は絞らない。ping で遅延を監視するとき、shaper の待ち行列を
-測ってしまわないため。Windows は DNS だけを明示的に除外している (NetQosPolicy は ICMP を条件にできない)。
+測ってしまわないため。Windows の上りのポリシーは DNS だけを明示的に除外している (NetQosPolicy は ICMP を条件にできない)。
+(下りの shaper は ICMP と ICMPv6 を名指しで除外する。[後述](#windows-の下り-windivert)。)
 `tests/test_e2e.py` の `test_36_icmp_passes_on_windows` と同じ手順で Windows 11 で測ると、絞るポリシーは ICMP も遅らせなかった
 (IPv4 のみ。GitHub の Windows ランナーはインターネットへ ICMP を出せないので、実機で測った)。
 
@@ -75,6 +76,29 @@ macOS の `dnctl` は 2 本目の pipe の帯域を表示できない (macOS 26)
 
 再起動で消える ActiveStore は宛先の条件を保持せず、LAN 宛ても絞ってしまった。そのため永続の
 保存先に置いている。
+
+## Windows の下り (WinDivert)
+
+NetQosPolicy が扱えるのはその機械が送る通信だけ。`netcap install <name> --with-download` で入れた端末では、下りを
+WinDivert で絞る。WinDivert は netcap が借りる署名済みのドライバで、インストール時に取ってくる。なぜこのドライバか、
+何と引き換えか: [ADR 0001](adr/0001-cap-download-on-windows.ja.md)。
+
+- `netshape-down.ps1` が `WinDivert.dll` を呼ぶ小さな C# のクラスを `Add-Type` でコンパイルする。netcap 自身のコンパイル済み
+  バイナリは無い。SYSTEM としてスケジュールタスク `\netcap\download` から動き、このタスクは `on` が登録して始め、`off` が消す。
+  起動時にも走るので、下りの上限も上りと同じく再起動をまたいで残る (`boot=keep`)
+- WinDivert のフィルタが受け取るのは、インターネットからの受信パケット。ループバック、上の表の範囲からのもの、マルチキャストや
+  ブロードキャストのアドレス宛て、DNS (相手側のポート 53)、ICMP と ICMPv6 は除く。受信パケットでは相手が送信元なので、
+  範囲は送信元アドレスで照らす
+- パケットは待ち行列に入り、50 ms 先まで進めるトークンバケットで上限の速さに合わせて送り出す。50 個待っているときに着いた
+  パケットは落とす。macOS の下りの pipe (`queue 50`) と同じ。1 Mbit/s なら、満杯の待ち行列はおよそ 0.6 秒
+- `on` と `set` は速さを `download.mbit` に書き、動いている shaper は 1 秒以内に読み直す。WinDivert のハンドルは開いたまま。
+  `off` (と `on --for` の期限) はこのファイルを消し、shaper はハンドルを閉じて終わる
+- netcap は WinDivert のサービスを止めない。ハンドルを開いたまま止めると、以後のオープンが失敗する
+  ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))。ドライバは `off` のあとも次の再起動まで読み込まれた
+  まま。shaper はサービスが起動中・停止中なら待ち、オープンを間隔を広げながらやり直す
+  ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
+- `status` は `down_src=windivert` と、`shaper=running`、`stopped` (タスクは登録されているが、shaper がハンドルを持っていない)、
+  `none` のどれかを出す。上限がかかっているはずなのに shaper が止まっていれば `partial`。理由は `download.log` にある
 
 ## `on --for` が上限を外す仕組み
 

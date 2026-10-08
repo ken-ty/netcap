@@ -78,6 +78,20 @@ function Lock-Entry($path, [switch]$Top) {
   if ($item.PSIsContainer) { Get-ChildItem -LiteralPath $path -Force | ForEach-Object { Lock-Entry $_.FullName } }
 }
 
+# A loaded driver's file cannot be removed, and netcap never unloads WinDivert (basil00/WinDivert#406): its service is
+# marked for deletion and goes at the next reboot. Whatever is left then goes at startup, by a one-time task
+function Remove-NowOrAtStartup([string]$path) {
+  Remove-Item -Recurse -Force -LiteralPath $path -ErrorAction SilentlyContinue
+  if (-not (Test-Path -LiteralPath $path)) { return $false }
+  $cmd = 'Remove-Item -Recurse -Force -LiteralPath ''{0}''; ' -f $path +
+         'Unregister-ScheduledTask -TaskPath ''\netcap\'' -TaskName cleanup -Confirm:$false'
+  $enc = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cmd))
+  Register-ScheduledTask -TaskPath '\netcap\' -TaskName cleanup -Trigger (New-ScheduledTaskTrigger -AtStartup) -Force `
+    -Action (New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -EncodedCommand $enc") `
+    -Principal (New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest) | Out-Null
+  $true
+}
+
 # Everything that can fail with -WithDownload happens before anything here changes
 $zip = $null
 if ($WithDownload) {
@@ -105,6 +119,8 @@ if ($WithDownload) {
   }
 }
 
+# What this installs stays: a removal left for startup by an earlier uninstall is called off
+Unregister-ScheduledTask -TaskPath '\netcap\' -TaskName cleanup -Confirm:$false -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $Dir | Out-Null
 Lock-Entry $Dir -Top
 foreach ($f in 'netshape.ps1', 'netshape-down.ps1', 'netcap-agent.ps1', 'netcap-check.ps1', 'uninstall.ps1') {
@@ -116,8 +132,10 @@ if ($zip) {
   & (Join-Path $Dir 'netshape.ps1') stop-download | Out-Null  # a file in use cannot be replaced
   New-Item -ItemType Directory -Force $Wd | Out-Null
   foreach ($e in $WdFiles.GetEnumerator()) {
-    $entry = $zip.GetEntry("WinDivert-2.2.2-A/$($e.Key)")
-    $in = $entry.Open(); $out = [IO.File]::Create((Join-Path $Wd (Split-Path -Leaf $e.Key)))
+    $f = Join-Path $Wd (Split-Path -Leaf $e.Key)
+    # The file of a loaded driver cannot be written, and it needs no writing when it is already the pinned one
+    if ((Test-Path -LiteralPath $f) -and (Sha256 ([IO.File]::ReadAllBytes($f))) -eq $e.Value) { continue }
+    $in = $zip.GetEntry("WinDivert-2.2.2-A/$($e.Key)").Open(); $out = [IO.File]::Create($f)
     try { $in.CopyTo($out) } finally { $out.Close(); $in.Close() }
   }
   Lock-Entry $Wd
@@ -127,8 +145,9 @@ if ($zip) {
 } elseif (Test-Path -LiteralPath $Wd) {
   # Installed without -WithDownload: back to upload only
   & (Join-Path $Dir 'netshape.ps1') stop-download | Out-Null
-  Remove-Item -Recurse -Force -LiteralPath $Wd
-  'removed WinDivert: download is no longer capped here (install with --with-download to keep it)'
+  if (Remove-NowOrAtStartup $Wd) { 'removed WinDivert (the loaded driver''s WinDivert64.sys goes at the next startup)' }
+  else { 'removed WinDivert' }
+  'download is no longer capped here (install with --with-download to keep it)'
 }
 
 'installed (boot=keep: the on / off state survives reboots' + $(if ($WithDownload) { '; download capped with WinDivert)' } else { ')' })

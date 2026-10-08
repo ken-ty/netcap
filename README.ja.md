@@ -107,7 +107,7 @@ netcap protect --off                              # 各端末を元の状態に�
 `--load` が無いと、測定に差が出るのは、そのときほかの端末がたまたま回線を使っていた場合だけ。`--load` はその通信を
 作るので通信量を使う: 約 4 × MB × ほかの端末の数 (最初に表示する)。
 守る端末自身はどちらでも 4 MB ほど送受信する (前後それぞれで上り 1 MB と下り 1 MB)。
-Windows の端末は上りしか絞れない。
+ほかの端末のうち Windows のものは、`--with-download` で入れていなければ上りしか絞れない。
 
 名前は `netcap rename me laptop` で変えられる。外すときは `netcap uninstall gamepc`。
 ファイルの書式は [docs/configuration.ja.md](docs/configuration.ja.md)、install が端末に何を置くかは [docs/host-setup.ja.md](docs/host-setup.ja.md)。
@@ -117,7 +117,7 @@ Windows の端末は上りしか絞れない。
 | 役割 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | 操作する側 (CLI) | ✅ | ✅ | ✅ |
-| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上りのみ (NetQosPolicy) |
+| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上り (NetQosPolicy)。下りは `netcap install <name> --with-download` で入れたときだけ (WinDivert、x64) |
 
 機能ごとの一覧は [docs/platforms.ja.md](docs/platforms.ja.md)。
 

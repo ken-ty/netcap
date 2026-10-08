@@ -14,7 +14,8 @@ page is for reference and for setting a device up by hand.
 2. Copy the device side to a temporary directory there, with the CLI's version written into the agent: `win/` for Windows,
    or `mac/` and `linux/` together for macOS and Linux (the Linux installer takes the agent from `mac/`)
 3. Run the installer: `sudo bash …/install.sh --boot off` (`--boot on` with `netcap install --boot on`; the device's
-   sudo password), or `install.ps1` on Windows (the ssh user must be an Administrator). Then remove the temporary directory
+   sudo password), or `install.ps1` on Windows (`install.ps1 -WithDownload` with `netcap install --with-download`; the ssh
+   user must be an Administrator). Then remove the temporary directory
 4. Only for a device reached with `--ssh`: create `~/.ssh/netcap` on this machine if missing, and add its forced-command
    line on the device ([below](#the-capped-device-decides-what-is-allowed)) unless the key is already there.
    This machine needs no key: netcap runs its agent directly
@@ -22,7 +23,8 @@ page is for reference and for setting a device up by hand.
    takes `me`, or the ssh destination
 
 To update a device, run `netcap install <name>` again. That sets the boot behavior again too (`--boot off` unless given),
-so add `--boot on` for a device that had it. The `agent` column of `netcap get` shows each device's version.
+so add `--boot on` for a device that had it, and `--with-download` for a Windows device that had it (without it, the
+install removes WinDivert and download goes back to `unsupported`). The `agent` column of `netcap get` shows each device's version.
 Which agent versions each CLI release works with: [compatibility.md](compatibility.md).
 `netcap uninstall <name>` reverses what this controller added; the agent goes with the last controller
 ([operations.md](operations.md#more-than-one-controller)). `--config-only` just forgets a device that is gone.
@@ -117,7 +119,29 @@ machine was off then). To remove, in an Administrator PowerShell:
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\ProgramData\netcap\uninstall.ps1
 ```
 
-Two differences from mac: download cannot be capped (shown as `unsupported` in the table), and the `on` / `off` state survives reboots (`boot=keep`).
+Two differences from mac: download is capped only with `--with-download` (below; otherwise `unsupported` in the table),
+and the `on` / `off` state survives reboots (`boot=keep`).
+
+### Download on Windows: `--with-download`
+
+```bash
+netcap install <name> --with-download                     # this machine, as Administrator
+netcap install <name> --ssh <dest> --with-download        # another Windows device
+```
+
+By hand, `install.ps1 -WithDownload`. It needs x64 Windows and a connection to GitHub, and it changes nothing when either
+is missing. Why it is opt-in and what it costs: [ADR 0001](adr/0001-cap-download-on-windows.md); what security software may
+say about it: [SECURITY.md](../SECURITY.md#download-capping-on-windows-is-a-kernel-driver).
+
+| Path | Role |
+| --- | --- |
+| `C:\ProgramData\netcap\windivert\` | `WinDivert.dll`, `WinDivert64.sys`, and `LICENSE` from the WinDivert 2.2.2 release zip, which the installer fetches and refuses unless its SHA-256 is the pinned one |
+| `C:\ProgramData\netcap\netshape-down.ps1` | The download shaper. Runs as SYSTEM from the scheduled task `\netcap\download` while a cap is on (and at startup while it is on) |
+| `C:\ProgramData\netcap\download.mbit` | The download rate the shaper reads. Written by `on` and `set`, removed by `off` |
+| `C:\ProgramData\netcap\download.state`, `download.log` | Written by the shaper: its process and rate while it holds the WinDivert handle, and what went wrong |
+
+`netcap install <name>` without the flag stops the shaper and removes the `windivert` folder; `uninstall.ps1` removes it
+with the rest. The WinDivert driver stays loaded until the next reboot either way: netcap never stops its service.
 
 ## The capped device decides what is allowed
 
@@ -181,7 +205,7 @@ would skip the forced command too.
 | --- | --- |
 | `on` | A cap is in effect |
 | `off` | No cap |
-| `partial` | Only part of the cap is in place: pf rules and dnctl pipes disagree (mac), only one of the upload and download classes is left (linux), or only some of netcap's QoS policies are left (win). Running `on` or `off` again brings them back in line |
+| `partial` | Only part of the cap is in place: pf rules and dnctl pipes disagree (mac), only one of the upload and download classes is left (linux), or only some of netcap's QoS policies are left, or the download shaper is not running while its task is (win). Running `on` or `off` again brings them back in line |
 | `?` | Not read, because reach is not `ok` |
 
 ### agent — the agent's version (`get` only)
