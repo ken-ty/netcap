@@ -141,7 +141,10 @@ say about it: [SECURITY.md](../SECURITY.md#download-capping-on-windows-is-a-kern
 | `C:\ProgramData\netcap\download.state`, `download.log` | Written by the shaper: its process and rate while it holds the WinDivert handle, and what went wrong |
 
 `netcap install <name>` without the flag stops the shaper and removes the `windivert` folder; `uninstall.ps1` removes it
-with the rest. The WinDivert driver stays loaded until the next reboot either way: netcap never stops its service.
+with the rest. The WinDivert driver stays loaded until the next reboot either way: netcap never stops its service, and
+Windows removes the service, which WinDivert marks for deletion, at that reboot. A loaded driver's file cannot be deleted,
+so `WinDivert64.sys` (and the folder it is in) is left to the one-time task `\netcap\cleanup`, which removes it at the next
+startup. Installing again before that calls the task off.
 
 ## The capped device decides what is allowed
 

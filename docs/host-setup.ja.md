@@ -142,7 +142,9 @@ netcap install <name> --ssh <dest> --with-download        # 別の Windows の�
 | `C:\ProgramData\netcap\download.state`、`download.log` | shaper が書く。WinDivert のハンドルを持っている間のプロセスと速さ、うまくいかなかった理由 |
 
 フラグを付けない `netcap install <name>` は shaper を止めて `windivert` フォルダを消す。`uninstall.ps1` はほかと一緒に消す。
-どちらでも WinDivert のドライバは次の再起動まで読み込まれたまま。netcap はそのサービスを止めない。
+どちらでも WinDivert のドライバは次の再起動まで読み込まれたまま。netcap はそのサービスを止めず、WinDivert が削除予定に
+したサービスは、その再起動で Windows が消す。読み込まれたドライバのファイルは消せないので、`WinDivert64.sys` (と、それが
+入ったフォルダ) は 1 回だけ動くタスク `\netcap\cleanup` に任せ、次の起動時に消す。それより前に入れ直すと、このタスクは取り消す。
 
 ## 許可は操作される側が決める
 

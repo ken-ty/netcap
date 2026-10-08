@@ -83,8 +83,10 @@ Accepted with this choice (none has a CVE):
 - The last release is from 2022; the author says it is active and feature-complete
   ([basil00/WinDivert#395](https://github.com/basil00/WinDivert/issues/395))
 - The driver stays loaded after `off`, until the next reboot: WinDivert does not unload it when the last handle closes, and
-  netcap does not stop its service (measured on GitHub's runners). A device that never turns a download cap on never loads
-  it. Whether anti-cheat software (Vanguard, Easy Anti-Cheat, BattlEye) objects is not yet checked
+  netcap does not stop its service. On GitHub's runners the service stayed running, marked for deletion, after `off` and
+  after uninstall; its `.sys` cannot be deleted until then, so uninstall leaves that one file to a task at the next
+  startup. A device that never turns a download cap on never loads it. Whether anti-cheat software (Vanguard, Easy
+  Anti-Cheat, BattlEye) objects is not yet checked
 - A device that opts in runs a third-party kernel driver while capped, and security software may report it.
   [SECURITY.md](../../SECURITY.md) says so
 
