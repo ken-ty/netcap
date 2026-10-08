@@ -1089,6 +1089,7 @@ Start-Sleep 120
         finally:
             hold.kill()
             hold.wait()
+            hold.stdout.close()
         # Once it is gone, the driver can go
         r = json.loads(self.netcap("unload-driver", "self", "--json"))[0]
         self.assertEqual(r["driver"], "unloaded", r)

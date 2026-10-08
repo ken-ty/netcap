@@ -42,8 +42,15 @@ maintained, but that pressure is missing.
 
 ## Decision
 
-- **Opt-in per device**: `netcap install <name> --with-download`. Without it a Windows device stays as before (download
-  `unsupported`), and installing again without it removes WinDivert. The flag refuses ARM64 Windows
+- **On demand, with confirmation** (decided 2026-10-09, after the first CI run): nothing installs WinDivert without an
+  answer. `netcap on` run from a terminal asks, for a Windows device that has not decided, before installing it:
+  "Capping download on <host> needs WinDivert (a third-party kernel driver, LGPL). Install it now? [y/N]". `--yes` and
+  `netcap install <name> --with-download` install it without asking. Without a terminal, with `--json` or `-q`, and in
+  `use` and `protect`, which touch many devices, nothing is asked: the device is capped on upload only, as before, and
+  named. ARM64 Windows is refused
+- **Declining in advance**: `netcap install <name> --without-download` removes WinDivert and records the refusal on the
+  device (`download.declined`), so every controller sees the same answer and `on` stops asking; `--with-download` clears
+  it. `netcap get` shows the choice. An install without either flag keeps it
 - **Fetched, not shipped**: the installer downloads the official 2.2.2 release over HTTPS, refuses it unless its SHA-256
   matches the pin, and keeps only the x64 `WinDivert.dll`, `WinDivert64.sys`, and `LICENSE`, in
   `C:\ProgramData\netcap\windivert` with the same ACL as the rest of netcap. netcap's repository and formula contain no
@@ -53,10 +60,19 @@ maintained, but that pressure is missing.
   ICMPv6), sends them on at the rate with a token bucket, and drops beyond a 50-packet queue, as the download pipe on
   macOS does. It runs as SYSTEM from the scheduled task `\netcap\download`, started at `on` and at startup while the cap is
   on, and ended at `off` and by the `on --for` deadline. A rate change goes through a file the shaper reads; the handle stays open
-- **Around WinDivert's known bugs**: netcap never stops the WinDivert service, since stopping it while a handle is open
-  makes later opens fail with 1058 ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)); `off` only
-  closes netcap's handle. The shaper waits while the service is starting or stopping and retries the open with a backoff
-  instead of racing a driver that is loading ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
+- **Around WinDivert's known bugs**: the shaper waits while the service is starting or stopping and retries the open
+  with a backoff instead of racing a driver that is loading
+  ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
+- **The driver stays loaded until reboot by default**: `off` only closes netcap's handle. WinDivert does not unload the
+  driver when the last handle closes, and netcap does not stop its service, because stopping it while any handle is open
+  makes later opens fail with 1058 ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406)) and netcap
+  cannot see every program that may hold one. A loaded driver with no handle holds nothing back: CI measures that `off`
+  lifts the cap while the driver stays loaded (on the 2026-10-09 run: 842 Mbit/s without a cap, 0.95 at a 1 Mbit/s cap, 826 after `off`, with the service still running), and that 20 `on` / `off` cycles each cap and each end the
+  shaper (20 cycles in 206 s; 0.95 Mbit/s after the last `on`, 849 after the last `off`)
+- **`unload-driver` as a low-level command**: `netcap unload-driver <host>` stops the service on request, listed only by
+  `netcap help --all`, as git lists its plumbing. The device refuses while a download cap is on or while any process has
+  WinDivert.dll loaded. It is not the default because those checks cannot see a program that talks to the driver
+  without the DLL, and because #406 leaves the driver unusable until reboot when a check misses one
 
 ## License
 

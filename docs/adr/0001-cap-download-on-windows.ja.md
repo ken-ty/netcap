@@ -45,8 +45,14 @@ Windows Packet Filter のほうが保守はされているが、その圧力が�
 
 ## 決めたこと
 
-- **機器ごとのオプトイン**: `netcap install <name> --with-download`。付けない Windows の機器はこれまでどおり (下りは
-  `unsupported`) で、付けずに入れ直すと WinDivert を外す。ARM64 の Windows ではこのフラグを断る
+- **必要になったときに、確認してから入れる** (2026-10-09、最初の CI のあとに決めた): 答えなしに WinDivert を入れるものは無い。
+  端末から打った `netcap on` は、まだ決めていない Windows の機器について、入れる前に聞く:
+  「<host> の下りを絞るには WinDivert (サードパーティのカーネルドライバ、LGPL) が要る。今入れる? [y/N]」。`--yes` と
+  `netcap install <name> --with-download` は聞かずに入れる。端末が無いとき、`--json` や `-q` のとき、多くの機器に触る
+  `use` と `protect` では何も聞かず、これまでどおり上りだけ絞って機器の名前を出す。ARM64 の Windows は断る
+- **前もって断る**: `netcap install <name> --without-download` は WinDivert を外し、断ったことを機器に記録する
+  (`download.declined`)。どの管理する側からも同じ答えが見え、`on` は聞かなくなる。`--with-download` で消える。
+  `netcap get` に選択が出る。どちらのフラグも付けない install は選択を変えない
 - **配らずに取ってくる**: インストーラが公式の 2.2.2 リリースを HTTPS で取ってきて、SHA-256 が固定した値と一致しなければ
   断る。中から x64 の `WinDivert.dll`、`WinDivert64.sys`、`LICENSE` だけを `C:\ProgramData\netcap\windivert` に置き、
   netcap のほかのファイルと同じ ACL をかける。netcap のリポジトリと formula に WinDivert のバイナリは入っていない
@@ -55,10 +61,18 @@ Windows Packet Filter のほうが保守はされているが、その圧力が�
   受け取り、トークンバケットで上限の速さに合わせて送り出し、待ちが 50 パケットを超えた分は落とす (macOS の下りの pipe
   と同じ)。SYSTEM としてスケジュールタスク `\netcap\download` から動き、`on` と、上限がかかっている間の起動時に始まり、
   `off` と `on --for` の期限で終わる。速さの変更は shaper が読むファイル経由で、ハンドルは開いたまま
-- **WinDivert の既知の不具合を避ける**: netcap は WinDivert のサービスを止めない。ハンドルを開いたまま止めると、以後の
-  オープンが 1058 で失敗する ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))。`off` がするのは
-  netcap のハンドルを閉じることだけ。shaper はサービスが起動中・停止中なら待ち、オープンを間隔を広げながらやり直す。
+- **WinDivert の既知の不具合を避ける**: shaper はサービスが起動中・停止中なら待ち、オープンを間隔を広げながらやり直す。
   読み込み途中のドライバと競争しない ([basil00/WinDivert#408](https://github.com/basil00/WinDivert/issues/408))
+- **ドライバは既定では再起動まで読み込んだまま**: `off` がするのは netcap のハンドルを閉じることだけ。WinDivert は最後の
+  ハンドルが閉じてもドライバを外さず、netcap もサービスを止めない。ハンドルが 1 つでも開いている間に止めると以後の
+  オープンが 1058 で失敗し ([basil00/WinDivert#406](https://github.com/basil00/WinDivert/issues/406))、netcap には
+  ハンドルを持ちうるプログラムをすべては見えないため。ハンドルの無いドライバは何も待たせない。`off` でドライバが
+  読み込まれたまま上限が外れること (2026-10-09 の実行で、上限なし 842 Mbit/s、1 Mbit/s の上限で 0.95、`off` のあと 826。サービスは動いたまま)、`on` / `off` を 20 回繰り返して毎回絞り、毎回 shaper が終わること
+  (20 回で 206 秒。最後の `on` のあと 0.95 Mbit/s、最後の `off` のあと 849) を CI で測っている
+- **低レベルのコマンドとしての `unload-driver`**: `netcap unload-driver <host>` は求めに応じてサービスを止める。git が
+  plumbing をそうするように、`netcap help --all` にだけ載る。下りの上限がかかっている間と、WinDivert.dll を読み込んだ
+  プロセスがある間は、機器が断る。既定にしないのは、DLL を使わずにドライバと話すプログラムはこの確認で見えず、
+  見落とすと #406 でドライバが再起動まで使えなくなるため
 
 ## ライセンス
 

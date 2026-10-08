@@ -10,10 +10,17 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Added
 
-- Windows devices can cap download too. Install the device with `netcap install <name> --with-download`: it fetches the
-  WinDivert 2.2.2 driver from its official release (refused unless its SHA-256 matches the pinned one) and runs it while
-  a cap is on. x64 only. Without the flag nothing changes, and installing again without it removes WinDivert. Security
-  software may flag WinDivert; see SECURITY.md and docs/adr/0001-cap-download-on-windows.md (#109)
+- Windows devices can cap download too, with the WinDivert 2.2.2 driver, fetched from its official release (refused
+  unless its SHA-256 matches the pinned one) and run while a cap is on. x64 only. Nothing is installed without your
+  answer: run from a terminal, `netcap on` asks; `netcap on --yes` or `netcap install <name> --with-download` installs it
+  without asking. Elsewhere (`use`, `protect`, scripts, `--json`, `-q`) the device is capped on upload only, as before,
+  and named. Security software may flag WinDivert; see SECURITY.md and docs/adr/0001-cap-download-on-windows.md (#109)
+- `netcap install <name> --without-download` removes WinDivert from a Windows device and records the refusal on the
+  device, so `netcap on` from any controller stops asking. `netcap get` shows each device's choice in a `download`
+  column (`enabled`, `declined`, `unset`); `netcap install <name>` without either flag keeps it (#109)
+- `netcap unload-driver <host>`, a low-level command listed by the new `netcap help --all`: unloads the WinDivert driver
+  now instead of at the next reboot. The device refuses while a download cap is on or another program has WinDivert
+  loaded. It needs the agent from this release: `netcap install <name>` (#109)
 
 ### Changed
 
