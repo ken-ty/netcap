@@ -133,7 +133,7 @@ Each Windows device has a choice, kept on the device and shown in the `download`
 
 `use` and `protect` never ask: they cap upload only on an `unset` device and name it. `netcap install <name>` without
 either flag keeps the choice. By hand: `install.ps1 -WithDownload` or `-WithoutDownload`. Installing needs x64 Windows
-and a connection to GitHub, and changes nothing when either is missing. Why it is asked for and what it costs:
+(ARM64 is not supported: [#111](https://github.com/ken-ty/netcap/issues/111)) and a connection to GitHub, and changes nothing when either is missing. Why it is asked for and what it costs:
 [ADR 0001](adr/0001-cap-download-on-windows.md); what security software may say about it:
 [SECURITY.md](../SECURITY.md#download-capping-on-windows-is-a-kernel-driver).
 

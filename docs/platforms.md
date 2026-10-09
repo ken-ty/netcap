@@ -10,7 +10,7 @@ What each OS supports. ✅ supported · ⚠️ with a limit · ❌ not supported
 | --- | --- | --- | --- |
 | How it caps | pf + dummynet | tc (HTB, ingress through ifb) | NetQosPolicy; download with WinDivert ([why](adr/0001-cap-download-on-windows.md)) |
 | Upload cap | ✅ | ✅ | ✅ |
-| Download cap | ✅ | ✅ | ⚠️ with WinDivert, which `netcap on` offers to install; x64 only ([how](host-setup.md#download-on-windows-windivert)); otherwise ❌ (shown as `unsupported`) |
+| Download cap | ✅ | ✅ | ⚠️ with WinDivert, which `netcap on` offers to install; x64 only, ARM64 is not supported ([#111](https://github.com/ken-ty/netcap/issues/111); [how](host-setup.md#download-on-windows-windivert)); otherwise ❌ (shown as `unsupported`) |
 | `status` reads the real state | ⚠️ download shows the value recorded at `on`, marked `*` ([why](design.md#the--on-macos-download-in-status)) | ✅ | ✅ |
 | After a reboot (`boot`) | `off` (default) or `on` | `off` (default) or `on` | `keep` only: the state survives reboots ([why](design.md#windows-keeps-its-state-across-reboots)) |
 | `check` (measure up / down + ping) | ✅ | ✅ | ✅ |

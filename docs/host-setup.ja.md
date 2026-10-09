@@ -134,7 +134,7 @@ Windows の端末ごとに選択があり、端末に残り、`netcap get` の `
 
 `use` と `protect` は聞かない。`unset` の端末は上りだけ絞り、名前を出す。どちらのフラグも付けない
 `netcap install <name>` は選択を変えない。手でなら `install.ps1 -WithDownload` か `-WithoutDownload`。入れるには x64 の
-Windows と GitHub への接続が要り、どちらかが無ければ何も変えない。なぜ聞くのか、何と引き換えか:
+Windows (ARM64 は非対応: [#111](https://github.com/ken-ty/netcap/issues/111)) と GitHub への接続が要り、どちらかが無ければ何も変えない。なぜ聞くのか、何と引き換えか:
 [ADR 0001](adr/0001-cap-download-on-windows.ja.md)。セキュリティソフトが何を言うか:
 [SECURITY.ja.md](../SECURITY.ja.md#windows-の下りを絞るのはカーネルドライバ)。
 

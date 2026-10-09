@@ -12,7 +12,7 @@ OS ごとに何ができるか。✅ 対応 · ⚠️ 制限あり · ❌ 非対
 | --- | --- | --- | --- |
 | 絞る仕組み | pf + dummynet | tc (HTB。下りは ifb 経由) | NetQosPolicy。下りは WinDivert ([理由](adr/0001-cap-download-on-windows.ja.md)) |
 | 上りの上限 | ✅ | ✅ | ✅ |
-| 下りの上限 | ✅ | ✅ | ⚠️ WinDivert があるとき。`netcap on` が入れるか聞く。x64 のみ ([仕組み](host-setup.ja.md#windows-の下り-windivert))。それ以外は ❌ (`unsupported` と出る) |
+| 下りの上限 | ✅ | ✅ | ⚠️ WinDivert があるとき。`netcap on` が入れるか聞く。x64 のみで、ARM64 は非対応 ([#111](https://github.com/ken-ty/netcap/issues/111)。[仕組み](host-setup.ja.md#windows-の下り-windivert))。それ以外は ❌ (`unsupported` と出る) |
 | `status` が実物から読む | ⚠️ 下りは `on` のとき記録した値で、`*` が付く ([理由](design.ja.md#macos-の-status-の下りに付く-)) | ✅ | ✅ |
 | 再起動後 (`boot`) | `off` (既定) か `on` | `off` (既定) か `on` | `keep` のみ。状態が再起動をまたいで残る ([理由](design.ja.md#windows-は再起動しても状態が残る)) |
 | `check` (上り下りの測定 + ping) | ✅ | ✅ | ✅ |

@@ -117,7 +117,7 @@ netcap protect --off                              # 各端末を元の状態に�
 | 役割 | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | 操作する側 (CLI) | ✅ | ✅ | ✅ |
-| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上り (NetQosPolicy)。下りは WinDivert で。`netcap on` が入れるか聞く (x64) |
+| 操作される側 | ✅ 上り・下り (pf + dummynet) | ✅ 上り・下り (tc) | ⚠️ 上り (NetQosPolicy)。下りは WinDivert で。`netcap on` が入れるか聞く (x64。ARM64 は非対応、[#111](https://github.com/ken-ty/netcap/issues/111)) |
 
 機能ごとの一覧は [docs/platforms.ja.md](docs/platforms.ja.md)。
 

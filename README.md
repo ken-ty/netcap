@@ -115,7 +115,7 @@ For the file format, see [docs/configuration.md](docs/configuration.md); for wha
 | Role | macOS | Linux | Windows |
 | --- | --- | --- | --- |
 | Controller (CLI) | ✅ | ✅ | ✅ |
-| Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload (NetQosPolicy); download with WinDivert, which `netcap on` offers to install (x64) |
+| Capped device | ✅ up & down (pf + dummynet) | ✅ up & down (tc) | ⚠️ upload (NetQosPolicy); download with WinDivert, which `netcap on` offers to install (x64; ARM64 is not supported, [#111](https://github.com/ken-ty/netcap/issues/111)) |
 
 Feature by feature: [docs/platforms.md](docs/platforms.md).
 
