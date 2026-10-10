@@ -1022,9 +1022,10 @@ foreach ($line in [IO.File]::ReadAllLines('{script.with_suffix(".txt")}')) {{
             self.assertFalse(win_task("download"), f"cycle {i}")
         loaded = driver_state()
         after = self.down_mbit(20_000_000, tries=2)
-        print(f"\n  20 on/off cycles in {time.time() - t0:.0f} s, {len(pids)} shaper processes; after the last on "
+        print(f"\n  20 on/off cycles in {time.time() - t0:.0f} s, {len(pids)} distinct shaper PIDs; after the last on "
               f"{capped} Mbit/s down, after the last off {after}; driver: {loaded}")
-        self.assertEqual(len(pids), 20)
+        # Not len(pids) == 20: Windows may give a new process the PID of one that just ended. Each cycle above already
+        # checks that the last shaper ended and a new one runs
         self.assertIn("service=Running", loaded)
         self.assertLess(capped, 1.5)
         self.assertGreaterEqual(after, 10 * capped)
