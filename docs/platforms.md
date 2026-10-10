@@ -32,6 +32,10 @@ waited 0.8 to 1.8 s, but ping6 stayed at 31 ms and DNS queries over IPv6 at 26 t
 On Windows, measured on 2026-10-06 on the same tethering: at a 1/1 cap, IPv6 upload fell from 11.3 to 0.92 Mbit/s. While
 that upload filled the cap, new TCP connections over IPv6 took 1.0 to 1.3 s, but ping6 stayed at 18 to 61 ms and DNS over
 IPv6 at 30 to 38 ms, as without a cap: nothing names ICMPv6, yet the throttling policy does not hold it back.
+Windows download with WinDivert was measured on 2026-10-09 and 2026-10-10 on a home 5G line, at a 2/2 Mbit/s cap: TCP
+fell from 20.6 to 1.71 Mbit/s and QUIC (HTTP/3) from 18.5 to 1.82. A 5 Mbit/s UDP stream that does not slow down, as a
+game or a call may send, arrived at 1.94 Mbit/s with 60% of its packets lost (none without a cap): what does not fit
+the cap is dropped, as on macOS and Linux.
 
 ## As a controller (the CLI)
 
