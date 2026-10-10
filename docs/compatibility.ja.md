@@ -27,7 +27,7 @@
 
 | CLI | 下限の agent | 備考 |
 | --- | --- | --- |
-| 未リリース | 0.11.0 | 0.11.0 にある操作について。Windows の下り (WinDivert) と低レベルの `unload-driver` には、このリリースの agent が要る。古い Windows の agent は下りを `unsupported` と答え、`unload-driver` には "unknown verb" を返し、CLI は更新するよう言う。`netcap install <名前>` で agent を更新し、netcap が書いた鍵の行に `unload-driver` を足す |
+| 0.14.0 | 0.11.0 | 0.11.0 にある操作について。Windows の下り (WinDivert) と低レベルの `unload-driver` には、このリリースの agent が要る。古い Windows の agent は下りを `unsupported` と答え、`unload-driver` には "unknown verb" を返し、CLI は更新するよう言う。`netcap install <名前>` で agent を更新し、netcap が書いた鍵の行に `unload-driver` を足す |
 | 0.13.0 | 0.11.0 | CLI は 0.11.0 の agent が断るものを送らない (`protect --for` と `use --for` が送るのは `on --for`)。端末側には修正がある (macOS の小数の上限、Windows のインストール先の権限、`check --bytes` の上限、0.12.0 の見直しで見つけたもの) ので、古い agent はそれらのバグを抱えたまま。`netcap install <名前>` で更新する |
 | 0.12.0 | 0.11.0 | 端末側は 0.11.0 から変わっていない |
 | 0.11.0 | 0.11.0 | `on --for`、`until=` / `left=`、インストーラが変わった。古い agent も `status` `get` `on` `off` `set` `check` には答えるが、`--for` は何も変えずに拒み、IPv6 と cmd.exe の不具合は残る。`netcap install <名前>` で更新する |
