@@ -8,6 +8,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-10
+
 ### Added
 
 - Windows devices can cap download too, with the WinDivert 2.2.2 driver, fetched from its official release (refused
@@ -292,7 +294,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - The `netcap` CLI, with verbs shaped after tailscale's, and the macOS shaper (pf + dummynet)
 
-[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/ken-ty/netcap/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/ken-ty/netcap/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ken-ty/netcap/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/ken-ty/netcap/compare/v0.10.0...v0.11.0
