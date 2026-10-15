@@ -21,6 +21,12 @@ It has no passphrase, so that netcap can run unattended (from cron, for example)
 run netcap's verbs on every registered device.** Keep it readable only by you (`ssh-keygen` creates it that way),
 and protect the controller as you would protect any machine that can reach all the others.
 
+The files that tell netcap what to do with the key count as much as the key. Whoever can write `hosts` and `profiles`
+(`~/.config/netcap/`, or `$NETCAP_CONFIG_DIR`) decides which devices a scheduled `netcap use` caps and how far; whoever
+can write `protect.json` (in the state directory, `~/.local/state/netcap/` by default) decides what `netcap protect --off` puts
+back. Keep both directories writable only by you, and do not point `$NETCAP_CONFIG_DIR` at a folder others can write,
+such as a shared sync folder. netcap creates `protect.json` readable only by you.
+
 ### What a leaked netcap key allows
 
 The key is pinned to the agent on each device (`restrict,command="… netcap-agent --allow '…'"`), so it runs

@@ -649,7 +649,7 @@ def claim_state(path, saved):
     """Create protect.json only if there is none, so that of two protects run at once, only one goes on."""
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         return False
     with os.fdopen(fd, "w", encoding="utf-8") as f:

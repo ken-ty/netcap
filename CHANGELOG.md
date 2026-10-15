@@ -10,6 +10,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Security
 
+- `netcap protect` creates `protect.json` readable only by you, and SECURITY.md says that whoever can write `hosts`,
+  `profiles`, or `protect.json` decides what netcap does with its key: keep those directories writable only by you (#123)
 - On macOS and Linux, `netcap-check` moves from `/usr/local/bin` to the agent's root-only directory
   (`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`), and the installer removes the old copy. The forced command
   runs it for `check`, even for a key allowed only that, and on an Intel Mac with Homebrew the user can write to
