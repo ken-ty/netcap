@@ -8,6 +8,11 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Security
+
+- `netcap protect` creates `protect.json` readable only by you, and SECURITY.md says that whoever can write `hosts`,
+  `profiles`, or `protect.json` decides what netcap does with its key: keep those directories writable only by you (#123)
+
 ## [0.14.0] - 2026-10-10
 
 ### Added
