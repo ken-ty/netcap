@@ -18,12 +18,14 @@
 # so anything that slips past here is stopped by sudoers.
 set -eu
 
-# Linux uses the same agent (installed by linux/install.sh). Only the shaper's location differs
+# Linux uses the same agent (installed by linux/install.sh). Only the directory differs. netcap-check sits there too:
+# even a key allowed only check runs it, so it must be where only root can write (#118)
 case "$(uname)" in
-  Darwin) NETSHAPE=/Library/PrivilegedHelperTools/netcap-netshape ;;
-  *) NETSHAPE=/usr/libexec/netcap/netcap-netshape ;;
+  Darwin) DIR=/Library/PrivilegedHelperTools ;;
+  *) DIR=/usr/libexec/netcap ;;
 esac
-CHECK=/usr/local/bin/netcap-check
+NETSHAPE=$DIR/netcap-netshape
+CHECK=$DIR/netcap-check
 VERBS="status get check on off set"
 # netcap install writes the CLI's version here, so get can report which agent is installed
 VERSION="@VERSION@"

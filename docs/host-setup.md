@@ -65,7 +65,7 @@ sudo bash mac/install.sh --boot on|off
 | --- | --- |
 | `/Library/PrivilegedHelperTools/netcap-agent` | The entry point netcap calls. Also used as the forced command |
 | `/Library/PrivilegedHelperTools/netcap-netshape` | The shaper (runs as root; pf + dummynet) |
-| `/usr/local/bin/netcap-check` | Measurement (only curl and ping, so no root needed) |
+| `/Library/PrivilegedHelperTools/netcap-check` | Measurement (only curl and ping, so no root needed) |
 | `/etc/pf.anchors/netcap-netshape` | pf rules |
 | `/etc/netcap-netshape.conf` | The default cap. Written by `netcap set`; without it the default is 1/1 |
 | `/etc/sudoers.d/netcap-netshape` | NOPASSWD for each user who ran the installer, limited to the shaper's fixed verbs |
@@ -80,6 +80,8 @@ sudo bash mac/install.sh --boot on|off
 - To remove: `sudo bash mac/uninstall.sh`. To remove only one user: `sudo bash mac/uninstall.sh --user`
   (everything goes with the last user)
 - The old name `ken-ty-netshape` (up to v0.5.0) is removed by running `install.sh` again. That also removes the cap, so reapply it with `netcap on`
+- Up to v0.14.0, `netcap-check` was in `/usr/local/bin`, which the user can write on an Intel Mac with Homebrew.
+  `install.sh` and `uninstall.sh` remove it from there, on Linux too
 
 ## Linux
 
@@ -91,7 +93,7 @@ sudo bash linux/install.sh --boot on|off
 | --- | --- |
 | `/usr/libexec/netcap/netcap-agent` | The entry point netcap calls. Also used as the forced command |
 | `/usr/libexec/netcap/netcap-netshape` | The shaper (runs as root; tc) |
-| `/usr/local/bin/netcap-check` | Measurement (no root needed) |
+| `/usr/libexec/netcap/netcap-check` | Measurement (no root needed) |
 | `/etc/netcap-netshape.conf` | The default cap, as on macOS |
 | `/etc/sudoers.d/netcap-netshape` | NOPASSWD for each user who ran the installer, limited to the shaper's fixed verbs |
 | `/etc/systemd/system/netcap-netshape.service` | Only with `--boot on` |

@@ -50,8 +50,8 @@ the verbs in `--allow` and nothing else: no shell, no pty, no forwarding. With t
 On Windows the forced command is the only gate, so a netcap key line added by hand without
 `restrict,command="…"` gives an elevated shell. `netcap install` writes the line for you; prefer it over editing by hand.
 
-The files that run as root live only in directories that root alone can write
-(`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`, and on Windows `C:\ProgramData\netcap` with its inheritance cut and Administrators as its owner).
+The files that run as root, and `netcap-check`, which the forced command runs for `check`, live only in directories that
+root alone can write (`/Library/PrivilegedHelperTools`, `/usr/libexec/netcap`, and on Windows `C:\ProgramData\netcap` with its inheritance cut and Administrators as its owner).
 The shaper reads its config as numbers and never runs it as a script. See [docs/design.md](docs/design.md).
 
 ### Download capping on Windows is a kernel driver

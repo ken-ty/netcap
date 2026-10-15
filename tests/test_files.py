@@ -180,6 +180,22 @@ class HostSetup(unittest.TestCase):
                         self.assertIn(p, install)
                         self.assertIn(p, uninstall)
 
+    # The forced command runs netcap-check for check, even for a key allowed only that. It goes where the shaper goes,
+    # in a directory install.sh checks is root-only; /usr/local/bin can be written by the user (#118)
+    def test_check_lives_with_the_shaper(self):
+        agent = read("mac/netcap-agent")
+        self.assertFalse("/usr/local" in agent, "mac/netcap-agent runs something from /usr/local")
+        for d in ("mac", "linux"):
+            with self.subTest(os=d):
+                install = read(f"{d}/install.sh")
+                var = {k: re.search(rf"^{k}=(\S+)$", install, re.M) for k in ("BIN", "CHECK")}
+                self.assertTrue(all(var.values()), f"{d}/install.sh sets BIN and CHECK")
+                shaper, check = (Path(m.group(1)) for m in var.values())
+                self.assertEqual(check, shaper.parent / "netcap-check")
+                self.assertRegex(install, r'for f in "\$BIN" "\$CHECK" .*; do\n  require_root_only')
+                self.assertRegex(agent, rf"\) DIR={re.escape(str(check.parent))} ;;")
+        self.assertRegex(agent, r"(?m)^CHECK=\$DIR/netcap-check$")
+
 
 class Release(unittest.TestCase):
     """CONTRIBUTING.md Release: the Formula tag matches the version in the curl / zip examples of the docs"""

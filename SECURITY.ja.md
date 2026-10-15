@@ -52,7 +52,7 @@ netcap の動詞を実行できる。** 自分だけが読める状態に保ち 
 Windows では forced command が唯一の関門なので、`restrict,command="…"` の無い netcap の鍵の行を手で足すと、
 昇格したシェルを渡すことになる。行は `netcap install` が書く。手で編集するより、そちらを使うこと。
 
-root で動くファイルは、root だけが書けるディレクトリにしか置かない
+root で動くファイルと、forced command が `check` で動かす `netcap-check` は、root だけが書けるディレクトリにしか置かない
 (`/Library/PrivilegedHelperTools`、`/usr/libexec/netcap`、Windows では継承を切り所有者を Administrators にした `C:\ProgramData\netcap`)。
 shaper は設定を数値として読み、スクリプトとしては実行しない。[docs/design.ja.md](docs/design.ja.md) を参照。
 

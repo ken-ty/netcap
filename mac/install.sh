@@ -8,12 +8,12 @@
 #   /Library/PrivilegedHelperTools/netcap-netshape   the shaper (runs as root)
 #   /Library/PrivilegedHelperTools/netcap-agent      entry point netcap calls (also used as the forced command)
 #   /Library/PrivilegedHelperTools/netcap-netshape-expire.plist   the job on --for loads (lifts the cap at the deadline)
-#   /usr/local/bin/netcap-check                      measurement (no root needed)
+#   /Library/PrivilegedHelperTools/netcap-check      measurement (no root needed; root-only as the forced command runs it)
 #   /etc/pf.anchors/netcap-netshape                  pf rules (loaded into anchor com.apple/netcap-netshape)
 #   /etc/sudoers.d/netcap-netshape                   NOPASSWD for each user who ran it (fixed shaper verbs only)
 #   /Library/LaunchDaemons/netcap-netshape.plist     only with --boot on
 #
-# Root-run files (shaper, config, anchor, sudoers) are placed only after checking that
+# Root-run files (shaper, config, anchor, sudoers) and netcap-check are placed only after checking that
 # every parent directory is root-owned and not writable by group / other.
 # In a user-writable directory, swapping the contents would be enough to get root.
 set -eu
@@ -21,6 +21,7 @@ cd "$(dirname "$0")"
 
 BIN=/Library/PrivilegedHelperTools/netcap-netshape
 AGENT=/Library/PrivilegedHelperTools/netcap-agent
+CHECK=/Library/PrivilegedHelperTools/netcap-check
 CONF=/etc/netcap-netshape.conf
 ANCHOR_FILE=/etc/pf.anchors/netcap-netshape
 SUDOERS=/etc/sudoers.d/netcap-netshape
@@ -56,8 +57,8 @@ require_root_only() {
   done
 }
 
-mkdir -p /Library/PrivilegedHelperTools /etc/pf.anchors /etc/sudoers.d /usr/local/bin
-for f in "$BIN" "$CONF" "$ANCHOR_FILE" "$SUDOERS" "$PLIST"; do
+mkdir -p /Library/PrivilegedHelperTools /etc/pf.anchors /etc/sudoers.d
+for f in "$BIN" "$CHECK" "$CONF" "$ANCHOR_FILE" "$SUDOERS" "$PLIST"; do
   require_root_only "$(dirname "$f")"
 done
 
@@ -92,7 +93,9 @@ fi
 install -o root -g wheel -m 0755 netcap-netshape "$BIN"
 install -o root -g wheel -m 0755 netcap-agent "$AGENT"
 install -o root -g wheel -m 0644 netcap-netshape-expire.plist /Library/PrivilegedHelperTools/netcap-netshape-expire.plist
-install -o root -g wheel -m 0755 netcap-check /usr/local/bin/netcap-check
+install -o root -g wheel -m 0755 netcap-check "$CHECK"
+# Up to 0.14.0 it was in /usr/local/bin, which the user can write on an Intel Mac with Homebrew (#118)
+rm -f /usr/local/bin/netcap-check
 install -o root -g wheel -m 0644 netcap-netshape.pf "$ANCHOR_FILE"
 
 # Add this user and keep the ones already there: each controller may log in as its own user (#31).

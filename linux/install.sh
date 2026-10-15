@@ -7,18 +7,18 @@
 # What it does:
 #   /usr/libexec/netcap/netcap-netshape            the shaper (runs as root; tc)
 #   /usr/libexec/netcap/netcap-agent               entry point netcap calls (same as mac; also the forced command)
-#   /usr/local/bin/netcap-check                    measurement (same as mac; no root needed)
+#   /usr/libexec/netcap/netcap-check               measurement (same as mac; no root needed)
 #   /etc/sudoers.d/netcap-netshape                 NOPASSWD for each user who ran it (only the shaper's fixed verbs)
 #   /etc/systemd/system/netcap-netshape.service    only with --boot on
 #
-# Root-run files (the shaper, config, sudoers) are placed only after checking that every
+# Root-run files (the shaper, config, sudoers) and netcap-check are placed only after checking that every
 # parent directory is root-owned and not writable by group / other.
 set -eu
 cd "$(dirname "$0")"
 
 BIN=/usr/libexec/netcap/netcap-netshape
 AGENT=/usr/libexec/netcap/netcap-agent
-CHECK=/usr/local/bin/netcap-check
+CHECK=/usr/libexec/netcap/netcap-check
 CONF=/etc/netcap-netshape.conf
 SUDOERS=/etc/sudoers.d/netcap-netshape
 UNIT=/etc/systemd/system/netcap-netshape.service
@@ -58,14 +58,16 @@ require_root_only() {
 }
 
 install -d -o root -g root -m 0755 /usr/libexec/netcap
-mkdir -p /etc/sudoers.d /usr/local/bin
-for f in "$BIN" "$CONF" "$SUDOERS" "$UNIT"; do
+mkdir -p /etc/sudoers.d
+for f in "$BIN" "$CHECK" "$CONF" "$SUDOERS" "$UNIT"; do
   require_root_only "$(dirname "$f")"
 done
 
 install -o root -g root -m 0755 netcap-netshape "$BIN"
 install -o root -g root -m 0755 ../mac/netcap-agent "$AGENT"
 install -o root -g root -m 0755 ../mac/netcap-check "$CHECK"
+# Up to 0.14.0 it was in /usr/local/bin, outside the checked directories (#118)
+rm -f /usr/local/bin/netcap-check
 
 # Add this user and keep the ones already there: each controller may log in as its own user (#31).
 # The existing file is root-only (checked above), so its user lines can be trusted
