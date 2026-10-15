@@ -39,7 +39,7 @@ git clone https://github.com/ken-ty/netcap.git ~/.local/share/netcap
 
 # curl (without git)
 mkdir -p ~/.local/share/netcap
-curl -fsSL https://github.com/ken-ty/netcap/archive/refs/tags/v0.14.0.tar.gz \
+curl -fsSL https://github.com/ken-ty/netcap/archive/refs/tags/v0.14.1.tar.gz \
   | tar xz --strip-components 1 -C ~/.local/share/netcap
 
 # to use the CLI
@@ -49,9 +49,9 @@ ln -s ~/.local/share/netcap/bin/netcap ~/.local/bin/netcap
 Installed with curl, `netcap --version` prints `unknown`. curl and tar are also available on Windows out of the box.
 
 ```powershell
-curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.14.0.zip
+curl.exe -fsSL -o netcap.zip https://github.com/ken-ty/netcap/archive/refs/tags/v0.14.1.zip
 tar -xf netcap.zip
-cd netcap-0.14.0
+cd netcap-0.14.1
 python bin\netcap --version   # to use it as the CLI
 ```
 
@@ -80,7 +80,7 @@ sudo bash mac/install.sh --boot on|off
 - To remove: `sudo bash mac/uninstall.sh`. To remove only one user: `sudo bash mac/uninstall.sh --user`
   (everything goes with the last user)
 - The old name `ken-ty-netshape` (up to v0.5.0) is removed by running `install.sh` again. That also removes the cap, so reapply it with `netcap on`
-- Up to v0.14.0, `netcap-check` was in `/usr/local/bin`, which the user can write on an Intel Mac with Homebrew.
+- Up to v0.14.1, `netcap-check` was in `/usr/local/bin`, which the user can write on an Intel Mac with Homebrew.
   `install.sh` and `uninstall.sh` remove it from there, on Linux too
 
 ## Linux
