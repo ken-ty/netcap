@@ -54,7 +54,7 @@ The full list, and what netcap should become, is in [vision.md](vision.md).
 
 - Prioritize traffic, or fix bufferbloat on the line (use router SQM)
 - Cap phones, consoles, TVs, or anything without the agent
-- Cap download on Windows
+- Cap download on a Windows device that has not opted in to WinDivert, or on ARM64 Windows
 - Limit per application
 - Run recurring schedules by itself (call `netcap use` from cron, launchd, or Task Scheduler); it only lifts a cap at an `on --for` deadline
 
