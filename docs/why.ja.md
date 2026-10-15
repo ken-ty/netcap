@@ -56,7 +56,7 @@ netcap はこれを、ドメイン無しで、macOS・Linux・Windows にまた�
 
 - 通信の優先度付け、回線の bufferbloat の解消 (ルーターの SQM を使う)
 - スマホ・ゲーム機・テレビなど、agent を入れられないものを絞る
-- Windows の下りを絞る
+- WinDivert を入れていない Windows、または ARM64 の Windows の下りを絞る
 - アプリ単位で絞る
 - 繰り返しのスケジュールを自前で持つ (cron・launchd・タスクスケジューラから `netcap use` を呼ぶ)。自分で持つのは `on --for` の期限で外すことだけ
 
