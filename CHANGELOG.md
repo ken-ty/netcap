@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Fixed
+
+- On macOS and Linux, an `on` that failed partway left the steps it had done in place, and with `--for` the cap never
+  lifted by itself. The device now removes what it applied and stops the timer before reporting the error. Run
+  `netcap install <name>` to get this on a device (#124)
+
 ## [0.14.0] - 2026-10-10
 
 ### Added

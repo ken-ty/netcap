@@ -107,6 +107,17 @@ require_anchor_point() {
 
 pf_enabled() { pfctl -s info 2>/dev/null | grep -q '^Status: Enabled'; }
 
+# A step of apply failed (set -e exits): take back what was applied, as off does, so no cap stays half applied or
+# without its --for deadline (#117). Exit with the failed step's status. apply sets this as the EXIT trap
+rollback() {
+  local rc=$?
+  trap - EXIT
+  remove >/dev/null || true
+  stop_timer
+  echo "netshape: applying the cap failed; removed what was applied" >&2
+  exit "$rc"
+}
+
 apply() {
   if [ $# -ge 1 ]; then
     [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
@@ -118,6 +129,7 @@ apply() {
   fi
   rates "$UP_MBIT" "$DOWN_MBIT"
   require_anchor_point
+  trap rollback EXIT
   dnctl -q pipe "$PIPE_UP" config bw "${UP_BIT}bit/s" queue 20
   dnctl -q pipe "$PIPE_DOWN" config bw "${DOWN_BIT}bit/s" queue 50
   pfctl -q -a "$ANCHOR" -f "$ANCHOR_FILE"
@@ -131,7 +143,8 @@ apply() {
     pfctl -E 2>&1 | sed -n 's/.*Token *: *\([0-9]*\).*/\1/p' >"$TOKEN"
   fi
   echo "${UP_MBIT} ${DOWN_MBIT}" >"$APPLIED"
-  echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s"
+  trap - EXIT
+  echo "netshape ON up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s"
 }
 
 remove() {
