@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Fixed
+
+- On macOS and Linux, an `on` that failed partway left the steps it had done in place, and with `--for` the cap never
+  lifted by itself. The device now removes what it applied and stops the timer before reporting the error. Run
+  `netcap install <name>` to get this on a device (#124)
+
 ### Security
 
 - `netcap protect` creates `protect.json` readable only by you, and SECURITY.md says that whoever can write `hosts`,

@@ -335,6 +335,50 @@ class E2E(unittest.TestCase):
             sh("sudo", "rm", "-f", failed)
             agent("off")
 
+    # #117: on applies the cap step by step. A step that fails takes back the steps before it, also with --for, so
+    # no cap is left half applied or without its deadline
+    @unittest.skipIf(OS == "win", "the macOS and Linux shapers apply step by step")
+    def test_16_failed_on_rolls_back(self):
+        shaper = {"mac": "/Library/PrivilegedHelperTools/netcap-netshape", "linux": "/usr/libexec/netcap/netcap-netshape"}[OS]
+        # A shim first on PATH fails one step after earlier ones were applied. macOS: loading the pf anchor, after both
+        # pipes. Linux: the download HTB on ifb-netcap, after the upload HTB, ifb-netcap, clsact, and the ingress filter
+        tool, step = {"mac": ("pfctl", '*" -f "*'), "linux": ("tc", '*" qdisc replace dev ifb-netcap "*')}[OS]
+        sbin = "/usr/sbin:/sbin:/usr/bin:/bin"
+        shim = Path(tempfile.mkdtemp())
+        (shim / tool).write_text(f'#!/bin/bash\ncase " $* " in {step}) echo "e2e: {tool} fails here" >&2; exit 1 ;; esac\n'
+                                 f'exec {shutil.which(tool, path=sbin)} "$@"\n')
+        (shim / tool).chmod(0o755)
+
+        def fields():
+            p = agent("status")
+            return dict(kv.split("=", 1) for kv in p.stdout.splitlines()[0].split()[1:])
+
+        if OS == "linux":
+            dev = re.search(r" dev (\S+)", sh("ip", "route", "get", "1.1.1.1").stdout).group(1)
+            clsact = "qdisc clsact " in sh("tc", "qdisc", "show", "dev", dev).stdout
+        before = fields()
+        try:
+            p = sh("sudo", "env", f"PATH={shim}:{sbin}", shaper, "on", "2", "3", "--for", "600")
+            self.assertIn(f"e2e: {tool} fails here", p.stderr)
+            self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+            self.assertCap("off")
+            self.assertEqual(self.row()["left"], "-")
+            self.assertFalse(self.timer_loaded())
+            if OS == "mac":
+                after = fields()
+                self.assertEqual((after["pipes"], after["rules"]), (before["pipes"], "0"), after)
+                self.assertFalse(Path("/var/run/netcap-netshape.token").exists())
+            else:
+                qdisc = sh("tc", "qdisc", "show", "dev", dev).stdout
+                self.assertNotIn("ca9:", qdisc)
+                self.assertEqual("qdisc clsact " in qdisc, clsact, qdisc)
+                self.assertNotIn("pref 4930 ", sh("tc", "filter", "show", "dev", dev, "ingress").stdout)
+                self.assertNotEqual(sh("ip", "link", "show", "ifb-netcap").returncode, 0)
+                self.assertFalse(Path("/run/netcap-netshape.dev").exists())
+        finally:
+            agent("off")
+            shutil.rmtree(shim, ignore_errors=True)
+
     # docs/configuration.md: Export and import (on this machine, "self" is kept)
     def test_15_export_import(self):
         out = self.netcap("export")

@@ -103,6 +103,17 @@ shape() {
   tc filter add dev "$dev" parent "$H:" protocol ipv6 prio 2 u32 match ip6 protocol 58 0xff flowid "$H:20" # ICMPv6
 }
 
+# A step of apply failed (set -e exits): take back what was applied, as off does, so no cap stays half applied or
+# without its --for deadline (#117). Exit with the failed step's status. apply sets this as the EXIT trap
+rollback() {
+  local rc=$?
+  trap - EXIT
+  remove >/dev/null || true
+  stop_timer
+  echo "netshape: applying the cap failed; removed what was applied" >&2
+  exit "$rc"
+}
+
 apply() {
   if [ $# -ge 1 ]; then
     [ $# -eq 2 ] && is_number "$1" && is_number "$2" || {
@@ -122,6 +133,7 @@ apply() {
   done
   [ -n "$dev" ] || { echo "no default route (ip route get 1.1.1.1)" >&2; exit 3; }
   require_free "$dev"
+  trap rollback EXIT
   remove >/dev/null
   shape "$dev" "$UP_MBIT" dst "ip dport 53 0xffff" "ip6 dport 53 0xffff"
   modprobe ifb numifbs=0 2>/dev/null || true
@@ -139,7 +151,8 @@ apply() {
   tc filter add dev "$dev" parent "$parent" protocol all prio 4930 u32 match u32 0 0 \
     action mirred egress redirect dev "$IFB"
   shape "$IFB" "$DOWN_MBIT" src "ip sport 53 0xffff" "ip6 sport 53 0xffff"
-  echo "netshape ON  up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s dev=${dev}"
+  trap - EXIT
+  echo "netshape ON up=${UP_MBIT}Mbit/s down=${DOWN_MBIT}Mbit/s dev=${dev}"
 }
 
 remove() {
