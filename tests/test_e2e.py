@@ -31,12 +31,16 @@ OS = {"darwin": "mac", "linux": "linux", "win32": "win"}.get(sys.platform)
 AGENT = {"mac": "/Library/PrivilegedHelperTools/netcap-agent",
          "linux": "/usr/libexec/netcap/netcap-agent",
          "win": r"C:\ProgramData\netcap\netcap-agent.ps1"}.get(OS)
+# netcap-check sits next to the agent, where only root can write (#118). Up to 0.14.0 it was in /usr/local/bin, which
+# the user can write on an Intel Mac with Homebrew: install removes that copy
+CHECK = {"mac": "/Library/PrivilegedHelperTools/netcap-check", "linux": "/usr/libexec/netcap/netcap-check"}.get(OS)
+OLD_CHECK = "/usr/local/bin/netcap-check"
 INSTALLED = {"mac": ["/Library/PrivilegedHelperTools/netcap-netshape", "/Library/PrivilegedHelperTools/netcap-agent",
-                     "/usr/local/bin/netcap-check", "/etc/pf.anchors/netcap-netshape",
+                     "/Library/PrivilegedHelperTools/netcap-check", "/etc/pf.anchors/netcap-netshape",
                      "/etc/sudoers.d/netcap-netshape", "/Library/LaunchDaemons/netcap-netshape.plist",
                      "/Library/PrivilegedHelperTools/netcap-netshape-expire.plist"],
              "linux": ["/usr/libexec/netcap/netcap-netshape", "/usr/libexec/netcap/netcap-agent",
-                       "/usr/local/bin/netcap-check", "/etc/sudoers.d/netcap-netshape",
+                       "/usr/libexec/netcap/netcap-check", "/etc/sudoers.d/netcap-netshape",
                        "/etc/systemd/system/netcap-netshape.service"],
              "win": [r"C:\ProgramData\netcap"]}.get(OS)
 # docs/design.md: Destinations that pass through
@@ -141,6 +145,10 @@ class E2E(unittest.TestCase):
             old = Path(tempfile.mkdtemp())
             subprocess.run(f"git -C {ROOT} archive v0.5.0 mac | tar -x -C {old}", shell=True, check=True)
             install("on", src=old)
+        if OS != "win":  # what an earlier install left in /usr/local/bin (#118). It says so if it is ever run
+            p = sh("sudo", "sh", "-c", f"mkdir -p {os.path.dirname(OLD_CHECK)} && "
+                   f"printf '#!/bin/sh\\necho planted netcap-check\\n' > {OLD_CHECK} && chmod 755 {OLD_CHECK}")
+            assert p.returncode == 0, p.stdout + p.stderr
         # README: Quick Start. netcap install puts the agent on this machine and registers it in hosts
         cls.conf = Path(tempfile.mkdtemp())
         cls.env = {**os.environ, "NETCAP_CONFIG_DIR": str(cls.conf)}
@@ -402,8 +410,7 @@ class E2E(unittest.TestCase):
         p = agent("--allow", "status get check", env={**os.environ, "SSH_ORIGINAL_COMMAND": f"{AGENT} check --bytes 1000"})
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertRegex(p.stdout, r"^netcheck .*bytes=1000$")
-        check = {"mac": ["/usr/local/bin/netcap-check"], "linux": ["/usr/local/bin/netcap-check"],
-                 "win": [*PS, r"C:\ProgramData\netcap\netcap-check.ps1"]}[OS]
+        check = [*PS, r"C:\ProgramData\netcap\netcap-check.ps1"] if OS == "win" else [CHECK]
         p = sh(*check, "--bytes", "100000001")
         self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
         self.assertEqual(p.stdout, "")
@@ -448,9 +455,12 @@ class E2E(unittest.TestCase):
             self.assertIn("ReadAndExecute", acl.stdout, acl.stderr)  # it was read, and Users may still read
             self.assertNotRegex(acl.stdout, r"Write|Modify|FullControl")
         else:
-            body = AGENT.replace("netcap-agent", "netcap-netshape")
-            st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
-            self.assertEqual(st.stdout.strip(), "0 755")
+            # The shaper runs as root. netcap-check runs as the ssh user, also for a key allowed only check (#118)
+            for body in (AGENT.replace("netcap-agent", "netcap-netshape"), CHECK):
+                with self.subTest(body=body):
+                    st = sh("stat", "-f", "%u %Lp", body) if OS == "mac" else sh("stat", "-c", "%u %a", body)
+                    self.assertEqual(st.stdout.strip(), "0 755")
+            self.assertFalse(os.path.lexists(OLD_CHECK), "install leaves netcap-check in /usr/local/bin")
 
     # #89: Users can create C:\ProgramData\netcap before the install, so install.ps1 may find a folder someone else owns,
     # with entries of their own on it and on files in it. Afterwards only SYSTEM and Administrators may write, and
@@ -1127,6 +1137,8 @@ Start-Sleep 120
             self.assertFalse(win_task("download"))
         for p in INSTALLED:
             self.assertGone(p)
+        if OS != "win":
+            self.assertFalse(os.path.lexists(OLD_CHECK))
         self.assertNotIn("self", (self.conf / "hosts").read_text())
         install("off")  # tearDownClass removes it again
 
