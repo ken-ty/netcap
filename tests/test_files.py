@@ -193,7 +193,8 @@ class HostSetup(unittest.TestCase):
                 shaper, check = (Path(m.group(1)) for m in var.values())
                 self.assertEqual(check, shaper.parent / "netcap-check")
                 self.assertRegex(install, r'for f in "\$BIN" "\$CHECK" .*; do\n  require_root_only')
-                self.assertIn(f"{check.parent}/", agent)
+                self.assertRegex(agent, rf"\) DIR={re.escape(str(check.parent))} ;;")
+        self.assertRegex(agent, r"(?m)^CHECK=\$DIR/netcap-check$")
 
 
 class Release(unittest.TestCase):
