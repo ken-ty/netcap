@@ -23,6 +23,12 @@ CLI を動かす機械は `~/.ssh/netcap` を持つ。`netcap install` が全端
 netcap の動詞を実行できる。** 自分だけが読める状態に保ち (`ssh-keygen` はそう作る)、他の全機器に届く機械として
 コントローラを守ること。
 
+鍵で何をするかを決めるファイルも、鍵と同じくらい大事である。`hosts` と `profiles` (`~/.config/netcap/`、または
+`$NETCAP_CONFIG_DIR`) に書ける者は、定期実行の `netcap use` がどの端末をどこまで絞るかを決められる。`protect.json`
+(状態のディレクトリ。既定は `~/.local/state/netcap/`) に書ける者は、`netcap protect --off` が何を戻すかを決められる。
+どちらのディレクトリも自分だけが書ける状態に保ち、`$NETCAP_CONFIG_DIR` を他人が書けるフォルダ (共有の同期フォルダ
+など) に向けないこと。netcap は `protect.json` を自分だけが読める形で作る。
+
 ### netcap の鍵が漏れたときにできること
 
 鍵は各端末で agent に固定されている (`restrict,command="… netcap-agent --allow '…'"`) ので、

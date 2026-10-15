@@ -472,6 +472,7 @@ class CLI(unittest.TestCase):
                 break
             time.sleep(0.05)
         self.assertTrue(self.protect_state().exists(), "no state while the first protect measures")
+        self.assertEqual(self.protect_state().stat().st_mode & 0o077, 0)  # #120: it decides what --off puts back
         self.assertIsNone(first.poll())
         self.assertEqual(self.device("laptop"), "off")  # still measuring before
         p = self.netcap("protect", "laptop")
