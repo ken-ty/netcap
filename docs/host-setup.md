@@ -80,7 +80,7 @@ sudo bash mac/install.sh --boot on|off
 - To remove: `sudo bash mac/uninstall.sh`. To remove only one user: `sudo bash mac/uninstall.sh --user`
   (everything goes with the last user)
 - The old name `ken-ty-netshape` (up to v0.5.0) is removed by running `install.sh` again. That also removes the cap, so reapply it with `netcap on`
-- Up to v0.14.1, `netcap-check` was in `/usr/local/bin`, which the user can write on an Intel Mac with Homebrew.
+- Up to v0.14.0, `netcap-check` was in `/usr/local/bin`, which the user can write on an Intel Mac with Homebrew.
   `install.sh` and `uninstall.sh` remove it from there, on Linux too
 
 ## Linux

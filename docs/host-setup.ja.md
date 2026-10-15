@@ -81,7 +81,7 @@ sudo bash mac/install.sh --boot on|off
 - 外すのは `sudo bash mac/uninstall.sh`。1 人だけ外すなら `sudo bash mac/uninstall.sh --user`
   (最後の 1 人が外れると全部外れる)
 - v0.5.0 までの旧名 `ken-ty-netshape` は、`install.sh` を流し直せば外れる。上限も外れるので `netcap on` でかけ直す
-- v0.14.1 までは `netcap-check` を `/usr/local/bin` に置いていた。Homebrew を入れた Intel Mac では利用者が書ける場所。
+- v0.14.0 までは `netcap-check` を `/usr/local/bin` に置いていた。Homebrew を入れた Intel Mac では利用者が書ける場所。
   `install.sh` と `uninstall.sh` がそこから消す。Linux でも同じ
 
 ## Linux
