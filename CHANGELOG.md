@@ -8,6 +8,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-10-16
+
 ### Fixed
 
 - On macOS and Linux, an `on` that failed partway left the steps it had done in place, and with `--for` the cap never
@@ -310,7 +312,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - The `netcap` CLI, with verbs shaped after tailscale's, and the macOS shaper (pf + dummynet)
 
-[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.14.0...HEAD
+[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.14.1...HEAD
+[0.14.1]: https://github.com/ken-ty/netcap/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/ken-ty/netcap/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/ken-ty/netcap/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/ken-ty/netcap/compare/v0.11.0...v0.12.0
