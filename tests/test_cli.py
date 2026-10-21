@@ -195,7 +195,7 @@ class CLI(unittest.TestCase):
         for args in (["status", "off", "--json"], ["status", "all", "--json"], ["get", "off", "--json"],
                      ["on", "off", "--up", "1", "--down", "2"], ["off", "off"],
                      ["set", "off", "--up", "1", "--down", "2"], ["use", "p"], ["profiles"],
-                     ["status", "off", "-v"], ["--version"], ["-V"], ["protect", "--off"], ["help"], ["help", "on"],
+                     ["status", "off", "-v"], ["--version"], ["-V"], ["protect", "--off"], ["protect"], ["help"], ["help", "on"],
                      ["help", "exit-codes"], ["version"], ["completion", "bash"], ["status", "off", "-q"]):
             with self.subTest(args=args):
                 p = self.netcap(*args)
@@ -325,7 +325,7 @@ class CLI(unittest.TestCase):
 
     def test_protect_refuses(self):
         self.devices(game="off", laptop="off")
-        for args, msg in ((["protect"], "netcap protect <host>"), (["protect", "all"], "one device"),
+        for args, msg in ((["protect", "--load", "5"], "netcap protect <host>"), (["protect", "all"], "one device"),
                           (["protect", "game", "--up", "2"], "--up and --down together"),
                           (["protect", "game", "--up", "0", "--down", "1"], "positive numbers")):
             with self.subTest(args=args):
@@ -534,6 +534,45 @@ class CLI(unittest.TestCase):
         self.assertEqual(json.loads(p.stdout), [])
         self.assertIn("nothing to undo", p.stderr)
 
+    # #130: netcap protect with no host says whether protect is in effect, from protect.json alone
+    def test_protect_reports_its_state(self):
+        self.devices(game="off", laptop="off", server="off")
+        self.assertEqual(json.loads(self.netcap("protect", "--json").stdout),
+                         {"protected": None, "applied_until": None, "devices": []})
+        p = self.netcap("protect")
+        self.assertEqual((p.returncode, p.stdout, p.stderr), (0, "not protecting\n", ""))
+        self.netcap("protect", "game")
+        self.log.write_text("")
+        p = self.netcap("protect", "--json")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), {"protected": "game", "applied_until": None, "devices": ["laptop", "server"]})
+        self.assertEqual(self.netcap("protect", "-q").stdout, "protecting game\n")
+        self.assertEqual(self.log.read_text(), "")  # no device was asked
+        # Not even hosts is read
+        (self.conf / "hosts").rename(self.conf / "hosts.away")
+        self.assertEqual(self.netcap("protect").returncode, 0)
+        (self.conf / "hosts.away").rename(self.conf / "hosts")
+        self.netcap("protect", "--off")
+        self.assertEqual(self.netcap("protect").stdout, "not protecting\n")
+        # --for: the deadline, and the time left
+        start = time.time()
+        self.netcap("protect", "game", "--for", "30m")
+        out = json.loads(self.netcap("protect", "--json").stdout)
+        self.assertTrue(start + 1799 <= out["applied_until"] <= time.time() + 1801, out)
+        self.assertEqual(self.netcap("protect").stdout, "protecting game (lifts by itself in 30m)\n")
+        ja = self.netcap("protect", env={**self.env, "LC_ALL": "ja_JP.UTF-8"}).stdout
+        self.assertEqual(ja, "game を守っている (あと 30m で各端末が自分で外す)\n")
+        saved = json.loads(self.protect_state().read_text())
+        self.protect_state().write_text(json.dumps({**saved, "applied_until": int(start) - 60}))
+        self.assertIn("netcap protect --off", self.netcap("protect").stdout)
+        # A file netcap cannot read stays an error
+        self.protect_state().write_text("{not json")
+        for args in (["protect"], ["protect", "--json"]):
+            with self.subTest(args=args):
+                p = self.netcap(*args)
+                self.assertEqual((p.returncode, p.stdout), (1, ""))
+                self.assertIn(str(self.protect_state()), p.stderr)
+
     # #69: help and version are subcommands too, like -h and --version
     def test_help_and_version_subcommands(self):
         self.hosts("on")
@@ -574,7 +613,7 @@ class CLI(unittest.TestCase):
         self.hosts("on", "off", profiles="p  on=1/1\n")
         for args in (["on", "on", "--up", "2"], ["on", "on", "--up", "0", "--down", "1"], ["on", "on", "--for", "30s"],
                      ["set", "on"], ["set", "on", "--up", "1"], ["on", "on", "2", "2"], ["set", "on", "2", "2"],
-                     ["protect"], ["protect", "all"], ["protect", "on", "--load", "99"], ["protect", "on", "--up", "2"],
+                     ["protect", "--up", "2", "--down", "2"], ["protect", "all"], ["protect", "on", "--load", "99"], ["protect", "on", "--up", "2"],
                      ["protect", "on", "--up", "x", "--down", "1"], ["check", "on", "--bytes", "0"],
                      ["uninstall", "all"], ["rename", "on", "x y"], ["rename", "on", "all"], ["install", "a b"],
                      ["use", "p", "--for", "30s"], ["protect", "off", "--for", "25h"], ["protect", "off", "--for", ""],
@@ -587,7 +626,7 @@ class CLI(unittest.TestCase):
         self.assertEqual((self.conf / "hosts").read_text(), "on mac h-on\noff mac h-off\n")
         # Found before the config is read: a missing hosts file does not turn them into 1
         (self.conf / "hosts").unlink()
-        for args in (["on", "x", "--up", "2"], ["protect", "all"], ["uninstall", "all"], ["rename", "a", "x y"],
+        for args in (["on", "x", "--up", "2"], ["protect", "all"], ["protect", "--for", "30m"], ["uninstall", "all"], ["rename", "a", "x y"],
                      ["use", "p", "--for", "0m"], ["protect", "x", "--for", "1d"]):
             with self.subTest(args=args, hosts="none"):
                 self.assertEqual(self.netcap(*args).returncode, 2)

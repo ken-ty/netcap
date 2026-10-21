@@ -140,6 +140,7 @@ netcap use    <profile> [--for 30m]         apply a profile (--for: each device 
 netcap profiles                             list profiles
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
+netcap protect [--json]                     show whether protect is in effect, on which device, and until when
 netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]  install the agent on a device and register it (--boot on: cap at boot)
 netcap uninstall <host> [--config-only]     remove this controller's key and registration (the agent goes with the last)
 netcap rename <old> <new>                   rename a device
