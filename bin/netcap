@@ -243,12 +243,17 @@ def usage_error(msg):
     sys.exit(USAGE)
 
 
+def no_config(name):
+    path = CONFIG_DIR / name
+    return _("{path} does not exist. See {example} for the format\n"
+             "  mkdir -p {dir} && cp {example} {path}").format(path=path, example=EXAMPLES / name, dir=CONFIG_DIR)
+
+
 def config_lines(name):
     """Read CONFIG_DIR/name and yield (line number, words), skipping comments and blank lines."""
     path = CONFIG_DIR / name
     if not path.exists():
-        sys.exit(_("{path} does not exist. See {example} for the format\n"
-                   "  mkdir -p {dir} && cp {example} {path}").format(path=path, example=EXAMPLES / name, dir=CONFIG_DIR))
+        sys.exit(no_config(name))
     # utf-8-sig: Windows PowerShell 5.1 starts a file with a BOM (Set-Content -Encoding utf8)
     for n, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         words = line.split("#", 1)[0].split()
@@ -256,8 +261,20 @@ def config_lines(name):
             yield path, n, words
 
 
-def load_hosts():
+def no_devices(msg, as_list):
+    """No hosts file, or one with no devices. as_list: the command prints every device as a JSON list, and this is the
+    normal state of a new controller, not a failure: print [] and exit 0, with the message on stderr as the hint (#131)"""
+    if not as_list:
+        sys.exit(msg)
+    print(msg, file=sys.stderr)
+    print("[]")
+    sys.exit(OK)
+
+
+def load_hosts(as_list=False):
     """hosts: one device per line, "name OS route". OS is mac / linux / win. route is a Host name in ~/.ssh/config, or - for this machine"""
+    if not (CONFIG_DIR / "hosts").exists():
+        no_devices(no_config("hosts"), as_list)
     for path, n, words in config_lines("hosts"):
         if len(words) != 3 or words[1] not in ("mac", "linux", "win") or words[0] == "all":
             sys.exit(f"{path}:{n}: " + _("write 3 words, \"name mac|linux|win route\" (all is not allowed as a name): {line}")
@@ -273,7 +290,7 @@ def load_hosts():
         HOSTS[name] = {"os": os_, "ssh": None if ssh == "-" else ssh}
         ORDER.append(name)
     if not HOSTS:
-        sys.exit(_("{path} has no devices").format(path=CONFIG_DIR / "hosts"))
+        no_devices(_("{path} has no devices").format(path=CONFIG_DIR / "hosts"), as_list)
 
 
 # What ssh accepts as a destination, minus anything it would read as an option ("-oProxyCommand=…" runs a command)
@@ -1255,7 +1272,7 @@ DOCTOR_COLS = [
 
 
 def cmd_doctor(a):
-    load_hosts()
+    load_hosts(as_list=a.json and a.host in (None, "all"))
     pub_path = KEY.with_suffix(".pub")
     if not pub_path.exists():
         sys.exit(_("no netcap key on this machine yet ({key}). Register a device first: netcap install <name>")
@@ -1884,7 +1901,7 @@ def main():
                 "export": cmd_export, "import": cmd_import, "doctor": cmd_doctor, "unload-driver": cmd_unload_driver}
     if a.cmd in commands:
         return commands[a.cmd](a)
-    load_hosts()
+    load_hosts(as_list=a.json and a.cmd in ("status", "get") and a.host in (None, "all"))
 
     if a.cmd in ("on", "set"):
         if a.cmd == "on":
