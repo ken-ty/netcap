@@ -203,6 +203,8 @@ forced command を素通りするため。
 
 ## 表の読み方
 
+`--json` の各行には `os` もある。hosts に書いたとおりの `mac`、`linux`、`win` で、届かない端末の行にも入る。
+
 ### reach — その端末に届いて、頼めたか
 
 | reach | 意味 |
