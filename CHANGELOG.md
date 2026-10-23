@@ -21,6 +21,10 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   `{"protected": "gamepc" | null, "applied_until": <epoch seconds> | null, "devices": [...]}`. It exits 0, reads only
   `protect.json`, and asks no device. `protect <host>`, `protect --off`, and a flag such as `--up` without a host are
   unchanged (#133)
+- **Breaking** With no hosts file, or one with no devices, `netcap status --json`, `get --json`, and `doctor --json`
+  (for every device) print `[]` and exit 0 instead of 1. The message naming the hosts file still goes to stderr. A
+  script that took exit 1 here as "no devices" should check for `[]` instead. Without `--json`, and with a named host,
+  it is still 1 (#134)
 
 ## [0.14.1] - 2026-10-16
 

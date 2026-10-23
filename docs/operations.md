@@ -109,3 +109,8 @@ With several devices, the other devices are still changed when one fails; the co
 counts as failed even though its status still reads. Flags, arguments, and every value of the profile `use` applies
 are checked before anything is sent: a bad one is 2 (or 1 for a value in profiles, which is a setting) and changes
 nothing.
+
+No devices yet (no hosts file, or none in it) is the normal state of a new controller, not a failure, for the commands
+that list every device as JSON: `status --json`, `get --json`, and `doctor --json`, without a host or with `all`, print
+`[]` and exit 0, with the message on stderr (it names the hosts file). The table, a named host, and the other commands
+exit 1 with that message.

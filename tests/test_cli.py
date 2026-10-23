@@ -671,6 +671,36 @@ class CLI(unittest.TestCase):
         (self.conf / "hosts").unlink()
         self.assertEqual(self.netcap("status", "all").returncode, 1)
 
+    # #131: with no devices, the commands that list every device as JSON print [] and exit 0; the message stays on
+    # stderr as the hint. The table, a named host, and the other commands still fail
+    def test_no_devices_is_an_empty_json_list(self):
+        hosts = self.conf / "hosts"
+        for content, msg in ((None, f"{hosts} does not exist"), ("# nothing yet\n", f"{hosts} has no devices")):
+            if content is None:
+                hosts.unlink(missing_ok=True)
+            else:
+                hosts.write_text(content)
+            for args in (["status", "--json"], ["status", "all", "--json"], ["--json", "get"], ["get", "all", "--json"],
+                         ["doctor", "--json"], ["status", "--json", "-q"]):
+                with self.subTest(hosts=content, args=args):
+                    p = self.netcap(*args)
+                    self.assertEqual((p.returncode, json.loads(p.stdout)), (0, []), p.stderr)
+                    self.assertIn(msg, p.stderr)
+            for args in (["status"], ["get", "all"], ["doctor"], ["status", "nosuch", "--json"], ["check", "--json"],
+                         ["off", "all", "--json"], ["export"]):
+                with self.subTest(hosts=content, args=args):
+                    p = self.netcap(*args)
+                    self.assertEqual((p.returncode, p.stdout), (1, ""), p.stderr)
+                    self.assertIn(msg, p.stderr)
+        # Japanese: the hint is translated, the JSON is not
+        p = self.netcap("status", "--json", env={**self.env, "LC_ALL": "ja_JP.UTF-8"})
+        self.assertEqual((p.returncode, p.stdout), (0, "[]\n"))
+        self.assertIn(f"{hosts} に機器がない", p.stderr)
+        # A hosts file netcap cannot read is still a failure
+        hosts.write_text("only two\n")
+        self.assertEqual(self.netcap("status", "--json").returncode, 1)
+        self.assertEqual(self.log.read_text(), "")
+
     # #90: use reports what on and off did on each device, not only the state read afterwards
     def test_use_reports_a_device_that_refuses(self):
         self.devices(game="off", laptop="off", server="off")
