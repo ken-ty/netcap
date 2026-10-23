@@ -8,6 +8,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-23
+
 ### Added
 
 - Each row of `--json` from `status`, `get`, `check`, `on`, `off`, `set`, `use`, `protect`, and `unload-driver` has
@@ -330,7 +332,8 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 - The `netcap` CLI, with verbs shaped after tailscale's, and the macOS shaper (pf + dummynet)
 
-[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/ken-ty/netcap/compare/v0.15.0...HEAD
+[0.15.0]: https://github.com/ken-ty/netcap/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/ken-ty/netcap/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/ken-ty/netcap/compare/v0.13.0...v0.14.0
 [0.13.0]: https://github.com/ken-ty/netcap/compare/v0.12.0...v0.13.0
