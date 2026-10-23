@@ -8,8 +8,19 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Added
+
+- Each row of `--json` from `status`, `get`, `check`, `on`, `off`, `set`, `use`, `protect`, and `unload-driver` has
+  `os`: `mac`, `linux`, or `win`, as written in hosts, also for a device out of reach. A front end no longer needs to read
+  hosts (#132)
+
 ### Changed
 
+- `netcap protect` with no host now says whether protect is in effect instead of failing with a usage error (exit 2):
+  `protecting gamepc (lifts by itself in 24m)` or `not protecting`, and with `--json`
+  `{"protected": "gamepc" | null, "applied_until": <epoch seconds> | null, "devices": [...]}`. It exits 0, reads only
+  `protect.json`, and asks no device. `protect <host>`, `protect --off`, and a flag such as `--up` without a host are
+  unchanged (#133)
 - **Breaking** With no hosts file, or one with no devices, `netcap status --json`, `get --json`, and `doctor --json`
   (for every device) print `[]` and exit 0 instead of 1. The message naming the hosts file still goes to stderr. A
   script that took exit 1 here as "no devices" should check for `[]` instead. Without `--json`, and with a named host,

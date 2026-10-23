@@ -30,6 +30,13 @@ cap's own `on --for`, and leaves the device uncapped if that deadline has passed
 protect's cap (`due, lifting soon`) is put back the same way. The file stays until `--off` runs, so run
 `netcap protect --off` after the deadline as well; until then, another `netcap protect` refuses to start.
 
+`netcap protect` with no host says whether protect is in effect, from that file alone (it asks no device):
+`protecting gamepc`, with `(lifts by itself in 24m)` under `--for`, or `not protecting`. With `--json` it prints
+`{"protected": "gamepc", "applied_until": 1900000000, "devices": ["laptop", "server"]}`. `protected` is `null` when
+protect is not in effect, `applied_until` is protect's `--for` deadline in epoch seconds or `null` without one, and
+`devices` lists the devices protect capped that `--off` has yet to put back. It exits 0 either way; a file netcap cannot
+read is the error above.
+
 ## Power loss and reboots
 
 | What happens | Result |

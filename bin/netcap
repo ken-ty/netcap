@@ -20,6 +20,7 @@
                                               --load: the others load the line meanwhile, and the result says
                                               whether latency improved. --for: as for on
   netcap protect --off                        put each device back as it was
+  netcap protect [--json]                     show whether protect is in effect, on which device, and until when
   netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]
                                               install the agent on a device and register it. --boot on
                                               (mac / linux): apply the default cap at boot. --with-download
@@ -146,16 +147,18 @@ def decode(b):
 
 
 def run(host, action, args=()):
-    """Run one command on a device and return the parsed dict."""
+    """Run one command on a device and return the parsed dict. Every row says the device's OS from hosts, also when
+    the device is out of reach, so a front end need not read hosts (#129)"""
     cmd = build_cmd(host, action, list(args))
+    os_ = HOSTS[host]["os"]
     try:
         p = subprocess.run(cmd, capture_output=True, timeout=TIMEOUT.get(action, 60))
     except subprocess.TimeoutExpired:
-        return {"host": host, "reach": "timeout", "raw": ""}
+        return {"host": host, "os": os_, "reach": "timeout", "raw": ""}
     except FileNotFoundError as e:  # netcap-agent is not installed on this machine
-        return {"host": host, "reach": "no-agent", "raw": str(e)}
+        return {"host": host, "os": os_, "reach": "no-agent", "raw": str(e)}
     out = decode(p.stdout) + decode(p.stderr)
-    res = {"host": host, "raw": out.strip(), "rc": p.returncode}
+    res = {"host": host, "os": os_, "raw": out.strip(), "rc": p.returncode}
     if p.returncode == 255 and HOSTS[host]["ssh"]:
         res["reach"] = "unreachable"
         return res
@@ -688,6 +691,8 @@ def refuse_while_protecting(name):
 
 
 def cmd_protect(a):
+    if not a.off and a.host is None and a.up is None and a.down is None and a.load is None and not a.for_args:
+        return protect_report(a)
     if a.off and a.for_args:
         usage_error(_("--for goes with netcap protect <host>, not with --off"))
     if not a.off:  # the arguments first: a usage error is 2 whatever hosts and the state say
@@ -773,6 +778,29 @@ def cmd_protect(a):
                 "netcap does not make that traffic. --load <MB> makes it").format(host=a.host))
     hint(_("to undo: netcap protect --off"))
     return rc
+
+
+def protect_report(a):
+    """netcap protect with no host: whether protect is in effect, read from protect.json alone. No device is asked and
+    hosts is not read, so a front end can show it at any time (#130). A file netcap cannot read stops as it does for
+    protect <host> and --off"""
+    saved = read_state(STATE_DIR / "protect.json")
+    until = saved.get("applied_until") if saved else None
+    if a.json:
+        # devices: the ones protect capped and --off has yet to put back (none while it still measures before capping)
+        print(json.dumps({"protected": saved["protected"] if saved else None, "applied_until": until,
+                          "devices": list(saved["applied"]) if saved else []}, ensure_ascii=False, indent=2))
+    elif not saved:
+        print(_("not protecting"))
+    elif until is None:
+        print(_("protecting {host}").format(host=saved["protected"]))
+    elif until > time.time():
+        print(_("protecting {host} (lifts by itself in {left})").format(
+            host=saved["protected"], left=fmt_left(int(until - time.time()))))
+    else:
+        print(_("protecting {host} (the devices lifted the cap at its deadline; to finish: netcap protect --off)")
+              .format(host=saved["protected"]))
+    return OK
 
 
 def protect_off(path, saved, a):
@@ -1472,6 +1500,7 @@ JA = {
                                               ほかの全端末を絞り、<host> の check を前後で見せる。--load: その間
                                               ほかの端末が回線を埋め、遅延が良くなったかを言う。--for: on と同じ
   netcap protect --off                        各端末を元の状態に戻す
+  netcap protect [--json]                     protect が効いているか、どの端末を守っているか、いつまでかを見せる
   netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]
                                               機器に agent を入れて登録する。--boot on (mac / linux):
                                               起動時に既定の上限をかける。--with-download (win): 下りも絞る
@@ -1642,6 +1671,11 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "その間ほかの各端末で MB ずつ転送して回線を埋め、遅延が良くなったかを言う",
     "to undo: netcap protect --off": "戻すには: netcap protect --off",
     "nothing to undo": "戻すものは無い",
+    "not protecting": "protect は効いていない",
+    "protecting {host}": "{host} を守っている",
+    "protecting {host} (lifts by itself in {left})": "{host} を守っている (あと {left} で各端末が自分で外す)",
+    "protecting {host} (the devices lifted the cap at its deadline; to finish: netcap protect --off)":
+        "{host} を守っている (期限に各端末が自分で上限を外した。締めくくるには: netcap protect --off)",
     "{host} changed since protect; left as is. To undo: {command}":
         "{host} は protect の後に変わっているので、触らずに残した。戻すには: {command}",
     "could not reach {hosts}; run netcap protect --off again when they are back":
@@ -1658,7 +1692,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "{name} は netcap protect が絞ったので、戻す必要がある ({path})。先に: netcap protect --off",
     "cap every other device and show this one's check before and after":
         "ほかの全端末を絞り、この端末の check を前後で見せる",
-    "the device to protect": "守る端末",
+    "the device to protect. Without it (and without the other flags), show whether protect is in effect":
+        "守る端末。省くと (ほかのフラグも無ければ)、protect が効いているかを見せる",
     "the cap for the others (default: each device's default)": "ほかの端末にかける上限 (省くと各端末の既定値)",
     "put every device back as it was before protect": "各端末を protect の前の状態に戻す",
     "off in {left}": "あと {left} で外れる",
@@ -1824,7 +1859,9 @@ def main():
     p.add_argument("--for", dest="for_", metavar="TIME", help=_(FOR_EACH_HELP))
     sub.add_parser("profiles", help=_("list profiles"))
     p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
-    p.add_argument("host", nargs="?", metavar="<host>", help=_("the device to protect"))
+    p.add_argument("host", nargs="?", metavar="<host>",
+                   help=_("the device to protect. Without it (and without the other flags), show whether protect is "
+                          "in effect"))
     p.add_argument("--up", metavar="MBIT", help=_("the cap for the others (default: each device's default)"))
     p.add_argument("--down", metavar="MBIT")
     p.add_argument("--off", action="store_true", help=_("put every device back as it was before protect"))

@@ -204,6 +204,8 @@ would skip the forced command too.
 
 ## Reading the table
 
+Each row of `--json` also has `os`: `mac`, `linux`, or `win`, as written in hosts, also for a device out of reach.
+
 ### reach — whether the device was reached and the request went through
 
 | reach | Meaning |
