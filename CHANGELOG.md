@@ -14,6 +14,14 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
   `os`: `mac`, `linux`, or `win`, as written in hosts, also for a device out of reach. A front end no longer needs to read
   hosts (#132)
 
+### Changed
+
+- `netcap protect` with no host now says whether protect is in effect instead of failing with a usage error (exit 2):
+  `protecting gamepc (lifts by itself in 24m)` or `not protecting`, and with `--json`
+  `{"protected": "gamepc" | null, "applied_until": <epoch seconds> | null, "devices": [...]}`. It exits 0, reads only
+  `protect.json`, and asks no device. `protect <host>`, `protect --off`, and a flag such as `--up` without a host are
+  unchanged (#133)
+
 ## [0.14.1] - 2026-10-16
 
 ### Fixed

@@ -142,6 +142,7 @@ netcap use    <profile> [--for 30m]         プロファイルを適用 (--for: 
 netcap profiles                             プロファイル一覧
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
+netcap protect [--json]                     protect が効いているか、どの端末を守っているか、いつまでかを見せる
 netcap install [<name>] [--ssh DEST] [--boot on|off] [--with-download|--without-download]  端末に agent を入れて登録する (--boot on: 起動時に絞る)
 netcap uninstall <host> [--config-only]     この管理する側の鍵と登録を外す (agent は最後の 1 つと一緒に外れる)
 netcap rename <old> <new>                   端末の名前を変える

@@ -31,6 +31,13 @@
 過ぎていれば外したままにする。まだ protect の上限が見えている端末 (`due, lifting soon`) も同じように戻す。ファイルは
 `--off` を流すまで残るので、期限の後も `netcap protect --off` を流す。それまで次の `netcap protect` は始まらない。
 
+端末を指定しない `netcap protect` は、protect が効いているかをそのファイルだけから言う (端末には聞かない)。
+`gamepc を守っている` (`--for` のときは `(あと 24m で各端末が自分で外す)` が付く) か、`protect は効いていない`。
+`--json` では `{"protected": "gamepc", "applied_until": 1900000000, "devices": ["laptop", "server"]}` を出す。
+`protected` は protect が効いていなければ `null`、`applied_until` は protect の `--for` の期限 (エポック秒) で、無ければ
+`null`、`devices` は protect が絞り、`--off` がまだ戻していない端末。どちらでも 0 で終わる。netcap が読めないファイルは
+上のエラーになる。
+
 ## 電源断と再起動
 
 | 起きること | 結果 |
