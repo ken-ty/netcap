@@ -249,6 +249,33 @@ class CLI(unittest.TestCase):
         os.environ.update(PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log))
         self.assertEqual(mod.run("slow", "status")["reach"], "timeout")
 
+    # #129: every row of --json says the device's OS as written in hosts, also for a device out of reach
+    def test_json_rows_say_the_os(self):
+        (self.conf / "hosts").write_text("m mac h-off\nl linux h-on\nw win h-win\ngone linux h-unreachable\n")
+        (self.conf / "profiles").write_text("p  m=off  gone=off\n")
+        every = {"m": "mac", "l": "linux", "w": "win", "gone": "linux"}
+        for args, want in ((["status", "--json"], every), (["get", "all", "--json"], every),
+                           (["check", "--json"], every), (["off", "all", "--json"], every),
+                           (["on", "gone", "--json"], {"gone": "linux"}),
+                           (["use", "p", "--json"], {"m": "mac", "gone": "linux"})):
+            with self.subTest(args=args):
+                rows = json.loads(self.netcap(*args).stdout)
+                self.assertEqual({r["host"]: r["os"] for r in rows}, want)
+        self.assertEqual({r["host"]: r["reach"] for r in json.loads(self.netcap("status", "--json").stdout)}["gone"],
+                         "unreachable")
+        # A device that timed out
+        mod = load_netcap()
+        mod.HOSTS["slow"] = {"os": "win", "ssh": "h-slow"}
+        mod.TIMEOUT["status"] = 1
+        os.environ.update(PATH=self.env["PATH"], FAKE_SSH_LOG=str(self.log))
+        self.assertEqual(mod.run("slow", "status")["os"], "win")
+        # protect: the devices it capped, and the protected device's check before and after
+        self.devices(game="off", laptop="off")
+        out = json.loads(self.netcap("protect", "game", "--json").stdout)
+        self.assertEqual([(r["host"], r["os"]) for r in out["devices"]], [("laptop", "mac")])
+        self.assertEqual((out["before"]["os"], out["after"]["os"]), ("mac", "mac"))
+        self.assertEqual([r["os"] for r in json.loads(self.netcap("protect", "--off", "--json").stdout)], ["mac"])
+
     # docs/host-setup.md: with the netcap key, it is the only key offered, so ssh-agent's keys cannot skip the forced command
     def test_only_the_netcap_key_is_offered(self):
         mod = load_netcap()

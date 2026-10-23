@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Added
+
+- Each row of `--json` from `status`, `get`, `check`, `on`, `off`, `set`, `use`, `protect`, and `unload-driver` has
+  `os`: `mac`, `linux`, or `win`, as written in hosts, also for a device out of reach. A front end no longer needs to read
+  hosts (#132)
+
 ### Changed
 
 - `netcap protect` with no host now says whether protect is in effect instead of failing with a usage error (exit 2):

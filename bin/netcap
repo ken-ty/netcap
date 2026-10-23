@@ -147,16 +147,18 @@ def decode(b):
 
 
 def run(host, action, args=()):
-    """Run one command on a device and return the parsed dict."""
+    """Run one command on a device and return the parsed dict. Every row says the device's OS from hosts, also when
+    the device is out of reach, so a front end need not read hosts (#129)"""
     cmd = build_cmd(host, action, list(args))
+    os_ = HOSTS[host]["os"]
     try:
         p = subprocess.run(cmd, capture_output=True, timeout=TIMEOUT.get(action, 60))
     except subprocess.TimeoutExpired:
-        return {"host": host, "reach": "timeout", "raw": ""}
+        return {"host": host, "os": os_, "reach": "timeout", "raw": ""}
     except FileNotFoundError as e:  # netcap-agent is not installed on this machine
-        return {"host": host, "reach": "no-agent", "raw": str(e)}
+        return {"host": host, "os": os_, "reach": "no-agent", "raw": str(e)}
     out = decode(p.stdout) + decode(p.stderr)
-    res = {"host": host, "raw": out.strip(), "rc": p.returncode}
+    res = {"host": host, "os": os_, "raw": out.strip(), "rc": p.returncode}
     if p.returncode == 255 and HOSTS[host]["ssh"]:
         res["reach"] = "unreachable"
         return res
