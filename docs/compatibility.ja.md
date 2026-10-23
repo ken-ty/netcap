@@ -27,6 +27,7 @@
 
 | CLI | 下限の agent | 備考 |
 | --- | --- | --- |
+| 0.15.0 | 0.11.0 | 端末側は 0.14.1 から変わっていない |
 | 0.14.1 | 0.11.0 | CLI が送るものは変わらない。端末側に修正がある (途中で失敗した `on` を巻き戻す、`netcap-check` を root だけが書ける場所に移す) ので、古い agent はそれらのバグを抱えたまま。`netcap install <名前>` で更新する |
 | 0.14.0 | 0.11.0 | 0.11.0 にある操作について。Windows の下り (WinDivert) と低レベルの `unload-driver` には、このリリースの agent が要る。古い Windows の agent は下りを `unsupported` と答え、`unload-driver` には "unknown verb" を返し、CLI は更新するよう言う。`netcap install <名前>` で agent を更新し、netcap が書いた鍵の行に `unload-driver` を足す |
 | 0.13.0 | 0.11.0 | CLI は 0.11.0 の agent が断るものを送らない (`protect --for` と `use --for` が送るのは `on --for`)。端末側には修正がある (macOS の小数の上限、Windows のインストール先の権限、`check --bytes` の上限、0.12.0 の見直しで見つけたもの) ので、古い agent はそれらのバグを抱えたまま。`netcap install <名前>` で更新する |
