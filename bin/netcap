@@ -1070,7 +1070,7 @@ def run_device_script(dest, os_, script, args=(), out=None):
                                     f"exit $LASTEXITCODE }} finally {{ {rm} }}",
                               capture=False, out=out).returncode
         tmp = ssh_plain(dest, "mktemp -d /tmp/netcap.XXXXXX").out
-        if not tmp.startswith("/tmp/netcap."):
+        if not re.fullmatch(r"/tmp/netcap\.[A-Za-z0-9]{6,}", tmp):  # it goes into shell commands unquoted
             sys.exit(_("could not make a temporary directory on {dest}").format(dest=dest))
         # linux/install.sh also takes the agent and netcap-check from ../mac
         rm = f"rm -rf {tmp}"

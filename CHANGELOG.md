@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Security
+
+- On macOS and Linux, `netcap install` and `uninstall` stop with "could not make a temporary directory" unless the
+  device returns exactly `/tmp/netcap.` and letters or digits. The path goes into shell commands on the device, and a
+  newline in it ran the next line there as well (#139)
+
 ## [0.15.0] - 2026-10-23
 
 ### Added
