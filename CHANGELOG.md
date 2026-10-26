@@ -8,6 +8,11 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Security
+
+- The tables and `-v` / `-vv` drop control characters (except tab) from what a device returns, so a device can no
+  longer move the cursor or rewrite the table with escape sequences. `--json` is unchanged: it already escapes them (#140)
+
 ## [0.15.0] - 2026-10-23
 
 ### Added
