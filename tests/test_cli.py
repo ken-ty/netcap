@@ -1326,6 +1326,23 @@ class CLI(unittest.TestCase):
         self.assertEqual(str(e.exception), "could not make a temporary directory on h-notemp")
         self.assertNotIn("scp", self.log.read_text())
 
+    # The device's temp-dir path goes into shell commands unquoted: anything but mktemp's own shape stops there (#137)
+    def test_unix_temp_dir_must_be_exact(self):
+        mod = load_netcap()
+        for out in ("/tmp/netcap.aa\nid", "/tmp/netcap.abc123; id", "/tmp/netcap.", "/tmp/netcap.abc"):
+            with self.subTest(out=out):
+                sent = []
+                def ssh_plain(dest, cmd, **kw):
+                    sent.append(cmd)
+                    return mock.Mock(out=out, returncode=0)
+                with mock.patch.object(mod, "ssh_plain", ssh_plain), \
+                        mock.patch.object(mod.subprocess, "run", wraps=subprocess.run) as run, \
+                        mock.patch.dict(os.environ, LC_ALL="C"), self.assertRaises(SystemExit) as e:
+                    mod.run_device_script("h-new", "mac", "install.sh")
+                self.assertEqual(str(e.exception), "could not make a temporary directory on h-new")
+                self.assertEqual(sent, ["mktemp -d /tmp/netcap.XXXXXX"])
+                self.assertNotIn("scp", [c.args[0][0] for c in run.call_args_list])
+
     # docs/host-setup.md: netcap doctor finds a netcap key line without its forced command
     PUB = "ssh-ed25519 AAAAnetcap netcap@test"
 

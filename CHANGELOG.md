@@ -10,6 +10,9 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ### Security
 
+- On macOS and Linux, `netcap install` and `uninstall` stop with "could not make a temporary directory" unless the
+  device returns exactly `/tmp/netcap.` and letters or digits. The path goes into shell commands on the device, and a
+  newline in it ran the next line there as well (#139)
 - The tables and `-v` / `-vv` drop control characters (except tab) from what a device returns, so a device can no
   longer move the cursor or rewrite the table with escape sequences. `--json` is unchanged: it already escapes them (#140)
 
