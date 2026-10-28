@@ -147,6 +147,10 @@ FAKE_SSH = textwrap.dedent("""\
         print("bash: line 1: /Library/PrivilegedHelperTools/netcap-agent: No such file or directory", file=sys.stderr); sys.exit(127)
     elif host == "h-error":
         print("line one\\nlast line of error", file=sys.stderr); sys.exit(3)
+    elif host == "h-esc":  # a device that puts terminal escape sequences in its output (#138)
+        print("netshape state=on\\x1b[2K up_mbit=1 down_mbit=1 down_src=applied until=- left=- \\x1b]0;x\\x07k=v")
+    elif host == "h-escerr":
+        print("\\x1b[1Aspoofed\\x07 note", file=sys.stderr); sys.exit(3)
     elif host == "h-slow":
         time.sleep(5)
     """)
@@ -227,6 +231,18 @@ class CLI(unittest.TestCase):
         self.assertNotIn("line one", self.netcap("status", "err").stdout)
         # --json is the same with or without -v
         self.assertEqual(self.netcap("status", "off", "--json", "-v").stdout, self.netcap("status", "off", "--json").stdout)
+
+    # A device's control characters never reach the terminal: the table, its note, and -v / -vv show the rest as
+    # plain text. --json keeps them, escaped (#138)
+    def test_device_control_chars_are_not_printed(self):
+        (self.conf / "hosts").write_text("esc mac h-esc\nerr mac h-escerr\n")
+        for args in (["status", "esc"], ["status", "esc", "-vv"], ["status", "err"], ["status", "err", "-v"]):
+            with self.subTest(args=args):
+                out = self.netcap(*args).stdout
+                self.assertIsNone(re.search(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]", out.replace("\n", "")), repr(out))
+        self.assertRegex(self.netcap("status", "esc").stdout, r"(?m)^esc +ok +on\[2K ")
+        self.assertRegex(self.netcap("status", "err").stdout, r"(?m) \[1Aspoofed note$")
+        self.assertEqual(self.status_row("esc")["state"], "on\x1b[2K")
 
     # -v is --verbose now; the version is -V, and --raw became -vv
     def test_version_is_capital_v(self):

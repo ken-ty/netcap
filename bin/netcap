@@ -323,13 +323,19 @@ def fmt(v):
     return "-" if v in (None, "", "-") else v
 
 
+def safe(s):
+    """Device output reaches the terminal here: drop control characters but tab, so a device cannot move the cursor or
+    rewrite the table (#138). --json keeps them; json.dumps escapes them"""
+    return re.sub(r"[\x00-\x08\x0a-\x1f\x7f-\x9f]", "", s) if isinstance(s, str) else s
+
+
 def print_table(rows, cols, footnote=None):
     """cols are (header, width, function that makes the value). Width 0 is the last, variable-width column."""
     head = "  ".join(f"{c:<{w}}" if w else c for c, w, _ in cols)
     print(head)
     print("-" * max(len(head), 60))
     for r in rows:
-        vals = [f(r) for _, _, f in cols]
+        vals = [safe(f(r)) for _, _, f in cols]
         print("  ".join(f"{v:<{w}}" if w else v for v, (_, w, _) in zip(vals, cols)))
     if footnote and not QUIET and any(r.get("down_src") == "applied" for r in rows):
         print(_(footnote))
@@ -435,7 +441,7 @@ def print_block(title, fields):
     width = max(map(len, fields))
     for k, v in fields.items():
         for i, line in enumerate(v if isinstance(v, list) else [v]):
-            print(f"  {k if i == 0 else '':<{width}}  {line}")
+            print(f"  {safe(k) if i == 0 else '':<{width}}  {safe(line)}")
 
 
 def print_details(rows, verbose):
