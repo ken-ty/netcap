@@ -587,6 +587,54 @@ def cmd_use(a):
     return apply_and_read(jobs, a.json, a.verbose)
 
 
+def cmd_profile(a):
+    """profile set <name> <device>=<value> …: add the profile, or replace it in place (comments stay).
+    profile rm <name>: remove it. Only the profiles file changes; no device is asked"""
+    check_name(a.name)
+    path = CONFIG_DIR / "profiles"
+    profiles = load_profiles() if path.exists() else {}
+    if a.action == "rm":
+        if a.pairs:
+            usage_error(_("profile rm takes only the name: netcap profile rm {profile}").format(profile=a.name))
+        if a.name not in profiles:
+            sys.exit(_("unknown profile: {profile} (available: {names})").format(profile=a.name, names=", ".join(profiles)))
+        edit_config("profiles", lambda c: None if c.split()[0] == a.name else c)
+        if a.json:
+            print(json.dumps({"profile": a.name, "devices": profiles[a.name]}, ensure_ascii=False, indent=2))
+        say(_("removed profile {profile}").format(profile=a.name))
+        return OK
+    if not a.pairs or any("=" not in p for p in a.pairs):
+        usage_error(_("write the devices as device=value: netcap profile set {profile} laptop=2/2 gamepc=off")
+                    .format(profile=a.name))
+    plan = {}
+    for host, value in (p.split("=", 1) for p in a.pairs):
+        if host in plan:
+            usage_error(_("{name} appears twice").format(name=host))
+        plan[host] = value
+    # As use reads it: a profile set writes is one use accepts
+    for host, value in plan.items():
+        if host not in HOSTS:
+            sys.exit(_("unknown host: {host} (one of {names})").format(host=host, names=host_names()))
+        if value not in ("on", "off") and not (value.count("/") == 1 and all(is_mbit(v) for v in value.split("/"))):
+            usage_error(_("cannot read the profile value: {host} = {value!r} (\"up/down\" in positive Mbit/s, or \"off\")")
+                        .format(host=host, value=value))
+    plan = {h: plan[h] for h in ORDER if h in plan}
+    line = f"{a.name}  " + "  ".join(f"{h}={v}" for h, v in plan.items())
+    created = a.name not in profiles
+    if created:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        text = path.read_text(encoding="utf-8-sig") if path.exists() else ""
+        path.write_text(text + ("\n" if text and not text.endswith("\n") else "") + line + "\n", encoding="utf-8")
+    else:
+        # The spaces before a comment on the line stay, so the comment stays where it was
+        edit_config("profiles", lambda c: line + c[len(c.rstrip()):] if c.split()[0] == a.name else c)
+    if a.json:
+        print(json.dumps({"profile": a.name, "devices": plan, "created": created}, ensure_ascii=False, indent=2))
+    say((_("added profile {profile}: {line}") if created else _("updated profile {profile}: {line}"))
+        .format(profile=a.name, line=line.split(None, 1)[1]))
+    return OK
+
+
 # --- protect --------------------------------------------------------------------------------------
 # Cap every other device, so the protected one gets the line, and show its check before and after. The state before is
 # written down first, in profile form ("off", "2/3", "on"), so that protect --off can put each device back.
@@ -1567,6 +1615,8 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
     "bytes to transfer, 1 to 100000000; use less while capped": "転送するバイト数 (1 から 100000000)。上限をかけている間は少なめに",
     "apply a profile to the devices it lists": "プロファイルを、書かれた端末に適用する",
     "list profiles": "プロファイルの一覧",
+    "add or replace a profile (set), or remove one (rm)": "プロファイルを追加または置き換える (set)、消す (rm)",
+    "set: each device and its value, up/down in Mbit/s, on, or off": "set: 機器とその値。Mbit/s で上り/下り、on、off のどれか",
     "{path} does not exist. See {example} for the format\n"
     "  mkdir -p {dir} && cp {example} {path}":
         "{path} がありません。書式は {example} を参照\n"
@@ -1582,6 +1632,12 @@ netcap の領域では up/down が既に上り/下りの意味なので、tailsc
         "プロファイルの値を読めない: {host} = {value!r} (Mbit/s の正の数で \"上り/下り\"、または \"off\")",
     "unknown profile: {profile} (available: {names})": "知らないプロファイル: {profile} (あるもの: {names})",
     "the profile has unknown hosts: {names}": "プロファイルに知らない機器がある: {names}",
+    "profile rm takes only the name: netcap profile rm {profile}": "profile rm は名前だけを取る: netcap profile rm {profile}",
+    "write the devices as device=value: netcap profile set {profile} laptop=2/2 gamepc=off":
+        "機器は 機器=値 の形で書く: netcap profile set {profile} laptop=2/2 gamepc=off",
+    "added profile {profile}: {line}": "プロファイル {profile} を追加した: {line}",
+    "updated profile {profile}: {line}": "プロファイル {profile} を置き換えた: {line}",
+    "removed profile {profile}": "プロファイル {profile} を消した",
     "not in hosts: {names} (netcap use refuses a profile with them)":
         "hosts に無い: {names} (それを含むプロファイルは netcap use が拒む)",
     "values as positional arguments are no longer accepted ({given}).\n"
@@ -1785,6 +1841,7 @@ def completion_script(shell, sub):
         if names:  # protect, uninstall, and rename refuse all, so it is offered only where the command takes it
             args[name] = "$(_netcap_names hosts" + (" all" if getattr(names[0], "takes_all", False) else "") + ")"
     args["use"] = "$(_netcap_names profiles)"
+    args["profile"] = "set rm"
     args["help"] = " ".join([*(c for c in sub.choices if c not in sub.hidden), "exit-codes"])
     args["completion"] = "bash zsh"
     cases = "\n".join(f'    {k}) f="{" ".join(v)}"; a="{args.get(k, "")}" ;;' for k, v in flags.items())
@@ -1864,6 +1921,11 @@ def main():
     p.add_argument("profile")
     p.add_argument("--for", dest="for_", metavar="TIME", help=_(FOR_EACH_HELP))
     sub.add_parser("profiles", help=_("list profiles"))
+    p = sub.add_parser("profile", help=_("add or replace a profile (set), or remove one (rm)"))
+    p.add_argument("action", choices=["set", "rm"])
+    p.add_argument("name", metavar="<profile>")
+    p.add_argument("pairs", nargs="*", metavar="<device>=<value>",
+                   help=_("set: each device and its value, up/down in Mbit/s, on, or off"))
     p = sub.add_parser("protect", help=_("cap every other device and show this one's check before and after"))
     p.add_argument("host", nargs="?", metavar="<host>",
                    help=_("the device to protect. Without it (and without the other flags), show whether protect is "
@@ -1980,6 +2042,8 @@ def main():
         return cmd_use(a)
     if a.cmd == "profiles":
         return cmd_profiles(a)
+    if a.cmd == "profile":
+        return cmd_profile(a)
 
 
 if __name__ == "__main__":

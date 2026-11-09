@@ -8,6 +8,12 @@ How to keep this file: [CONTRIBUTING.md](CONTRIBUTING.md#changelog).
 
 ## [Unreleased]
 
+### Added
+
+- `netcap profile set <profile> <device>=<value> …` adds a profile, or replaces its line in place, and `netcap profile
+  rm <profile>` removes one, so a profile no longer has to be written in the file by hand. set refuses what `use` would
+  refuse (a device not in hosts, a value it cannot read) and changes nothing then. Both have `--json` (#141)
+
 ### Security
 
 - On macOS and Linux, `netcap install` and `uninstall` stop with "could not make a temporary directory" unless the

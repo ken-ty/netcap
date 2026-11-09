@@ -200,7 +200,8 @@ class CLI(unittest.TestCase):
                      ["on", "off", "--up", "1", "--down", "2"], ["off", "off"],
                      ["set", "off", "--up", "1", "--down", "2"], ["use", "p"], ["profiles"],
                      ["status", "off", "-v"], ["--version"], ["-V"], ["protect", "--off"], ["protect"], ["help"], ["help", "on"],
-                     ["help", "exit-codes"], ["version"], ["completion", "bash"], ["status", "off", "-q"]):
+                     ["help", "exit-codes"], ["version"], ["completion", "bash"], ["status", "off", "-q"],
+                     ["profile", "set", "q", "off=1/2", "--json"], ["profile", "rm", "q"]):
             with self.subTest(args=args):
                 p = self.netcap(*args)
                 self.assertNotIn("unrecognized arguments", p.stderr)
@@ -1431,6 +1432,54 @@ class CLI(unittest.TestCase):
         self.assertEqual((self.conf / "profiles").read_text(), "p  zz=1/1  on=off  # off=2/2 stays in the comment\n")
         self.assertNotEqual(self.netcap("rename", "zz", "on").returncode, 0)
         self.assertNotEqual(self.netcap("rename", "zz", "all").returncode, 0)
+
+    # docs/configuration.md: profile set writes one line of profiles, in the order of hosts; rm removes it
+    def test_profile_set_adds_and_replaces_in_place(self):
+        self.hosts("off", "on")
+        (self.conf / "profiles").unlink()  # set makes the file
+        p = self.netcap("profile", "set", "p", "on=off", "off=1/2")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual((self.conf / "profiles").read_text(), "p  off=1/2  on=off\n")
+        self.assertIn("added profile p", p.stdout)
+        (self.conf / "profiles").write_text("# mine\na  off=off\np  off=1/2  # keep this\nq  on=on\n")
+        p = self.netcap("profile", "set", "p", "on=0.5/2", "--json")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), {"profile": "p", "devices": {"on": "0.5/2"}, "created": False})
+        self.assertEqual((self.conf / "profiles").read_text(),
+                         "# mine\na  off=off\np  on=0.5/2  # keep this\nq  on=on\n")
+        self.assertEqual(json.loads(self.netcap("profiles", "--json").stdout)["p"], {"on": "0.5/2"})
+        self.assertEqual(self.log.read_text(), "")  # no device is asked
+
+    def test_profile_set_refuses_what_use_would_refuse(self):
+        self.hosts("off", "on", profiles="p  off=off\n")
+        for args, code, msg in (
+                (["p", "gone=1/1"], 1, "unknown host: gone"),
+                (["p", "off=0/1"], 2, "cannot read the profile value"),
+                (["p", "off=1"], 2, "cannot read the profile value"),
+                (["p", "off=fast"], 2, "cannot read the profile value"),
+                (["p", "off"], 2, "device=value"),
+                (["p", "off=off", "off=on"], 2, "off appears twice"),
+                (["p"], 2, "device=value"),
+                (["$(x)", "off=off"], 2, "as a name"),
+                (["all", "off=off"], 2, "as a name")):
+            with self.subTest(args=args):
+                p = self.netcap("profile", "set", *args)
+                self.assertEqual(p.returncode, code, p.stdout + p.stderr)
+                self.assertIn(msg, p.stderr)
+                self.assertEqual((self.conf / "profiles").read_text(), "p  off=off\n")
+
+    def test_profile_rm(self):
+        self.hosts("off", profiles="# mine\np  off=1/1  # note\nq  off=off\n")
+        p = self.netcap("profile", "rm", "p", "--json")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(json.loads(p.stdout), {"profile": "p", "devices": {"off": "1/1"}})
+        self.assertEqual((self.conf / "profiles").read_text(), "# mine\nq  off=off\n")
+        self.assertEqual(self.netcap("profile", "rm", "q", "off=off").returncode, 2)
+        p = self.netcap("profile", "rm", "p")
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("unknown profile: p", p.stderr)
+        (self.conf / "profiles").unlink()
+        self.assertEqual(self.netcap("profile", "rm", "q").returncode, 1)
 
     def test_uninstall_config_only(self):
         self.hosts("off", "on", profiles="p  off=1/1\nq  off=off  on=off\n")

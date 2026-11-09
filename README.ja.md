@@ -140,6 +140,8 @@ netcap set    <host>|all --up N --down N    既定を書き換える
 netcap check  [<host>|all] [--bytes N] [--json]  実測 (curl の上下 + ping。--bytes: 転送する量。100 MB まで)
 netcap use    <profile> [--for 30m]         プロファイルを適用 (--for: 絞った各端末がその時間で外す)
 netcap profiles                             プロファイル一覧
+netcap profile set <profile> <device>=<value> …  プロファイルを追加、またはあれば置き換える (値は profiles ファイルと同じ)
+netcap profile rm <profile>                 プロファイルを消す
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  ほかの全端末を絞り、<host> の check を前後で見せる
 netcap protect --off                        各端末を元の状態に戻す
 netcap protect [--json]                     protect が効いているか、どの端末を守っているか、いつまでかを見せる

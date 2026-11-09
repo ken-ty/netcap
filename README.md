@@ -138,6 +138,8 @@ netcap set    <host>|all --up N --down N    change the default
 netcap check  [<host>|all] [--bytes N] [--json]  measure (curl up/down + ping; --bytes: how much to transfer, up to 100 MB)
 netcap use    <profile> [--for 30m]         apply a profile (--for: each device it caps lifts it after that long)
 netcap profiles                             list profiles
+netcap profile set <profile> <device>=<value> …  add a profile, or replace it (values as in the profiles file)
+netcap profile rm <profile>                 remove a profile
 netcap protect <host> [--up N --down N] [--load MB] [--for 30m]  cap every other device; show <host>'s check before and after
 netcap protect --off                        put each device back as it was
 netcap protect [--json]                     show whether protect is in effect, on which device, and until when
